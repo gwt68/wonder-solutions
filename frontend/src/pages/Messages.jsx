@@ -83,6 +83,34 @@ export default function Messages() {
     }
   }
 
+  const texts = messages.filter((m) => m.type === 'sms');
+  const recordings = messages.filter((m) => m.type !== 'sms');
+
+  function renderRow(m) {
+    return (
+      <div className="row" key={m.id}>
+        <div className="row-main">
+          <span className="row-title">
+            <i className={`ti ${TYPE_ICONS[m.type] || 'ti-file'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
+            {m.title || 'Untitled message'}
+          </span>
+          <span className="row-sub">
+            {new Date(m.created_at).toLocaleString()} · <span className="pill">{TYPE_LABELS[m.type] || m.type}</span>
+          </span>
+          {m.text_content && <p style={{ margin: '6px 0 0', fontSize: 14 }}>{m.text_content}</p>}
+          {(m.audio_url || m.has_uploaded_audio) && (
+            <audio controls src={audioUrl(m.id)} style={{ marginTop: 6 }} />
+          )}
+        </div>
+        <div className="row-actions">
+          <button className="icon-btn" onClick={() => setSendingMessage(m)} aria-label="Send message"><i className="ti ti-send" /></button>
+          <button className="icon-btn" onClick={() => setEditing(m)} aria-label="Edit message"><i className="ti ti-edit" /></button>
+          <button className="icon-btn danger" onClick={() => handleDelete(m.id)} aria-label="Delete message"><i className="ti ti-trash" /></button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -90,55 +118,55 @@ export default function Messages() {
           <h1>Messages</h1>
           <p>Texts and recordings, ready to send</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="audio/*"
-            style={{ display: 'none' }}
-            onChange={handleFileSelected}
-          />
-          <button className="btn secondary" onClick={handleUploadClick} disabled={uploading}>
-            <i className="ti ti-upload" /> {uploading ? 'Uploading...' : 'Upload audio'}
-          </button>
-          <button className="btn" onClick={openNewText}><i className="ti ti-plus" /> New text</button>
-        </div>
       </div>
 
       {error && <div className="banner error">{error}</div>}
 
       {loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
-      ) : messages.length === 0 ? (
-        <div className="card empty-state">
-          <h3>No messages yet</h3>
-          <p>Write a text, upload audio, or call your Wonder Solutions line and press 1 to record one.</p>
-        </div>
       ) : (
-        <div className="list">
-          {messages.map((m) => (
-            <div className="row" key={m.id}>
-              <div className="row-main">
-                <span className="row-title">
-                  <i className={`ti ${TYPE_ICONS[m.type] || 'ti-file'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
-                  {m.title || 'Untitled message'}
-                </span>
-                <span className="row-sub">
-                  {new Date(m.created_at).toLocaleString()} · <span className="pill">{TYPE_LABELS[m.type] || m.type}</span>
-                </span>
-                {m.text_content && <p style={{ margin: '6px 0 0', fontSize: 14 }}>{m.text_content}</p>}
-                {(m.audio_url || m.has_uploaded_audio) && (
-                  <audio controls src={audioUrl(m.id)} style={{ marginTop: 6 }} />
-                )}
-              </div>
-              <div className="row-actions">
-                <button className="icon-btn" onClick={() => setSendingMessage(m)} aria-label="Send message"><i className="ti ti-send" /></button>
-                <button className="icon-btn" onClick={() => setEditing(m)} aria-label="Edit message"><i className="ti ti-edit" /></button>
-                <button className="icon-btn danger" onClick={() => handleDelete(m.id)} aria-label="Delete message"><i className="ti ti-trash" /></button>
-              </div>
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <h3 style={{ fontSize: 15 }}>Texts</h3>
+            <button className="btn" onClick={openNewText}><i className="ti ti-plus" /> New text</button>
+          </div>
+          {texts.length === 0 ? (
+            <div className="card empty-state" style={{ marginBottom: 32 }}>
+              <h3>No texts yet</h3>
+              <p>Write your first text message.</p>
             </div>
-          ))}
-        </div>
+          ) : (
+            <div className="list" style={{ marginBottom: 32 }}>
+              {texts.map(renderRow)}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <h3 style={{ fontSize: 15 }}>Recordings</h3>
+            <div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="audio/*"
+                style={{ display: 'none' }}
+                onChange={handleFileSelected}
+              />
+              <button className="btn" onClick={handleUploadClick} disabled={uploading}>
+                <i className="ti ti-upload" /> {uploading ? 'Uploading...' : 'Upload audio'}
+              </button>
+            </div>
+          </div>
+          {recordings.length === 0 ? (
+            <div className="card empty-state">
+              <h3>No recordings yet</h3>
+              <p>Upload an audio file, or call your Wonder Solutions line and press 1 to record one.</p>
+            </div>
+          ) : (
+            <div className="list">
+              {recordings.map(renderRow)}
+            </div>
+          )}
+        </>
       )}
 
       {newTextOpen && (
