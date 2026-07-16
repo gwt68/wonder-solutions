@@ -451,4 +451,33 @@ async function saveContact(callSid, twiml, groupId) {
   );
 }
 
+// Twilio posts here when a text is sent TO your Wonder Solutions number.
+// If it's from your own configured phone, it's saved as a new Text message —
+// the SMS equivalent of calling in and pressing 1 to record a voice note.
+router.post('/sms-incoming', async (req, res) => {
+  const from = req.body.From;
+  const body = req.body.Body;
+  const MessagingResponse = twilio.twiml.MessagingResponse;
+  const twiml = new MessagingResponse();
+
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key = 'owner_phone_number'`);
+    const ownerPhone = rows.length ? rows[0].value : null;
+
+    if (ownerPhone && from === ownerPhone && body && body.trim()) {
+      await pool.query(
+        `INSERT INTO messages (title, type, text_content) VALUES ($1, 'sms', $2)`,
+        [`Texted in — ${new Date().toLocaleString()}`, body.trim()]
+      );
+      twiml.message('Saved to Wonder Solutions as a new text message.');
+    }
+    // If it's not from the owner's number, respond with nothing — don't
+    // acknowledge or process messages from anyone else.
+  } catch (err) {
+    console.error('sms-incoming error:', err);
+  }
+
+  res.type('text/xml').send(twiml.toString());
+});
+
 module.exports = router;

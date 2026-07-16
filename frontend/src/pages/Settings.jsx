@@ -48,11 +48,80 @@ export default function Settings() {
 
   const [twilioNumber, setTwilioNumber] = useState(null);
 
+  const [users, setUsers] = useState([]);
+  const [usersLoading, setUsersLoading] = useState(true);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserPassword, setNewUserPassword] = useState('');
+  const [usersError, setUsersError] = useState('');
+  const [usersSuccess, setUsersSuccess] = useState('');
+  const [addingUser, setAddingUser] = useState(false);
+
+  const [ownerPhone, setOwnerPhone] = useState('');
+  const [ownerPhoneInput, setOwnerPhoneInput] = useState('');
+  const [opError, setOpError] = useState('');
+  const [opSuccess, setOpSuccess] = useState('');
+  const [opSaving, setOpSaving] = useState(false);
+
   useEffect(() => {
     api.settings.getPin().then((r) => setCurrentPin(r.pin)).catch((e) => setPinError(e.message)).finally(() => setPinLoading(false));
     api.settings.getPortalUsername().then((r) => setCurrentUsername(r.username)).catch((e) => setUserError(e.message)).finally(() => setUserLoading(false));
     api.settings.getTwilioNumber().then((r) => setTwilioNumber(r.number)).catch(() => {});
+    loadUsers();
+    api.settings.getOwnerPhone().then((r) => setOwnerPhone(r.phone)).catch(() => {});
   }, []);
+
+  async function loadUsers() {
+    setUsersLoading(true);
+    try {
+      setUsers(await api.users.list());
+    } catch (err) {
+      setUsersError(err.message);
+    } finally {
+      setUsersLoading(false);
+    }
+  }
+
+  async function handleAddUser(e) {
+    e.preventDefault();
+    setUsersError(''); setUsersSuccess(''); setAddingUser(true);
+    try {
+      await api.users.create(newUserName, newUserPassword);
+      setNewUserName('');
+      setNewUserPassword('');
+      setUsersSuccess('User added.');
+      await loadUsers();
+    } catch (err) {
+      setUsersError(err.message);
+    } finally {
+      setAddingUser(false);
+    }
+  }
+
+  async function handleRemoveUser(id) {
+    if (!confirm('Remove this user? They will no longer be able to log in.')) return;
+    setUsersError('');
+    try {
+      await api.users.remove(id);
+      await loadUsers();
+    } catch (err) {
+      setUsersError(err.message);
+    }
+  }
+
+  async function handleSaveOwnerPhone(e) {
+    e.preventDefault();
+    setOpError(''); setOpSuccess(''); setOpSaving(true);
+    try {
+      await api.settings.setOwnerPhone(ownerPhoneInput);
+      setOwnerPhone(ownerPhoneInput);
+      setOwnerPhoneInput('');
+      setOpSuccess('Saved. Texts from this number to your Wonder Solutions line will be saved as new messages.');
+    } catch (err) {
+      setOpError(err.message);
+    } finally {
+      setOpSaving(false);
+    }
+  }
 
   async function handleSavePin(e) {
     e.preventDefault();
@@ -198,6 +267,64 @@ export default function Settings() {
             <button type="submit" className="btn" disabled={rkSaving}>{rkSaving ? 'Saving...' : 'Set recovery key'}</button>
           </form>
         </SettingCard>
+      </div>
+
+      <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
+        Users
+      </h3>
+      <div className="card" style={{ padding: 20, marginBottom: 28 }}>
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>
+          Give other people their own login instead of sharing one username and password.
+        </p>
+        {usersError && <div className="banner error">{usersError}</div>}
+        {usersSuccess && <div className="banner ok">{usersSuccess}</div>}
+
+        {!usersLoading && users.length > 0 && (
+          <div className="list" style={{ marginBottom: 16 }}>
+            {users.map((u) => (
+              <div className="row" key={u.id}>
+                <div className="row-main">
+                  <span className="row-title">{u.username}</span>
+                  <span className="row-sub">Added {new Date(u.created_at).toLocaleDateString()}</span>
+                </div>
+                <button className="icon-btn danger" onClick={() => handleRemoveUser(u.id)} aria-label="Remove user"><i className="ti ti-trash" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={handleAddUser} style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+          <div className="field" style={{ marginBottom: 0, flex: 1, minWidth: 140 }}>
+            <label>Username</label>
+            <input required minLength={2} value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="e.g. sarah" />
+          </div>
+          <div className="field" style={{ marginBottom: 0, flex: 1, minWidth: 140 }}>
+            <label>Password</label>
+            <input required type="password" minLength={4} value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
+          </div>
+          <button type="submit" className="btn" disabled={addingUser}>{addingUser ? 'Adding...' : 'Add user'}</button>
+        </form>
+      </div>
+
+      <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginBottom: 12 }}>
+        Text-to-save
+      </h3>
+      <div className="card" style={{ padding: 20, maxWidth: 420 }}>
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>
+          Text your Wonder Solutions number from this phone, and it's automatically saved as a new text message here — no need to open the portal.
+        </p>
+        {opError && <div className="banner error">{opError}</div>}
+        {opSuccess && <div className="banner ok">{opSuccess}</div>}
+        {ownerPhone && (
+          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginBottom: 12 }}>Current: {ownerPhone}</p>
+        )}
+        <form onSubmit={handleSaveOwnerPhone}>
+          <div className="field">
+            <label>Your phone number</label>
+            <input required value={ownerPhoneInput} onChange={(e) => setOwnerPhoneInput(e.target.value)} placeholder="+19145551234" />
+          </div>
+          <button type="submit" className="btn" disabled={opSaving}>{opSaving ? 'Saving...' : 'Save number'}</button>
+        </form>
       </div>
     </div>
   );

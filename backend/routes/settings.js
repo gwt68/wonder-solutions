@@ -108,4 +108,34 @@ router.get('/twilio-number', async (req, res) => {
   res.json({ number: (process.env.TWILIO_PHONE_NUMBER || '').trim() || null });
 });
 
+// GET/PUT the owner's phone number — texts sent from this number to your
+// Wonder Solutions number are saved as new messages automatically
+router.get('/owner-phone', async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key = 'owner_phone_number'`);
+    res.json({ phone: rows.length ? rows[0].value : null });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch owner phone number' });
+  }
+});
+
+router.put('/owner-phone', async (req, res) => {
+  const { phone } = req.body;
+  if (!phone || phone.trim().length < 7) {
+    return res.status(400).json({ error: 'Enter a valid phone number, e.g. +19145551234' });
+  }
+  try {
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ('owner_phone_number', $1)
+       ON CONFLICT (key) DO UPDATE SET value = $1`,
+      [phone.trim()]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update owner phone number' });
+  }
+});
+
 module.exports = router;

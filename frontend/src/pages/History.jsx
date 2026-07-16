@@ -110,6 +110,7 @@ export default function History() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {b.totalCost > 0 && <span className="pill signal">${b.totalCost.toFixed(4)}</span>}
                     {b.counts.sent > 0 && <span className="pill">{b.counts.sent} sent</span>}
                     {b.counts.failed > 0 && <span className="pill" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}>{b.counts.failed} failed</span>}
                     {b.counts.scheduled > 0 && <span className="pill signal">{b.counts.scheduled} scheduled</span>}
@@ -144,6 +145,7 @@ export default function History() {
                                 {s.delivery_status && ` · ${DELIVERY_LABELS[s.delivery_status] || s.delivery_status}`}
                                 {duration && ` · ${duration}`}
                                 {s.answered_by && ` · ${ANSWERED_BY_LABELS[s.answered_by] || s.answered_by}`}
+                                {s.cost && ` · $${parseFloat(s.cost).toFixed(4)}`}
                               </span>
                               {s.error_message && <span className="row-sub" style={{ color: 'var(--danger)' }}>{s.error_message}</span>}
                             </div>

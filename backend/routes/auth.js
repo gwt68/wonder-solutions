@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const router = express.Router();
 const pool = require('../db/pool');
 
@@ -31,6 +32,16 @@ router.post('/login', async (req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
 
   try {
+    // Check individual user accounts first
+    const { rows: userRows } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
+    if (userRows.length) {
+      const match = await bcrypt.compare(password, userRows[0].password_hash);
+      if (match) return res.json({ token: issueToken() });
+      return res.status(401).json({ error: 'Incorrect username or password' });
+    }
+
+    // Fall back to the original single shared login, for accounts that
+    // haven't created an individual user yet
     const { rows } = await pool.query(
       `SELECT key, value FROM settings WHERE key IN ('portal_username', 'portal_password')`
     );

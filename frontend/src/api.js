@@ -135,6 +135,11 @@ export const api = {
     listForContact: (contactId) => request(`/sends?contact_id=${contactId}`),
     remove: (id) => request(`/sends/${id}`, { method: 'DELETE' }),
   },
+  users: {
+    list: () => request('/users'),
+    create: (username, password) => request('/users', { method: 'POST', body: JSON.stringify({ username, password }) }),
+    remove: (id) => request(`/users/${id}`, { method: 'DELETE' }),
+  },
   settings: {
     getPin: () => request('/settings/pin'),
     setPin: (pin) => request('/settings/pin', { method: 'PUT', body: JSON.stringify({ pin }) }),
@@ -143,5 +148,7 @@ export const api = {
     setPortalUsername: (username) => request('/settings/portal-username', { method: 'PUT', body: JSON.stringify({ username }) }),
     setRecoveryKey: (recovery_key) => request('/settings/recovery-key', { method: 'PUT', body: JSON.stringify({ recovery_key }) }),
     getTwilioNumber: () => request('/settings/twilio-number'),
+    getOwnerPhone: () => request('/settings/owner-phone'),
+    setOwnerPhone: (phone) => request('/settings/owner-phone', { method: 'PUT', body: JSON.stringify({ phone }) }),
   },
 };
