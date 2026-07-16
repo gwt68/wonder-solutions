@@ -95,7 +95,10 @@ export default function Groups() {
                     <span className="pill signal" style={{ marginLeft: 8 }}>Needs a name</span>
                   )}
                 </span>
-                <span className="row-sub">{g.member_count} member{g.member_count !== 1 ? 's' : ''} · click to view</span>
+                <span className="row-sub">
+                  {g.member_count} member{g.member_count !== 1 ? 's' : ''} · click to view
+                  {g.source === 'phone_placeholder' && ` · created ${new Date(g.created_at).toLocaleString()}`}
+                </span>
               </div>
               <div className="row-actions" onClick={(e) => e.stopPropagation()}>
                 {g.source === 'phone_placeholder' && g.audio_label_url && (

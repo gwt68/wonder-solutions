@@ -139,7 +139,7 @@ router.post('/handle', async (req, res) => {
         // save
         const { rows } = await pool.query(
           `INSERT INTO messages (title, type, audio_url) VALUES ($1, 'voice_note', $2) RETURNING id`,
-          [`Recorded ${new Date().toISOString()}`, session.data.pending_recording_url]
+          [`Recorded by phone`, session.data.pending_recording_url]
         );
         await updateSession(callSid, 'main_menu', { last_message_id: rows[0].id });
         say(twiml, 'Message saved.');
@@ -257,7 +257,7 @@ router.post('/handle', async (req, res) => {
       if (recordingUrl) {
         const { rows } = await pool.query(
           `INSERT INTO groups (name, source, audio_label_url) VALUES ($1, 'phone_placeholder', $2) RETURNING id`,
-          [`New group — ${new Date().toLocaleString()}`, recordingUrl]
+          [`New group`, recordingUrl]
         );
         await saveContact(callSid, twiml, rows[0].id);
       } else {
@@ -467,7 +467,7 @@ router.post('/sms-incoming', async (req, res) => {
     if (ownerPhone && from === ownerPhone && body && body.trim()) {
       await pool.query(
         `INSERT INTO messages (title, type, text_content) VALUES ($1, 'sms', $2)`,
-        [`Texted in — ${new Date().toLocaleString()}`, body.trim()]
+        [`Texted in`, body.trim()]
       );
       twiml.message('Saved to Wonder Solutions as a new text message.');
     }
