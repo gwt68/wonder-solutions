@@ -11,7 +11,7 @@ const METHOD_OPTIONS = [
 export default function SendForm({ message, onSent }) {
   const [contacts, setContacts] = useState([]);
   const [groups, setGroups] = useState([]);
-  const [selected, setSelected] = useState(new Map()); // contactId -> method
+  const [selected, setSelected] = useState(new Map()); // contactId -> { method, alsoVoiceNote }
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [step, setStep] = useState('select'); // 'select' | 'preview'
@@ -20,6 +20,8 @@ export default function SendForm({ message, onSent }) {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
   const [groupLoading, setGroupLoading] = useState(null);
+
+  const messageHasAudio = !!(message.audio_url || message.has_uploaded_audio);
 
   useEffect(() => {
     Promise.all([api.contacts.list(), api.groups.list()])
@@ -36,17 +38,32 @@ export default function SendForm({ message, onSent }) {
     setSelected((prev) => {
       const next = new Map(prev);
       if (next.has(c.id)) next.delete(c.id);
-      else next.set(c.id, c.preferred_method);
+      else next.set(c.id, { method: c.preferred_method, alsoVoiceNote: false });
       return next;
     });
   }
 
   function setContactMethod(contactId, method) {
-    setSelected((prev) => new Map(prev).set(contactId, method));
+    setSelected((prev) => {
+      const next = new Map(prev);
+      const current = next.get(contactId) || {};
+      next.set(contactId, { ...current, method, alsoVoiceNote: method === 'call' ? current.alsoVoiceNote : false });
+      return next;
+    });
+  }
+
+  function toggleAlsoVoiceNote(contactId) {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      const current = next.get(contactId);
+      if (!current) return prev;
+      next.set(contactId, { ...current, alsoVoiceNote: !current.alsoVoiceNote });
+      return next;
+    });
   }
 
   function selectAll() {
-    setSelected(new Map(contacts.map((c) => [c.id, c.preferred_method])));
+    setSelected(new Map(contacts.map((c) => [c.id, { method: c.preferred_method, alsoVoiceNote: false }])));
   }
 
   function unselectAll() {
@@ -60,7 +77,7 @@ export default function SendForm({ message, onSent }) {
       const members = await api.groups.contacts(group.id);
       setSelected((prev) => {
         const next = new Map(prev);
-        members.forEach((c) => { if (!next.has(c.id)) next.set(c.id, c.preferred_method); });
+        members.forEach((c) => { if (!next.has(c.id)) next.set(c.id, { method: c.preferred_method, alsoVoiceNote: false }); });
         return next;
       });
     } catch (err) {
@@ -81,7 +98,11 @@ export default function SendForm({ message, onSent }) {
     setSending(true);
     setError('');
     try {
-      const recipients = [...selected.entries()].map(([contact_id, method]) => ({ contact_id, method }));
+      const recipients = [...selected.entries()].map(([contact_id, v]) => ({
+        contact_id,
+        method: v.method,
+        also_voice_note: v.method === 'call' && v.alsoVoiceNote,
+      }));
       const res = await api.sends.create({
         message_id: message.id,
         recipients,
@@ -110,8 +131,9 @@ export default function SendForm({ message, onSent }) {
 
   if (step === 'preview') {
     const selectedContacts = contacts.filter((c) => selected.has(c.id));
-    const methodCounts = [...selected.values()].reduce((acc, method) => {
-      acc[method] = (acc[method] || 0) + 1;
+    const methodCounts = [...selected.values()].reduce((acc, v) => {
+      acc[v.method] = (acc[v.method] || 0) + 1;
+      if (v.method === 'call' && v.alsoVoiceNote) acc.voice_note = (acc.voice_note || 0) + 1;
       return acc;
     }, {});
 
@@ -127,7 +149,7 @@ export default function SendForm({ message, onSent }) {
               {message.text_content}
             </p>
           )}
-          {(message.audio_url || message.has_uploaded_audio) && (
+          {messageHasAudio && (
             <audio controls src={audioUrl(message.id)} style={{ width: '100%', marginBottom: 12 }} />
           )}
 
@@ -139,9 +161,15 @@ export default function SendForm({ message, onSent }) {
           </div>
 
           <div style={{ maxHeight: 140, overflowY: 'auto', fontSize: 13, color: 'var(--ink-soft)', marginBottom: 12 }}>
-            {selectedContacts.map((c) => (
-              <div key={c.id}>{c.name || c.phone_number} — {METHOD_LABELS[selected.get(c.id)]}</div>
-            ))}
+            {selectedContacts.map((c) => {
+              const v = selected.get(c.id);
+              return (
+                <div key={c.id}>
+                  {c.name || c.phone_number} — {METHOD_LABELS[v.method]}
+                  {v.method === 'call' && v.alsoVoiceNote ? ' + voice note' : ''}
+                </div>
+              );
+            })}
           </div>
 
           <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
@@ -199,6 +227,7 @@ export default function SendForm({ message, onSent }) {
           ) : (
             contacts.map((c) => {
               const isSelected = selected.has(c.id);
+              const sel = selected.get(c.id);
               const methods = contactMethods(c);
               return (
                 <div key={c.id} style={{ borderBottom: '1px solid var(--line)', padding: '9px 12px' }}>
@@ -216,7 +245,7 @@ export default function SendForm({ message, onSent }) {
                           key={m}
                           type="button"
                           onClick={() => setContactMethod(c.id, m)}
-                          className={selected.get(c.id) === m ? 'pill' : 'pill signal'}
+                          className={sel.method === m ? 'pill' : 'pill signal'}
                           style={{ border: 'none', cursor: 'pointer' }}
                         >
                           {METHOD_OPTIONS.find((o) => o.value === m)?.label || m}
@@ -228,6 +257,16 @@ export default function SendForm({ message, onSent }) {
                     <div style={{ marginLeft: 24, marginTop: 4, fontSize: 12, color: 'var(--ink-faint)' }}>
                       Will send as {METHOD_LABELS[methods[0]]} (only method available)
                     </div>
+                  )}
+                  {isSelected && sel.method === 'call' && messageHasAudio && (
+                    <label className="checkbox-row" style={{ marginLeft: 24, marginTop: 6, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!sel.alsoVoiceNote}
+                        onChange={() => toggleAlsoVoiceNote(c.id)}
+                      />
+                      Also send as a voice note (MMS)
+                    </label>
                   )}
                 </div>
               );

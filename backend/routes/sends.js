@@ -113,13 +113,21 @@ router.post('/', async (req, res) => {
     const batchId = crypto.randomUUID();
     const created = [];
 
+    // Expand into a flat list of (contact, method) pairs — a recipient with
+    // also_voice_note:true becomes two sends: the call, plus a voice note.
+    const expanded = [];
     for (const recipient of recipients) {
       const contact = contactsById[recipient.contact_id];
       if (!contact) continue;
-      // Trust the requested method only if it's actually enabled for this contact; otherwise fall back safely.
       const enabledMethods = contact.methods && contact.methods.length ? contact.methods : [contact.preferred_method];
       const method = enabledMethods.includes(recipient.method) ? recipient.method : contact.preferred_method;
+      expanded.push({ contact, method });
+      if (method === 'call' && recipient.also_voice_note) {
+        expanded.push({ contact, method: 'voice_note' });
+      }
+    }
 
+    for (const { contact, method } of expanded) {
       if (isScheduled) {
         const { rows } = await pool.query(
           `INSERT INTO sends (contact_id, message_id, status, scheduled_at, method, batch_id)
