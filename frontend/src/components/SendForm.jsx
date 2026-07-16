@@ -223,36 +223,36 @@ export default function SendForm({ message, onSent }) {
               const activeMethods = selected.get(c.id) || new Set();
               const methods = contactMethods(c);
               return (
-                <div key={c.id} style={{ borderBottom: '1px solid var(--line)', padding: '10px 12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div key={c.id} style={{ borderBottom: '1px solid var(--line)', padding: '9px 12px' }}>
+                  <label className="checkbox-row" style={{ fontSize: 13.5 }}>
                     <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} />
-                    <span style={{ flex: 1, fontSize: 13.5 }}>{c.name || c.phone_number}</span>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      {methods.map((m) => {
-                        const isActive = isSelected && activeMethods.has(m);
-                        const disabled =
-                          (m === 'voice_note' && !messageHasAudio) ||
-                          (m === 'sms' && !message.text_content) ||
-                          (m === 'call' && !messageHasAudio && !message.text_content);
-                        const disabledReason =
-                          m === 'voice_note' ? 'This message has no audio to send as a voice note'
-                          : m === 'sms' ? 'This message has no text to send'
-                          : 'This message has nothing to play or say on a call';
-                        return (
-                          <button
-                            key={m}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => { if (!isSelected) toggleContact(c); toggleMethodForContact(c, m); }}
-                            className={isActive ? 'pill' : 'pill signal'}
-                            style={{ border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}
-                            title={disabled ? disabledReason : undefined}
-                          >
-                            {METHOD_OPTIONS.find((o) => o.value === m)?.label || m}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <span style={{ flex: 1 }}>{c.name || c.phone_number}</span>
+                  </label>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 6, marginLeft: 24, flexWrap: 'wrap' }}>
+                    {methods.map((m) => {
+                      const isActive = isSelected && activeMethods.has(m);
+                      const disabled =
+                        (m === 'voice_note' && !messageHasAudio) ||
+                        (m === 'sms' && !message.text_content) ||
+                        (m === 'call' && !messageHasAudio && !message.text_content);
+                      const disabledReason =
+                        m === 'voice_note' ? 'This message has no audio to send as a voice note'
+                        : m === 'sms' ? 'This message has no text to send'
+                        : 'This message has nothing to play or say on a call';
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => { if (!isSelected) toggleContact(c); toggleMethodForContact(c, m); }}
+                          className={isActive ? 'pill' : 'pill signal'}
+                          style={{ border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}
+                          title={disabled ? disabledReason : undefined}
+                        >
+                          {METHOD_OPTIONS.find((o) => o.value === m)?.label || m}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               );
