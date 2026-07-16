@@ -113,17 +113,20 @@ router.post('/', async (req, res) => {
     const batchId = crypto.randomUUID();
     const created = [];
 
-    // Expand into a flat list of (contact, method) pairs — a recipient with
-    // also_voice_note:true becomes two sends: the call, plus a voice note.
+    // Expand into a flat list of (contact, method) pairs — a recipient can
+    // now request multiple methods at once (e.g. a call AND a voice note).
     const expanded = [];
     for (const recipient of recipients) {
       const contact = contactsById[recipient.contact_id];
       if (!contact) continue;
       const enabledMethods = contact.methods && contact.methods.length ? contact.methods : [contact.preferred_method];
-      const method = enabledMethods.includes(recipient.method) ? recipient.method : contact.preferred_method;
-      expanded.push({ contact, method });
-      if (method === 'call' && recipient.also_voice_note) {
-        expanded.push({ contact, method: 'voice_note' });
+      const requestedMethods = Array.isArray(recipient.methods) && recipient.methods.length
+        ? recipient.methods
+        : [recipient.method || contact.preferred_method]; // backward-compatible with the old single-method shape
+      const validMethods = requestedMethods.filter((m) => enabledMethods.includes(m));
+      if (!validMethods.length) validMethods.push(contact.preferred_method);
+      for (const method of validMethods) {
+        expanded.push({ contact, method });
       }
     }
 
