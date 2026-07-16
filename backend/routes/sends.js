@@ -88,6 +88,62 @@ async function sendToContact(contact, message, method) {
   }
 }
 
+// Core logic for creating a batch of sends — used by the API route below,
+// and reused directly (no HTTP round trip) by the phone system's "send a
+// message" flow. recipients: [{ contact_id, methods: [method, ...] }]
+async function createSendBatch({ message_id, recipients, scheduled_at }) {
+  const { rows: messageRows } = await pool.query('SELECT * FROM messages WHERE id = $1', [message_id]);
+  if (!messageRows.length) throw new Error('Message not found');
+  const message = messageRows[0];
+  const { rows: audioCheck } = await pool.query('SELECT (audio_data IS NOT NULL) AS has FROM messages WHERE id = $1', [message_id]);
+  message.has_uploaded_audio = audioCheck[0]?.has || false;
+
+  const contactIds = [...new Set(recipients.map((r) => r.contact_id))];
+  const { rows: contactRows } = await pool.query('SELECT * FROM contacts WHERE id = ANY($1::int[])', [contactIds]);
+  const contactsById = Object.fromEntries(contactRows.map((c) => [c.id, c]));
+  if (!contactRows.length) throw new Error('No matching contacts found');
+
+  const isScheduled = !!scheduled_at && new Date(scheduled_at) > new Date();
+  const batchId = crypto.randomUUID();
+  const created = [];
+
+  const expanded = [];
+  for (const recipient of recipients) {
+    const contact = contactsById[recipient.contact_id];
+    if (!contact) continue;
+    const enabledMethods = contact.methods && contact.methods.length ? contact.methods : [contact.preferred_method];
+    const requestedMethods = Array.isArray(recipient.methods) && recipient.methods.length
+      ? recipient.methods
+      : [recipient.method || contact.preferred_method];
+    const validMethods = requestedMethods.filter((m) => enabledMethods.includes(m));
+    if (!validMethods.length) validMethods.push(contact.preferred_method);
+    for (const method of validMethods) {
+      expanded.push({ contact, method });
+    }
+  }
+
+  for (const { contact, method } of expanded) {
+    if (isScheduled) {
+      const { rows } = await pool.query(
+        `INSERT INTO sends (contact_id, message_id, status, scheduled_at, method, batch_id)
+         VALUES ($1, $2, 'scheduled', $3, $4, $5) RETURNING *`,
+        [contact.id, message_id, scheduled_at, method, batchId]
+      );
+      created.push(rows[0]);
+    } else {
+      const result = await sendToContact(contact, message, method);
+      const { rows } = await pool.query(
+        `INSERT INTO sends (contact_id, message_id, status, twilio_sid, error_message, sent_at, method, batch_id)
+         VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7) RETURNING *`,
+        [contact.id, message_id, result.status, result.twilio_sid || null, result.error_message || null, method, batchId]
+      );
+      created.push(rows[0]);
+    }
+  }
+
+  return { count: created.length, scheduled: isScheduled, batch_id: batchId, sends: created };
+}
+
 // POST create a send — takes an explicit list of { contact_id, method } (built
 // by the frontend, letting each recipient use a specific method rather than
 // always their default), then either sends immediately or schedules for later.
@@ -96,60 +152,9 @@ router.post('/', async (req, res) => {
   if (!message_id || !Array.isArray(recipients) || !recipients.length) {
     return res.status(400).json({ error: 'message_id and a non-empty recipients array are required' });
   }
-
   try {
-    const { rows: messageRows } = await pool.query('SELECT * FROM messages WHERE id = $1', [message_id]);
-    if (!messageRows.length) return res.status(404).json({ error: 'Message not found' });
-    const message = messageRows[0];
-    const { rows: audioCheck } = await pool.query('SELECT (audio_data IS NOT NULL) AS has FROM messages WHERE id = $1', [message_id]);
-    message.has_uploaded_audio = audioCheck[0]?.has || false;
-
-    const contactIds = [...new Set(recipients.map((r) => r.contact_id))];
-    const { rows: contactRows } = await pool.query('SELECT * FROM contacts WHERE id = ANY($1::int[])', [contactIds]);
-    const contactsById = Object.fromEntries(contactRows.map((c) => [c.id, c]));
-    if (!contactRows.length) return res.status(400).json({ error: 'No matching contacts found' });
-
-    const isScheduled = !!scheduled_at && new Date(scheduled_at) > new Date();
-    const batchId = crypto.randomUUID();
-    const created = [];
-
-    // Expand into a flat list of (contact, method) pairs — a recipient can
-    // now request multiple methods at once (e.g. a call AND a voice note).
-    const expanded = [];
-    for (const recipient of recipients) {
-      const contact = contactsById[recipient.contact_id];
-      if (!contact) continue;
-      const enabledMethods = contact.methods && contact.methods.length ? contact.methods : [contact.preferred_method];
-      const requestedMethods = Array.isArray(recipient.methods) && recipient.methods.length
-        ? recipient.methods
-        : [recipient.method || contact.preferred_method]; // backward-compatible with the old single-method shape
-      const validMethods = requestedMethods.filter((m) => enabledMethods.includes(m));
-      if (!validMethods.length) validMethods.push(contact.preferred_method);
-      for (const method of validMethods) {
-        expanded.push({ contact, method });
-      }
-    }
-
-    for (const { contact, method } of expanded) {
-      if (isScheduled) {
-        const { rows } = await pool.query(
-          `INSERT INTO sends (contact_id, message_id, status, scheduled_at, method, batch_id)
-           VALUES ($1, $2, 'scheduled', $3, $4, $5) RETURNING *`,
-          [contact.id, message_id, scheduled_at, method, batchId]
-        );
-        created.push(rows[0]);
-      } else {
-        const result = await sendToContact(contact, message, method);
-        const { rows } = await pool.query(
-          `INSERT INTO sends (contact_id, message_id, status, twilio_sid, error_message, sent_at, method, batch_id)
-           VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7) RETURNING *`,
-          [contact.id, message_id, result.status, result.twilio_sid || null, result.error_message || null, method, batchId]
-        );
-        created.push(rows[0]);
-      }
-    }
-
-    res.status(201).json({ count: created.length, scheduled: isScheduled, batch_id: batchId, sends: created });
+    const result = await createSendBatch({ message_id, recipients, scheduled_at });
+    res.status(201).json(result);
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Failed to create send' });
@@ -224,4 +229,4 @@ async function processDueSends() {
   }
 }
 
-module.exports = { router, processDueSends };
+module.exports = { router, processDueSends, createSendBatch };

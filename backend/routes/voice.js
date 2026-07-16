@@ -2,9 +2,22 @@ const express = require('express');
 const router = express.Router();
 const twilio = require('twilio');
 const pool = require('../db/pool');
+const { createSendBatch } = require('./sends');
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
 const BASE_URL = process.env.BASE_URL; // e.g. https://wonder-solutions-backend.up.railway.app
+
+// Classic phone-keypad multi-tap letters, for entering a name via touch-tone.
+const KEY_LETTERS = {
+  '2': ['A', 'B', 'C'],
+  '3': ['D', 'E', 'F'],
+  '4': ['G', 'H', 'I'],
+  '5': ['J', 'K', 'L'],
+  '6': ['M', 'N', 'O'],
+  '7': ['P', 'Q', 'R', 'S'],
+  '8': ['T', 'U', 'V'],
+  '9': ['W', 'X', 'Y', 'Z'],
+};
 
 // ---------- session helpers ----------
 
@@ -115,8 +128,47 @@ router.post('/handle', async (req, res) => {
       } else if (digits === '3') {
         await updateSession(callSid, 'contact_phone_entry');
         contactPhoneEntry(twiml);
+      } else if (digits === '4') {
+        await updateSession(callSid, 'pin_change_entry');
+        pinChangeEntry(twiml);
+      } else if (digits === '5') {
+        await announceStatus(twiml);
+      } else if (digits === '6') {
+        await startBroadcastMessageSelect(callSid, twiml);
+      } else if (digits === '7') {
+        await updateSession(callSid, 'assign_group_phone_entry');
+        assignGroupPhoneEntry(twiml);
       } else {
         mainMenu(twiml, true);
+      }
+      break;
+    }
+
+    // ----- Branch 4: change the call-in PIN -----
+
+    case 'pin_change_entry': {
+      if (digits && /^\d{4,8}$/.test(digits)) {
+        await updateSession(callSid, 'pin_change_confirm', { pending_new_pin: digits });
+        confirmNewPin(twiml, digits);
+      } else {
+        pinChangeEntry(twiml, true);
+      }
+      break;
+    }
+
+    case 'pin_change_confirm': {
+      if (digits === '1') {
+        await pool.query(
+          `INSERT INTO settings (key, value) VALUES ('call_in_pin', $1)
+           ON CONFLICT (key) DO UPDATE SET value = $1`,
+          [session.data.pending_new_pin]
+        );
+        await updateSession(callSid, 'main_menu');
+        say(twiml, 'Your PIN has been updated.');
+        mainMenu(twiml);
+      } else {
+        await updateSession(callSid, 'pin_change_entry');
+        pinChangeEntry(twiml);
       }
       break;
     }
@@ -202,11 +254,51 @@ router.post('/handle', async (req, res) => {
 
     case 'contact_phone_confirm': {
       if (digits === '1') {
-        await updateSession(callSid, 'contact_method_select');
-        methodSelect(twiml);
+        await updateSession(callSid, 'contact_name_offer');
+        nameOffer(twiml);
       } else {
         await updateSession(callSid, 'contact_phone_entry');
         contactPhoneEntry(twiml);
+      }
+      break;
+    }
+
+    // ----- Name entry via keypad (multi-tap, like an old phone) -----
+
+    case 'contact_name_offer': {
+      if (digits === '1') {
+        await updateSession(callSid, 'contact_name_entry_key', { name_buffer: '', name_current_key: null, name_cycle_count: 0 });
+        nameEntryPrompt(twiml);
+      } else {
+        await updateSession(callSid, 'contact_method_select');
+        methodSelect(twiml);
+      }
+      break;
+    }
+
+    case 'contact_name_entry_key': {
+      if (!digits) {
+        // Gather timed out with no key pressed — just re-prompt, no state change.
+        const k = session.data.name_current_key;
+        const currentLetter = k ? KEY_LETTERS[k][(session.data.name_cycle_count - 1) % KEY_LETTERS[k].length] : '';
+        gatherSingleKey(
+          twiml,
+          `${BASE_URL}/voice/handle`,
+          currentLetter
+            ? `Current letter ${currentLetter}. Press another key, star to erase, 0 for space, or pound to finish.`
+            : 'Press a key to continue, or pound to finish.'
+        );
+        break;
+      }
+      const result = processNameDigit(session.data, digits);
+      if (result.finished) {
+        const finalName = result.data.name_buffer.trim();
+        await updateSession(callSid, 'contact_method_select', { pending_name: finalName || null });
+        twiml.say(finalName ? `Name saved as ${finalName.split('').join(' ')}.` : 'No name entered.');
+        methodSelect(twiml);
+      } else {
+        await updateSession(callSid, 'contact_name_entry_key', result.data);
+        gatherSingleKey(twiml, `${BASE_URL}/voice/handle`, result.feedback || undefined);
       }
       break;
     }
@@ -277,6 +369,145 @@ router.post('/handle', async (req, res) => {
       break;
     }
 
+    // ----- Branch 5: send a broadcast -----
+
+    case 'broadcast_message_select': {
+      const messages = session.data.broadcast_messages || [];
+      if (digits === '0') {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      } else {
+        const idx = parseInt(digits, 10) - 1;
+        const message = messages[idx];
+        if (message) {
+          await updateSession(callSid, 'broadcast_target_select', { broadcast_message_id: message.id, broadcast_message_title: message.title });
+          broadcastTargetPrompt(twiml);
+        } else {
+          broadcastMessageList(twiml, messages, true);
+        }
+      }
+      break;
+    }
+
+    case 'broadcast_target_select': {
+      if (digits === '1') {
+        await updateSession(callSid, 'broadcast_contact_phone_entry');
+        broadcastContactPhoneEntry(twiml);
+      } else if (digits === '2') {
+        const groups = await pool.query('SELECT id, name FROM groups ORDER BY id');
+        if (!groups.rows.length) {
+          twiml.say('You have no groups yet.');
+          broadcastTargetPrompt(twiml);
+        } else {
+          await updateSession(callSid, 'broadcast_group_pick', { group_page: groups.rows });
+          broadcastGroupList(twiml, groups.rows);
+        }
+      } else if (digits === '3') {
+        await updateSession(callSid, 'broadcast_confirm', { broadcast_target: 'all' });
+        await broadcastConfirmPrompt(callSid, twiml);
+      } else {
+        broadcastTargetPrompt(twiml, true);
+      }
+      break;
+    }
+
+    case 'broadcast_contact_phone_entry': {
+      if (digits && digits.length >= 10) {
+        const { rows } = await pool.query('SELECT id, name FROM contacts WHERE phone_number = $1', [digits]);
+        if (rows.length) {
+          await updateSession(callSid, 'broadcast_confirm', {
+            broadcast_target: 'contact', broadcast_contact_id: rows[0].id, broadcast_contact_name: rows[0].name,
+          });
+          await broadcastConfirmPrompt(callSid, twiml);
+        } else {
+          broadcastContactPhoneEntry(twiml, true);
+        }
+      } else {
+        broadcastContactPhoneEntry(twiml, true);
+      }
+      break;
+    }
+
+    case 'broadcast_group_pick': {
+      const groupRows = session.data.group_page || [];
+      if (digits === '0') {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      } else {
+        const idx = parseInt(digits, 10) - 1;
+        const group = groupRows[idx];
+        if (group) {
+          await updateSession(callSid, 'broadcast_confirm', {
+            broadcast_target: 'group', broadcast_group_id: group.id, broadcast_group_name: group.name,
+          });
+          await broadcastConfirmPrompt(callSid, twiml);
+        } else {
+          broadcastGroupList(twiml, groupRows, true);
+        }
+      }
+      break;
+    }
+
+    case 'broadcast_confirm': {
+      if (digits === '1') {
+        await executeBroadcast(callSid, twiml);
+      } else {
+        twiml.say('Cancelled.');
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      }
+      break;
+    }
+
+    // ----- Branch 6: assign an existing contact to a group -----
+
+    case 'assign_group_phone_entry': {
+      if (digits && digits.length >= 10) {
+        const { rows } = await pool.query('SELECT id, name FROM contacts WHERE phone_number = $1', [digits]);
+        if (rows.length) {
+          const groups = await pool.query('SELECT id, name FROM groups ORDER BY id');
+          if (!groups.rows.length) {
+            twiml.say('You have no groups yet. Create one first from the web portal, or by adding a new contact by phone.');
+            await updateSession(callSid, 'main_menu');
+            mainMenu(twiml);
+          } else {
+            await updateSession(callSid, 'assign_group_select', { assign_contact_id: rows[0].id, group_page: groups.rows });
+            twiml.say(`Found ${rows[0].name || 'that contact'}.`);
+            broadcastGroupList(twiml, groups.rows);
+          }
+        } else {
+          twiml.say('No contact found with that number.');
+          assignGroupPhoneEntry(twiml);
+        }
+      } else {
+        assignGroupPhoneEntry(twiml, true);
+      }
+      break;
+    }
+
+    case 'assign_group_select': {
+      const groupRows = session.data.group_page || [];
+      if (digits === '0') {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      } else {
+        const idx = parseInt(digits, 10) - 1;
+        const group = groupRows[idx];
+        if (group) {
+          await pool.query(
+            `INSERT INTO contact_groups (contact_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [session.data.assign_contact_id, group.id]
+          );
+          twiml.say(`Added to ${group.name}.`);
+          await updateSession(callSid, 'main_menu');
+          mainMenu(twiml);
+        } else {
+          broadcastGroupList(twiml, groupRows, true);
+        }
+      }
+      break;
+    }
+
     default: {
       say(twiml, 'Something went wrong. Returning to the main menu.');
       await updateSession(callSid, 'main_menu');
@@ -305,7 +536,14 @@ function mainMenu(twiml, retry = false) {
   gatherDigits(
     twiml,
     `${BASE_URL}/voice/handle`,
-    `${prefix}Press 1 to record a new message. Press 2 to review your messages. Press 3 to manage contacts.`
+    `${prefix}Main menu. ` +
+    `Press 1 to record a new message. ` +
+    `Press 2 to review your saved messages. ` +
+    `Press 3 to add a contact. ` +
+    `Press 4 to change your PIN. ` +
+    `Press 5 to hear your account status. ` +
+    `Press 6 to send a message. ` +
+    `Press 7 to assign a contact to a group.`
   );
 }
 
@@ -357,6 +595,124 @@ async function playReviewMessage(twiml, messageId, index, total) {
   if (msg.audio_url) gather.play(msg.audio_url);
   gather.say('Press 1 to keep, press 2 to delete, press pound for the next message, press 0 to return to the main menu.');
   twiml.redirect(`${BASE_URL}/voice/repeat`);
+}
+
+function pinChangeEntry(twiml, retry = false) {
+  const prefix = retry ? "That PIN needs to be 4 to 8 digits. " : '';
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    `${prefix}Enter your new PIN, 4 to 8 digits, followed by the pound sign.`,
+    { finishOnKey: '#' }
+  );
+}
+
+function confirmNewPin(twiml, digits) {
+  const spaced = digits.split('').join(' ');
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    `You entered ${spaced}. Press 1 to confirm, press 2 to re-enter.`,
+    { numDigits: 1 }
+  );
+}
+
+async function announceStatus(twiml) {
+  const [contactsRes, groupsRes, messagesRes, sentTodayRes] = await Promise.all([
+    pool.query('SELECT COUNT(*) FROM contacts'),
+    pool.query('SELECT COUNT(*) FROM groups'),
+    pool.query('SELECT COUNT(*) FROM messages'),
+    pool.query(`SELECT COUNT(*) FROM sends WHERE sent_at::date = CURRENT_DATE`),
+  ]);
+  const contactCount = contactsRes.rows[0].count;
+  const groupCount = groupsRes.rows[0].count;
+  const messageCount = messagesRes.rows[0].count;
+  const sentToday = sentTodayRes.rows[0].count;
+
+  twiml.say(
+    `You have ${contactCount} contact${contactCount === '1' ? '' : 's'}, ` +
+    `${groupCount} group${groupCount === '1' ? '' : 's'}, and ` +
+    `${messageCount} saved message${messageCount === '1' ? '' : 's'}. ` +
+    `${sentToday} message${sentToday === '1' ? '' : 's'} sent today.`
+  );
+  mainMenu(twiml);
+}
+
+function gatherSingleKey(twiml, action, prompt) {
+  const gather = twiml.gather({ numDigits: 1, finishOnKey: '', action, method: 'POST', timeout: 5 });
+  if (prompt) gather.say(prompt);
+  twiml.redirect(action.replace('/handle', '/repeat'));
+  return twiml;
+}
+
+function nameOffer(twiml) {
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    'Press 1 to enter a name using the keypad, or press 2 to skip.',
+    { numDigits: 1 }
+  );
+}
+
+function nameEntryPrompt(twiml) {
+  twiml.say(
+    'Spell the name using your keypad, like an old phone. ' +
+    'Press a number key one or more times to choose a letter. ' +
+    'Press a different key to move to the next letter. ' +
+    'Press star to erase, 0 for space, and pound when you are finished.'
+  );
+  gatherSingleKey(twiml, `${BASE_URL}/voice/handle`, 'Go ahead.');
+}
+
+// Processes one keypress in the multi-tap name entry flow.
+// Returns { data: updatedSessionData, feedback: string to speak, finished: bool }
+function processNameDigit(data, digit) {
+  let name_buffer = data.name_buffer || '';
+  let name_current_key = data.name_current_key || null;
+  let name_cycle_count = data.name_cycle_count || 0;
+  let feedback = '';
+  let finished = false;
+
+  function commitPending() {
+    if (name_current_key && KEY_LETTERS[name_current_key]) {
+      const letters = KEY_LETTERS[name_current_key];
+      name_buffer += letters[(name_cycle_count - 1) % letters.length];
+    }
+    name_current_key = null;
+    name_cycle_count = 0;
+  }
+
+  if (digit === '#') {
+    commitPending();
+    finished = true;
+  } else if (digit === '*') {
+    if (name_current_key) {
+      name_current_key = null;
+      name_cycle_count = 0;
+      feedback = 'Cleared.';
+    } else if (name_buffer.length) {
+      name_buffer = name_buffer.slice(0, -1);
+      feedback = 'Erased.';
+    }
+  } else if (digit === '0') {
+    commitPending();
+    name_buffer += ' ';
+    feedback = 'Space.';
+  } else if (digit === '1') {
+    // no letters on 1 — ignored
+  } else if (KEY_LETTERS[digit]) {
+    if (digit === name_current_key) {
+      name_cycle_count += 1;
+    } else {
+      commitPending();
+      name_current_key = digit;
+      name_cycle_count = 1;
+    }
+    const letters = KEY_LETTERS[digit];
+    feedback = letters[(name_cycle_count - 1) % letters.length];
+  }
+
+  return { data: { name_buffer, name_current_key, name_cycle_count }, feedback, finished };
 }
 
 function contactPhoneEntry(twiml, retry = false) {
@@ -424,12 +780,13 @@ async function saveContact(callSid, twiml, groupId) {
   const session = await getSession(callSid);
   const phone = session.data.pending_phone;
   const method = session.data.pending_method;
+  const name = session.data.pending_name || null;
 
   const { rows } = await pool.query(
-    `INSERT INTO contacts (phone_number, preferred_method) VALUES ($1, $2)
-     ON CONFLICT (phone_number) DO UPDATE SET preferred_method = $2
+    `INSERT INTO contacts (phone_number, preferred_method, name) VALUES ($1, $2, $3)
+     ON CONFLICT (phone_number) DO UPDATE SET preferred_method = $2, name = COALESCE($3, contacts.name)
      RETURNING id`,
-    [phone, method]
+    [phone, method, name]
   );
   const contactId = rows[0].id;
 
@@ -448,6 +805,120 @@ async function saveContact(callSid, twiml, groupId) {
     `${BASE_URL}/voice/handle`,
     'Press 1 to add another contact, press 2 to return to the main menu.',
     { numDigits: 1 }
+  );
+}
+
+// ---------- send-a-broadcast helpers ----------
+
+async function startBroadcastMessageSelect(callSid, twiml) {
+  const { rows } = await pool.query('SELECT id, title, type FROM messages ORDER BY created_at DESC LIMIT 9');
+  if (!rows.length) {
+    twiml.say('You have no saved messages to send.');
+    await updateSession(callSid, 'main_menu');
+    mainMenu(twiml);
+    return;
+  }
+  await updateSession(callSid, 'broadcast_message_select', { broadcast_messages: rows });
+  broadcastMessageList(twiml, rows);
+}
+
+function broadcastMessageList(twiml, messages, retry = false) {
+  const prefix = retry ? "Sorry, I didn't get that. " : '';
+  const list = messages.map((m, i) => `Message ${i + 1}: ${m.title || 'Untitled'}.`).join(' ');
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}${list} Press the message number, or 0 to cancel.`);
+}
+
+function broadcastTargetPrompt(twiml, retry = false) {
+  const prefix = retry ? "Sorry, I didn't get that. " : '';
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    `${prefix}Press 1 to send to one contact. Press 2 to send to a group. Press 3 to send to everyone.`,
+    { numDigits: 1 }
+  );
+}
+
+function broadcastContactPhoneEntry(twiml, retry = false) {
+  const prefix = retry ? "No contact found with that number, or that wasn't valid. " : '';
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    `${prefix}Enter the contact's phone number followed by the pound sign.`,
+    { finishOnKey: '#' }
+  );
+}
+
+function broadcastGroupList(twiml, groups, retry = false) {
+  const prefix = retry ? "Sorry, I didn't get that. " : '';
+  const names = groups.map((g, i) => `Group ${i + 1} is ${g.name}.`).join(' ');
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}${names} Press the group number, or 0 to cancel.`);
+}
+
+async function broadcastConfirmPrompt(callSid, twiml) {
+  const session = await getSession(callSid);
+  const target = session.data.broadcast_target;
+  let targetDesc = '';
+
+  if (target === 'contact') {
+    targetDesc = session.data.broadcast_contact_name || 'that contact';
+  } else if (target === 'group') {
+    const { rows } = await pool.query('SELECT COUNT(*) FROM contact_groups WHERE group_id = $1', [session.data.broadcast_group_id]);
+    const count = parseInt(rows[0].count, 10);
+    targetDesc = `the group ${session.data.broadcast_group_name}, ${count} contact${count === 1 ? '' : 's'}`;
+  } else {
+    const { rows } = await pool.query('SELECT COUNT(*) FROM contacts');
+    const count = parseInt(rows[0].count, 10);
+    targetDesc = `everyone, ${count} contact${count === 1 ? '' : 's'}`;
+  }
+
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    `You are about to send ${session.data.broadcast_message_title || 'this message'} to ${targetDesc}. Press 1 to send now, press 2 to cancel.`,
+    { numDigits: 1 }
+  );
+}
+
+async function executeBroadcast(callSid, twiml) {
+  const session = await getSession(callSid);
+  const { broadcast_message_id, broadcast_target, broadcast_contact_id, broadcast_group_id } = session.data;
+
+  let contactIds = [];
+  if (broadcast_target === 'contact') {
+    contactIds = [broadcast_contact_id];
+  } else if (broadcast_target === 'group') {
+    const { rows } = await pool.query('SELECT contact_id FROM contact_groups WHERE group_id = $1', [broadcast_group_id]);
+    contactIds = rows.map((r) => r.contact_id);
+  } else {
+    const { rows } = await pool.query('SELECT id FROM contacts');
+    contactIds = rows.map((r) => r.id);
+  }
+
+  if (!contactIds.length) {
+    twiml.say('No recipients found.');
+  } else {
+    const recipients = contactIds.map((id) => ({ contact_id: id })); // uses each contact's own default method
+    try {
+      const result = await createSendBatch({ message_id: broadcast_message_id, recipients });
+      twiml.say(`Sent to ${result.count} recipient${result.count === 1 ? '' : 's'}.`);
+    } catch (err) {
+      console.error('IVR broadcast error:', err);
+      twiml.say('Something went wrong sending the message.');
+    }
+  }
+  await updateSession(callSid, 'main_menu');
+  mainMenu(twiml);
+}
+
+// ---------- assign-existing-contact-to-group helper ----------
+
+function assignGroupPhoneEntry(twiml, retry = false) {
+  const prefix = retry ? "That didn't look like a valid number. " : '';
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    `${prefix}Enter the contact's phone number followed by the pound sign.`,
+    { finishOnKey: '#' }
   );
 }
 
