@@ -248,7 +248,7 @@ export default function SendForm({ message, onSent }) {
           <div><strong style={{ color: 'var(--ink)' }}>Voice note</strong> — sends a text message with the audio or photo attached, no call</div>
           <div><strong style={{ color: 'var(--ink)' }}>Text</strong> — sends a plain text message</div>
         </div>
-        <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7 }}>
+        <div style={{ maxHeight: 300, overflowY: 'auto', overflowX: 'hidden', border: '1px solid var(--line)', borderRadius: 7 }}>
           {contacts.length === 0 ? (
             <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No contacts yet.</p>
           ) : (
@@ -260,16 +260,16 @@ export default function SendForm({ message, onSent }) {
                 <div
                   key={c.id}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 10,
+                    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
                     padding: '9px 12px', borderBottom: '1px solid var(--line)',
                   }}
                 >
                   <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} style={{ flexShrink: 0 }} />
-                  <div style={{ flexShrink: 0, minWidth: 0 }}>
+                  <div style={{ flexShrink: 0, minWidth: 0, marginRight: 8 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap' }}>{c.name || 'Unnamed contact'}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{c.phone_number}</div>
                   </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     {methods.map((m) => {
                       const isActive = isSelected && activeMethods.has(m);
                       const disabled =

@@ -75,7 +75,7 @@ export default function Send() {
       )}
 
       {step === 'recipients' && message && (
-        <div className="card" style={{ padding: 22, maxWidth: 560 }}>
+        <div className="card" style={{ padding: 22, maxWidth: 660 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
             <div>
               <p style={{ fontSize: 12.5, color: 'var(--ink-soft)', margin: '0 0 2px' }}>Sending</p>
