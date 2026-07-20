@@ -397,16 +397,32 @@ router.post('/handle', async (req, res) => {
       if (digits === '0') {
         await updateSession(callSid, 'main_menu');
         mainMenu(twiml);
-      } else {
+        break;
+      }
+
+      // A single digit 1-9 picks from the read-aloud list of recent messages.
+      if (digits && digits.length === 1) {
         const idx = parseInt(digits, 10) - 1;
         const message = messages[idx];
         if (message) {
           await updateSession(callSid, 'broadcast_target_select', { broadcast_message_id: message.id, broadcast_message_title: message.title });
           broadcastTargetPrompt(twiml);
-        } else {
-          broadcastMessageList(twiml, messages, true);
+          break;
         }
       }
+
+      // Anything else is treated as a specific message ID (shown on the web portal),
+      // letting you reach any saved message, not just the 9 most recent.
+      if (digits) {
+        const { rows } = await pool.query('SELECT id, title FROM messages WHERE id = $1', [parseInt(digits, 10)]);
+        if (rows.length) {
+          await updateSession(callSid, 'broadcast_target_select', { broadcast_message_id: rows[0].id, broadcast_message_title: rows[0].title });
+          broadcastTargetPrompt(twiml);
+          break;
+        }
+      }
+
+      broadcastMessageList(twiml, messages, true);
       break;
     }
 
@@ -846,7 +862,12 @@ async function startBroadcastMessageSelect(callSid, twiml) {
 function broadcastMessageList(twiml, messages, retry = false) {
   const prefix = retry ? "Sorry, I didn't get that. " : '';
   const list = messages.map((m, i) => `Message ${i + 1}: ${m.title || 'Untitled'}.`).join(' ');
-  gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}${list} Press the message number, or 0 to cancel.`);
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    `${prefix}${list} Press the message number, or enter a message I D followed by pound to pick any saved message, or 0 to cancel.`,
+    { finishOnKey: '#' }
+  );
 }
 
 function broadcastTargetPrompt(twiml, retry = false) {

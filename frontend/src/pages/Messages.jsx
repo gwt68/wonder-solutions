@@ -118,7 +118,7 @@ export default function Messages() {
             {m.title || 'Untitled message'}
           </span>
           <span className="row-sub">
-            {new Date(m.created_at).toLocaleString()} · <span className="pill">{TYPE_LABELS[m.type] || m.type}</span>
+            ID {m.id} · {new Date(m.created_at).toLocaleString()} · <span className="pill">{TYPE_LABELS[m.type] || m.type}</span>
           </span>
           {m.text_content && <p style={{ margin: '6px 0 0', fontSize: 14 }}>{m.text_content}</p>}
           {(m.audio_url || m.has_uploaded_audio) && (
