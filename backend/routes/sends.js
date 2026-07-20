@@ -93,7 +93,8 @@ async function sendToContact(contact, message, method) {
 
     return { status: 'failed', error_message: `Unknown method: ${method}` };
   } catch (err) {
-    return { status: 'failed', error_message: err.message };
+    console.error('sendToContact error:', err);
+    return { status: 'failed', error_message: err.message || err.toString() || 'Unknown error (no details provided)' };
   }
 }
 
