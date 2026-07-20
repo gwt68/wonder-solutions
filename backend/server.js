@@ -10,7 +10,7 @@ const settingsRoutes = require('./routes/settings');
 const { router: authRoutes } = require('./routes/auth');
 const { router: sendsRoutes, processDueSends } = require('./routes/sends');
 const publicRoutes = require('./routes/public');
-const webhooksRoutes = require('./routes/webhooks');
+const { router: webhooksRoutes, retryMissingCosts } = require('./routes/webhooks');
 const usersRoutes = require('./routes/users');
 const trustedPhonesRoutes = require('./routes/trustedPhones');
 
@@ -38,3 +38,4 @@ app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 
 // Check every minute for scheduled sends whose time has come
 setInterval(processDueSends, 60 * 1000);
+setInterval(retryMissingCosts, 5 * 60 * 1000); // catch up on prices Twilio hadn't finalized yet

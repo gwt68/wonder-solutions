@@ -31,6 +31,9 @@ router.post('/sms-status', async (req, res) => {
               `UPDATE sends SET cost = $1, cost_unit = $2 WHERE twilio_sid = $3`,
               [Math.abs(parseFloat(msg.price)), msg.priceUnit || 'USD', MessageSid]
             );
+            console.log(`Price recorded for message ${MessageSid}: ${msg.price} ${msg.priceUnit}`);
+          } else {
+            console.log(`Price not yet available for message ${MessageSid} (status: ${MessageStatus})`);
           }
         } catch (priceErr) {
           console.error('Could not fetch message price:', priceErr.message);
@@ -67,6 +70,9 @@ router.post('/call-status', async (req, res) => {
               `UPDATE sends SET cost = $1, cost_unit = $2 WHERE twilio_sid = $3`,
               [Math.abs(parseFloat(call.price)), call.priceUnit || 'USD', CallSid]
             );
+            console.log(`Price recorded for call ${CallSid}: ${call.price} ${call.priceUnit}`);
+          } else {
+            console.log(`Price not yet available for call ${CallSid} (status: ${CallStatus})`);
           }
         } catch (priceErr) {
           console.error('Could not fetch call price:', priceErr.message);
@@ -79,4 +85,36 @@ router.post('/call-status', async (req, res) => {
   res.status(200).end();
 });
 
-module.exports = router;
+// Called on an interval from server.js — catches up on cost for any recent
+// sends where Twilio hadn't finalized pricing yet at the time of the original webhook.
+async function retryMissingCosts() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, twilio_sid, method FROM sends
+       WHERE cost IS NULL AND twilio_sid IS NOT NULL AND status = 'sent'
+         AND created_at > NOW() - INTERVAL '24 hours'
+       LIMIT 50`
+    );
+    if (!rows.length) return;
+
+    const client = twilioClient();
+    for (const row of rows) {
+      try {
+        const resource = row.method === 'call' ? await client.calls(row.twilio_sid).fetch() : await client.messages(row.twilio_sid).fetch();
+        if (resource.price != null) {
+          await pool.query(
+            `UPDATE sends SET cost = $1, cost_unit = $2 WHERE id = $3`,
+            [Math.abs(parseFloat(resource.price)), resource.priceUnit || 'USD', row.id]
+          );
+          console.log(`Price recorded on retry for send ${row.id}: ${resource.price} ${resource.priceUnit}`);
+        }
+      } catch (err) {
+        console.error(`Retry price fetch failed for send ${row.id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('retryMissingCosts error:', err);
+  }
+}
+
+module.exports = { router, retryMissingCosts };
