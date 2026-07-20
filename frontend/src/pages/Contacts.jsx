@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { api, audioUrl } from '../api.js';
+import { api, audioUrl, imageUrl } from '../api.js';
 
 const METHOD_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
 
@@ -491,6 +491,9 @@ function ContactLogModal({ contact, onClose }) {
                 )}
                 {(s.message_audio_url || s.message_has_uploaded_audio) && (
                   <audio controls src={audioUrl(s.message_id)} style={{ width: '100%', marginTop: 8 }} />
+                )}
+                {s.message_has_image && (
+                  <img src={imageUrl(s.message_id)} alt={s.message_title || 'Photo'} style={{ maxWidth: '100%', maxHeight: 180, borderRadius: 8, marginTop: 8, display: 'block' }} />
                 )}
               </div>
             ))}

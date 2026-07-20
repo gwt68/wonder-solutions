@@ -9,12 +9,13 @@ const upload = multer({
   limits: { fileSize: 16 * 1024 * 1024 }, // 16MB, generous for a voice note
 });
 
-// GET all messages (without the heavy audio_data blob)
+// GET all messages (without the heavy audio_data/image_data blobs)
 router.get('/', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, title, type, text_content, audio_url, audio_mime_type,
-              (audio_data IS NOT NULL) AS has_uploaded_audio, created_at
+              (audio_data IS NOT NULL) AS has_uploaded_audio,
+              (image_data IS NOT NULL) AS has_image, created_at
        FROM messages ORDER BY created_at DESC`
     );
     res.json(rows);
@@ -59,6 +60,26 @@ router.post('/upload', requireAuth, upload.single('audio'), async (req, res) => 
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to save uploaded audio' });
+  }
+});
+
+// POST upload a picture from the computer, to be sent as an MMS
+router.post('/upload-image', requireAuth, upload.single('image'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No image file was uploaded' });
+
+  const title = req.body.title || req.file.originalname;
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO messages (title, type, image_data, image_mime_type)
+       VALUES ($1, 'image', $2, $3)
+       RETURNING id, title, type, text_content, audio_url, created_at`,
+      [title, req.file.buffer, req.file.mimetype]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save uploaded image' });
   }
 });
 
@@ -153,6 +174,22 @@ router.get('/:id/audio', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load audio' });
+  }
+});
+
+// GET the actual image for a message (public — an <img> tag can't send auth headers)
+router.get('/:id/image', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT image_data, image_mime_type FROM messages WHERE id = $1',
+      [req.params.id]
+    );
+    if (!rows.length || !rows[0].image_data) return res.status(404).end();
+    res.set('Content-Type', rows[0].image_mime_type || 'image/jpeg');
+    res.send(rows[0].image_data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load image' });
   }
 });
 

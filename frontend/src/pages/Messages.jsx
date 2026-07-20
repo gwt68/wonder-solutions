@@ -1,16 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { api, audioUrl } from '../api.js';
+import { api, audioUrl, imageUrl } from '../api.js';
 import { trimAudioToWav } from '../audioTrim.js';
 import SendModal from '../components/SendModal.jsx';
 
-const TYPE_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
-const TYPE_ICONS = { sms: 'ti-message', call: 'ti-phone', voice_note: 'ti-microphone' };
+const TYPE_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note', image: 'Photo' };
+const TYPE_ICONS = { sms: 'ti-message', call: 'ti-phone', voice_note: 'ti-microphone', image: 'ti-photo' };
 
 export default function Messages() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [newTextOpen, setNewTextOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newBody, setNewBody] = useState('');
@@ -18,6 +19,7 @@ export default function Messages() {
   const [editing, setEditing] = useState(null);
   const [sendingMessage, setSendingMessage] = useState(null);
   const fileInputRef = useRef(null);
+  const imageInputRef = useRef(null);
 
   async function load() {
     setLoading(true);
@@ -62,6 +64,26 @@ export default function Messages() {
     }
   }
 
+  function handleUploadImageClick() {
+    imageInputRef.current?.click();
+  }
+
+  async function handleImageFileSelected(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
+    setError('');
+    try {
+      await api.messages.uploadImage(file, file.name.replace(/\.[^/.]+$/, ''));
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUploadingImage(false);
+      e.target.value = '';
+    }
+  }
+
   function openNewText() {
     setNewTitle('');
     setNewBody('');
@@ -84,7 +106,8 @@ export default function Messages() {
   }
 
   const texts = messages.filter((m) => m.type === 'sms');
-  const recordings = messages.filter((m) => m.type !== 'sms');
+  const recordings = messages.filter((m) => m.type === 'voice_note' || m.type === 'call');
+  const photos = messages.filter((m) => m.type === 'image');
 
   function renderRow(m) {
     return (
@@ -101,6 +124,9 @@ export default function Messages() {
           {(m.audio_url || m.has_uploaded_audio) && (
             <audio controls src={audioUrl(m.id)} style={{ marginTop: 6 }} />
           )}
+          {m.has_image && (
+            <img src={imageUrl(m.id)} alt={m.title || 'Photo'} style={{ maxWidth: 220, maxHeight: 220, borderRadius: 8, marginTop: 6, display: 'block' }} />
+          )}
         </div>
         <div className="row-actions">
           <button className="icon-btn" onClick={() => setSendingMessage(m)} aria-label="Send message"><i className="ti ti-send" /></button>
@@ -116,7 +142,7 @@ export default function Messages() {
       <div className="page-header">
         <div>
           <h1>Messages</h1>
-          <p>Texts and recordings, ready to send</p>
+          <p>Texts, recordings, and photos, ready to send</p>
         </div>
       </div>
 
@@ -157,13 +183,39 @@ export default function Messages() {
             </div>
           </div>
           {recordings.length === 0 ? (
-            <div className="card empty-state">
+            <div className="card empty-state" style={{ marginBottom: 32 }}>
               <h3>No recordings yet</h3>
               <p>Upload an audio file, or call your Wonder Solutions line and press 1 to record one.</p>
             </div>
           ) : (
-            <div className="list">
+            <div className="list" style={{ marginBottom: 32 }}>
               {recordings.map(renderRow)}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <h3 style={{ fontSize: 15 }}>Photos</h3>
+            <div>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={handleImageFileSelected}
+              />
+              <button className="btn" onClick={handleUploadImageClick} disabled={uploadingImage}>
+                <i className="ti ti-upload" /> {uploadingImage ? 'Uploading...' : 'Upload photo'}
+              </button>
+            </div>
+          </div>
+          {photos.length === 0 ? (
+            <div className="card empty-state">
+              <h3>No photos yet</h3>
+              <p>Upload a picture to send as an MMS.</p>
+            </div>
+          ) : (
+            <div className="list">
+              {photos.map(renderRow)}
             </div>
           )}
         </>
@@ -200,7 +252,10 @@ export default function Messages() {
       {editing && editing.type === 'sms' && (
         <EditTextModal message={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       )}
-      {editing && editing.type !== 'sms' && (
+      {editing && editing.type === 'image' && (
+        <EditImageModal message={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+      )}
+      {editing && editing.type !== 'sms' && editing.type !== 'image' && (
         <EditRecordingModal message={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       )}
 
@@ -244,6 +299,46 @@ function EditTextModal({ message, onClose, onSaved }) {
           <div className="field">
             <label>Message</label>
             <textarea required rows={5} value={body} onChange={(e) => setBody(e.target.value)} />
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function EditImageModal({ message, onClose, onSaved }) {
+  const [title, setTitle] = useState(message.title || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSave(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      await api.messages.rename(message.id, title);
+      onSaved();
+    } catch (err) {
+      setError(err.message || 'Failed to save changes');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Edit photo</h2>
+        {error && <div className="banner error">{error}</div>}
+        <img src={imageUrl(message.id)} alt={title || 'Photo'} style={{ maxWidth: '100%', borderRadius: 8, marginBottom: 14 }} />
+        <form onSubmit={handleSave}>
+          <div className="field">
+            <label>Name</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled photo" />
           </div>
           <div className="modal-actions">
             <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>

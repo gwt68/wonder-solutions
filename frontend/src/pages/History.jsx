@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, audioUrl } from '../api.js';
+import { api, audioUrl, imageUrl } from '../api.js';
 import { groupSendsIntoBroadcasts } from '../broadcastUtils.js';
 
 const DELIVERY_LABELS = {
@@ -127,6 +127,9 @@ export default function History() {
                     )}
                     {(b.messageAudioUrl || b.messageHasUploadedAudio) && (
                       <audio controls src={audioUrl(b.messageId)} style={{ width: '100%', marginBottom: 12 }} />
+                    )}
+                    {b.messageHasImage && (
+                      <img src={imageUrl(b.messageId)} alt={b.messageTitle || 'Photo'} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 12, display: 'block' }} />
                     )}
 
                     <div className="list">

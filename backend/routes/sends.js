@@ -19,6 +19,11 @@ function audioProxyUrl(messageId) {
   return `${base}/api/messages/${messageId}/audio`;
 }
 
+function imageProxyUrl(messageId) {
+  const base = (process.env.BASE_URL || '').replace(/\/$/, '');
+  return `${base}/api/messages/${messageId}/image`;
+}
+
 function webhookUrl(path) {
   const base = (process.env.BASE_URL || '').replace(/\/$/, '');
   return `${base}/webhooks/${path}`;
@@ -32,6 +37,7 @@ async function sendToContact(contact, message, method) {
   if (!from) return { status: 'failed', error_message: 'TWILIO_PHONE_NUMBER is not configured' };
 
   const hasAudio = !!(message.audio_url || message.has_uploaded_audio);
+  const hasImage = !!message.has_image;
 
   try {
     if (method === 'sms') {
@@ -48,13 +54,14 @@ async function sendToContact(contact, message, method) {
     }
 
     if (method === 'voice_note') {
-      if (!hasAudio) {
-        return { status: 'failed', error_message: 'This message has no audio to send as a voice note' };
+      if (!hasImage && !hasAudio) {
+        return { status: 'failed', error_message: 'This message has no audio or picture to send as an MMS' };
       }
+      const mediaUrl = hasImage ? imageProxyUrl(message.id) : audioProxyUrl(message.id);
       const result = await client.messages.create({
         to: contact.phone_number,
         from,
-        mediaUrl: [audioProxyUrl(message.id)],
+        mediaUrl: [mediaUrl],
         statusCallback: webhookUrl('sms-status'),
       });
       return { status: 'sent', twilio_sid: result.sid };
@@ -95,8 +102,12 @@ async function createSendBatch({ message_id, recipients, scheduled_at }) {
   const { rows: messageRows } = await pool.query('SELECT * FROM messages WHERE id = $1', [message_id]);
   if (!messageRows.length) throw new Error('Message not found');
   const message = messageRows[0];
-  const { rows: audioCheck } = await pool.query('SELECT (audio_data IS NOT NULL) AS has FROM messages WHERE id = $1', [message_id]);
-  message.has_uploaded_audio = audioCheck[0]?.has || false;
+  const { rows: mediaCheck } = await pool.query(
+    'SELECT (audio_data IS NOT NULL) AS has_audio, (image_data IS NOT NULL) AS has_image FROM messages WHERE id = $1',
+    [message_id]
+  );
+  message.has_uploaded_audio = mediaCheck[0]?.has_audio || false;
+  message.has_image = mediaCheck[0]?.has_image || false;
 
   const contactIds = [...new Set(recipients.map((r) => r.contact_id))];
   const { rows: contactRows } = await pool.query('SELECT * FROM contacts WHERE id = ANY($1::int[])', [contactIds]);
@@ -171,7 +182,8 @@ router.get('/', async (req, res) => {
              c.name AS contact_name, c.phone_number, c.preferred_method,
              m.title AS message_title, m.type AS message_type,
              m.text_content AS message_text, m.audio_url AS message_audio_url,
-             (m.audio_data IS NOT NULL) AS message_has_uploaded_audio
+             (m.audio_data IS NOT NULL) AS message_has_uploaded_audio,
+             (m.image_data IS NOT NULL) AS message_has_image
       FROM sends s
       JOIN contacts c ON c.id = s.contact_id
       JOIN messages m ON m.id = s.message_id
@@ -215,8 +227,15 @@ async function processDueSends() {
     for (const row of due) {
       const contact = { id: row.c_id, name: row.c_name, phone_number: row.phone_number, preferred_method: row.preferred_method };
       const method = row.method || row.preferred_method;
-      const { rows: audioCheck } = await pool.query('SELECT (audio_data IS NOT NULL) AS has FROM messages WHERE id = $1', [row.m_id]);
-      const message = { id: row.m_id, text_content: row.text_content, audio_url: row.audio_url, has_uploaded_audio: audioCheck[0]?.has || false };
+      const { rows: mediaCheck } = await pool.query(
+        'SELECT (audio_data IS NOT NULL) AS has_audio, (image_data IS NOT NULL) AS has_image FROM messages WHERE id = $1',
+        [row.m_id]
+      );
+      const message = {
+        id: row.m_id, text_content: row.text_content, audio_url: row.audio_url,
+        has_uploaded_audio: mediaCheck[0]?.has_audio || false,
+        has_image: mediaCheck[0]?.has_image || false,
+      };
 
       const result = await sendToContact(contact, message, method);
       await pool.query(

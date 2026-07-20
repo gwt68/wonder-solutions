@@ -14,6 +14,7 @@ export function groupSendsIntoBroadcasts(sends) {
         messageText: s.message_text,
         messageAudioUrl: s.message_audio_url,
         messageHasUploadedAudio: s.message_has_uploaded_audio,
+        messageHasImage: s.message_has_image,
         createdAt: s.created_at,
         scheduledAt: s.scheduled_at,
         latestSentAt: s.sent_at,

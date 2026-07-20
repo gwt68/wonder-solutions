@@ -54,6 +54,10 @@ export function audioUrl(messageId) {
   return `${BASE}/api/messages/${messageId}/audio`;
 }
 
+export function imageUrl(messageId) {
+  return `${BASE}/api/messages/${messageId}/image`;
+}
+
 export function groupAudioLabelUrl(groupId) {
   return `${BASE}/api/groups/${groupId}/audio-label`;
 }
@@ -112,6 +116,12 @@ export const api = {
       formData.append('audio', file);
       if (title) formData.append('title', title);
       return upload('/messages/upload', formData);
+    },
+    uploadImage: (file, title) => {
+      const formData = new FormData();
+      formData.append('image', file);
+      if (title) formData.append('title', title);
+      return upload('/messages/upload-image', formData);
     },
     replaceAudio: async (id, blob) => {
       const formData = new FormData();

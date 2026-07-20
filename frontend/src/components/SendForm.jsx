@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, audioUrl } from '../api.js';
+import { api, audioUrl, imageUrl } from '../api.js';
 
 const METHOD_LABELS = { sms: 'text', call: 'phone call', voice_note: 'voice note' };
 const METHOD_OPTIONS = [
@@ -22,6 +22,7 @@ export default function SendForm({ message, onSent }) {
   const [groupLoading, setGroupLoading] = useState(null);
 
   const messageHasAudio = !!(message.audio_url || message.has_uploaded_audio);
+  const messageHasImage = !!message.has_image;
 
   useEffect(() => {
     Promise.all([api.contacts.list(), api.groups.list()])
@@ -149,6 +150,9 @@ export default function SendForm({ message, onSent }) {
           {messageHasAudio && (
             <audio controls src={audioUrl(message.id)} style={{ width: '100%', marginBottom: 12 }} />
           )}
+          {messageHasImage && (
+            <img src={imageUrl(message.id)} alt={message.title || 'Photo'} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 12, display: 'block' }} />
+          )}
 
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>To {selectedContacts.length} recipient{selectedContacts.length !== 1 ? 's' : ''}</p>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -232,11 +236,11 @@ export default function SendForm({ message, onSent }) {
                     {methods.map((m) => {
                       const isActive = isSelected && activeMethods.has(m);
                       const disabled =
-                        (m === 'voice_note' && !messageHasAudio) ||
+                        (m === 'voice_note' && !messageHasAudio && !messageHasImage) ||
                         (m === 'sms' && !message.text_content) ||
                         (m === 'call' && !messageHasAudio && !message.text_content);
                       const disabledReason =
-                        m === 'voice_note' ? 'This message has no audio to send as a voice note'
+                        m === 'voice_note' ? 'This message has no audio or photo to send as an MMS'
                         : m === 'sms' ? 'This message has no text to send'
                         : 'This message has nothing to play or say on a call';
                       return (
