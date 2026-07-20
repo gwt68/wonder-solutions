@@ -243,6 +243,11 @@ export default function SendForm({ message, onSent }) {
             <button type="button" onClick={unselectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>Unselect all</button>
           </div>
         </div>
+        <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 10, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+          <div><strong style={{ color: 'var(--ink)' }}>Phone call</strong> — rings their phone and plays or speaks the message out loud</div>
+          <div><strong style={{ color: 'var(--ink)' }}>Voice note</strong> — sends a text message with the audio or photo attached, no call</div>
+          <div><strong style={{ color: 'var(--ink)' }}>Text</strong> — sends a plain text message</div>
+        </div>
         <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7 }}>
           {contacts.length === 0 ? (
             <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No contacts yet.</p>
@@ -268,6 +273,10 @@ export default function SendForm({ message, onSent }) {
                         m === 'voice_note' ? 'This message has no audio or photo to send as an MMS'
                         : m === 'sms' ? 'This message has no text to send'
                         : 'This message has nothing to play or say on a call';
+                      const methodExplanation =
+                        m === 'call' ? 'Rings their phone and plays/speaks the message'
+                        : m === 'voice_note' ? 'Sends a text with the audio/photo attached, no call'
+                        : 'Sends a plain text message';
                       return (
                         <button
                           key={m}
@@ -276,7 +285,7 @@ export default function SendForm({ message, onSent }) {
                           onClick={() => { if (!isSelected) toggleContact(c); toggleMethodForContact(c, m); }}
                           className={isActive ? 'pill' : 'pill signal'}
                           style={{ border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}
-                          title={disabled ? disabledReason : undefined}
+                          title={disabled ? disabledReason : methodExplanation}
                         >
                           {METHOD_OPTIONS.find((o) => o.value === m)?.label || m}
                         </button>
