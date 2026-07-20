@@ -90,12 +90,13 @@ router.post('/call-status', async (req, res) => {
 async function retryMissingCosts() {
   try {
     const { rows } = await pool.query(
-      `SELECT id, twilio_sid, method FROM sends
+      `SELECT id, twilio_sid, method, status, created_at FROM sends
        WHERE cost IS NULL AND twilio_sid IS NOT NULL AND status = 'sent'
          AND created_at > NOW() - INTERVAL '24 hours'
        ORDER BY created_at ASC
        LIMIT 50`
     );
+    console.log(`retryMissingCosts (price check): found ${rows.length} send(s) still missing price`);
     if (!rows.length) return;
 
     const client = twilioClient();
@@ -108,9 +109,11 @@ async function retryMissingCosts() {
             [Math.abs(parseFloat(resource.price)), resource.priceUnit || 'USD', row.id]
           );
           console.log(`Price recorded on retry for send ${row.id}: ${resource.price} ${resource.priceUnit}`);
+        } else {
+          console.log(`Price still not available for send ${row.id} (method: ${row.method}, sent: ${row.created_at})`);
         }
       } catch (err) {
-        console.error(`Retry price fetch failed for send ${row.id}:`, err.message);
+        console.error(`Retry price fetch failed for send ${row.id} (method: ${row.method}, twilio_sid: ${row.twilio_sid}):`, err.message);
       }
     }
   } catch (err) {
