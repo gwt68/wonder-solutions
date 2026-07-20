@@ -312,6 +312,7 @@ function EditTextModal({ message, onClose, onSaved }) {
 
 function EditImageModal({ message, onClose, onSaved }) {
   const [title, setTitle] = useState(message.title || '');
+  const [caption, setCaption] = useState(message.text_content || '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -320,7 +321,7 @@ function EditImageModal({ message, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      await api.messages.rename(message.id, title);
+      await api.messages.editText(message.id, title, caption);
       onSaved();
     } catch (err) {
       setError(err.message || 'Failed to save changes');
@@ -340,6 +341,10 @@ function EditImageModal({ message, onClose, onSaved }) {
             <label>Name</label>
             <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled photo" />
           </div>
+          <div className="field">
+            <label>Caption (optional — sent as text alongside the photo)</label>
+            <textarea rows={3} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Add a message to go with this photo" />
+          </div>
           <div className="modal-actions">
             <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</button>
@@ -352,6 +357,7 @@ function EditImageModal({ message, onClose, onSaved }) {
 
 function EditRecordingModal({ message, onClose, onSaved }) {
   const [title, setTitle] = useState(message.title || '');
+  const [caption, setCaption] = useState(message.text_content || '');
   const [duration, setDuration] = useState(0);
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
@@ -383,8 +389,8 @@ function EditRecordingModal({ message, onClose, onSaved }) {
     setSaving(true);
     setError('');
     try {
-      if (title !== (message.title || '')) {
-        await api.messages.rename(message.id, title);
+      if (title !== (message.title || '') || caption !== (message.text_content || '')) {
+        await api.messages.editText(message.id, title, caption);
       }
       const isTrimmed = duration > 0 && (start > 0.05 || end < duration - 0.05);
       if (isTrimmed) {
@@ -408,6 +414,11 @@ function EditRecordingModal({ message, onClose, onSaved }) {
         <div className="field">
           <label>Name</label>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Untitled message" />
+        </div>
+
+        <div className="field">
+          <label>Caption (optional — sent as text alongside the voice note)</label>
+          <textarea rows={3} value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Add a message to go with this recording" />
         </div>
 
         <div className="field">

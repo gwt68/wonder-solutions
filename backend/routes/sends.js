@@ -58,12 +58,14 @@ async function sendToContact(contact, message, method) {
         return { status: 'failed', error_message: 'This message has no audio or picture to send as an MMS' };
       }
       const mediaUrl = hasImage ? imageProxyUrl(message.id) : audioProxyUrl(message.id);
-      const result = await client.messages.create({
+      const params = {
         to: contact.phone_number,
         from,
         mediaUrl: [mediaUrl],
         statusCallback: webhookUrl('sms-status'),
-      });
+      };
+      if (message.text_content) params.body = message.text_content;
+      const result = await client.messages.create(params);
       return { status: 'sent', twilio_sid: result.sid };
     }
 
