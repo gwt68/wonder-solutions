@@ -316,6 +316,34 @@ input, select, textarea {
 
 audio { height: 32px; }
 
+/* --- Method toggle pills (Send flow) - deliberately unambiguous on/off states --- */
+.method-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 14px;
+  border-radius: 100px;
+  border: 1.5px solid var(--line);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font-size: 12.5px;
+  font-weight: 600;
+  transition: all 0.12s ease;
+}
+.method-toggle:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.method-toggle.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.method-toggle:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 /* --- Chip toggles (used for methods & groups in the contact dialog) --- */
 .chip-select {
   display: flex;

@@ -283,10 +283,10 @@ export default function SendForm({ message, onSent }) {
                           type="button"
                           disabled={disabled}
                           onClick={() => { if (!isSelected) toggleContact(c); toggleMethodForContact(c, m); }}
-                          className={isActive ? 'pill' : 'pill signal'}
-                          style={{ border: 'none', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.4 : 1 }}
+                          className={`method-toggle ${isActive ? 'active' : ''}`}
                           title={disabled ? disabledReason : methodExplanation}
                         >
+                          {isActive && <i className="ti ti-check" />}
                           {METHOD_OPTIONS.find((o) => o.value === m)?.label || m}
                         </button>
                       );
