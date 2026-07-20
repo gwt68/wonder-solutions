@@ -257,12 +257,19 @@ export default function SendForm({ message, onSent }) {
               const activeMethods = selected.get(c.id) || new Set();
               const methods = contactMethods(c);
               return (
-                <div key={c.id} style={{ borderBottom: '1px solid var(--line)', padding: '9px 12px' }}>
-                  <label className="checkbox-row" style={{ fontSize: 13.5 }}>
-                    <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} />
-                    <span style={{ flex: 1 }}>{c.name || c.phone_number}</span>
-                  </label>
-                  <div style={{ display: 'flex', gap: 6, marginTop: 6, marginLeft: 24, flexWrap: 'wrap' }}>
+                <div
+                  key={c.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '9px 12px', borderBottom: '1px solid var(--line)',
+                  }}
+                >
+                  <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} style={{ flexShrink: 0 }} />
+                  <div style={{ flexShrink: 0, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap' }}>{c.name || 'Unnamed contact'}</div>
+                    <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{c.phone_number}</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
                     {methods.map((m) => {
                       const isActive = isSelected && activeMethods.has(m);
                       const disabled =
