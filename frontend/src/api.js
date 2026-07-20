@@ -147,7 +147,7 @@ export const api = {
   },
   users: {
     list: () => request('/users'),
-    create: (username, password) => request('/users', { method: 'POST', body: JSON.stringify({ username, password }) }),
+    create: (username, password, extra = {}) => request('/users', { method: 'POST', body: JSON.stringify({ username, password, ...extra }) }),
     remove: (id) => request(`/users/${id}`, { method: 'DELETE' }),
   },
   settings: {

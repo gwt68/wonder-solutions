@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 function SettingCard({ icon, title, description, error, success, children }) {
   return (
@@ -52,6 +53,9 @@ export default function Settings() {
   const [usersLoading, setUsersLoading] = useState(true);
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserFullName, setNewUserFullName] = useState('');
+  const [newUserPhone, setNewUserPhone] = useState('');
+  const [newUserEmail, setNewUserEmail] = useState('');
   const [usersError, setUsersError] = useState('');
   const [usersSuccess, setUsersSuccess] = useState('');
   const [addingUser, setAddingUser] = useState(false);
@@ -98,9 +102,12 @@ export default function Settings() {
     e.preventDefault();
     setUsersError(''); setUsersSuccess(''); setAddingUser(true);
     try {
-      await api.users.create(newUserName, newUserPassword);
+      await api.users.create(newUserName, newUserPassword, { name: newUserFullName || null, phone: newUserPhone || null, email: newUserEmail || null });
       setNewUserName('');
       setNewUserPassword('');
+      setNewUserFullName('');
+      setNewUserPhone('');
+      setNewUserEmail('');
       setUsersSuccess('User added.');
       await loadUsers();
     } catch (err) {
@@ -271,7 +278,7 @@ export default function Settings() {
           <form onSubmit={handleSavePassword}>
             <div className="field">
               <label>New password (at least 4 characters)</label>
-              <input required type="password" minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+              <PasswordInput required minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
             </div>
             <button type="submit" className="btn" disabled={pwSaving}>{pwSaving ? 'Saving...' : 'Update password'}</button>
           </form>
@@ -309,8 +316,13 @@ export default function Settings() {
             {users.map((u) => (
               <div className="row" key={u.id}>
                 <div className="row-main">
-                  <span className="row-title">{u.username}</span>
-                  <span className="row-sub">Added {new Date(u.created_at).toLocaleDateString()}</span>
+                  <span className="row-title">{u.name || u.username}</span>
+                  <span className="row-sub">
+                    @{u.username}
+                    {u.phone && ` · ${u.phone}`}
+                    {u.email && ` · ${u.email}`}
+                    {' · Added '}{new Date(u.created_at).toLocaleDateString()}
+                  </span>
                 </div>
                 <button className="icon-btn danger" onClick={() => handleRemoveUser(u.id)} aria-label="Remove user"><i className="ti ti-trash" /></button>
               </div>
@@ -318,14 +330,30 @@ export default function Settings() {
           </div>
         )}
 
-        <form onSubmit={handleAddUser} style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div className="field" style={{ marginBottom: 0, flex: 1, minWidth: 140 }}>
-            <label>Username</label>
-            <input required minLength={2} value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="e.g. sarah" />
+        <form onSubmit={handleAddUser}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 140 }}>
+              <label>Full name (optional)</label>
+              <input value={newUserFullName} onChange={(e) => setNewUserFullName(e.target.value)} placeholder="e.g. Sarah Cohen" />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 140 }}>
+              <label>Username</label>
+              <input required minLength={2} value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="e.g. sarah" />
+            </div>
           </div>
-          <div className="field" style={{ marginBottom: 0, flex: 1, minWidth: 140 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <div className="field" style={{ flex: 1, minWidth: 140 }}>
+              <label>Phone (optional)</label>
+              <input value={newUserPhone} onChange={(e) => setNewUserPhone(e.target.value)} placeholder="+19145551234" />
+            </div>
+            <div className="field" style={{ flex: 1, minWidth: 140 }}>
+              <label>Email (optional)</label>
+              <input type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="sarah@example.com" />
+            </div>
+          </div>
+          <div className="field" style={{ maxWidth: 300 }}>
             <label>Password</label>
-            <input required type="password" minLength={4} value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
+            <PasswordInput required minLength={4} value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
           </div>
           <button type="submit" className="btn" disabled={addingUser}>{addingUser ? 'Adding...' : 'Add user'}</button>
         </form>

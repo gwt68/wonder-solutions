@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api, audioUrl, imageUrl } from '../api.js';
 import SendForm from '../components/SendForm.jsx';
 
@@ -107,13 +107,136 @@ export default function Send() {
   );
 }
 
+// Lets the user upload a new audio file, record one live via microphone, or
+// reuse an existing saved recording — for the Call and Voice note channels.
+function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
+  const [mode, setMode] = useState('upload'); // 'upload' | 'library' | 'record'
+  const [library, setLibrary] = useState([]);
+  const [libraryLoading, setLibraryLoading] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const [recordedUrl, setRecordedUrl] = useState(null);
+  const [micError, setMicError] = useState('');
+  const mediaRecorderRef = useRef(null);
+  const chunksRef = useRef([]);
+  const streamRef = useRef(null);
+
+  useEffect(() => {
+    if (mode === 'library' && library.length === 0 && !libraryLoading) {
+      setLibraryLoading(true);
+      api.messages.list()
+        .then((all) => setLibrary(all.filter((m) => m.type === 'voice_note' && (m.has_uploaded_audio || m.audio_url))))
+        .catch(() => {})
+        .finally(() => setLibraryLoading(false));
+    }
+  }, [mode]);
+
+  async function startRecording() {
+    setMicError('');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      chunksRef.current = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        setRecordedUrl(URL.createObjectURL(blob));
+        onFileChosen(new File([blob], 'recording.webm', { type: 'audio/webm' }));
+        streamRef.current?.getTracks().forEach((t) => t.stop());
+      };
+      mr.start();
+      setRecording(true);
+    } catch (err) {
+      setMicError('Could not access your microphone. Check your browser permissions.');
+    }
+  }
+
+  function stopRecording() {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  }
+
+  function reRecord() {
+    setRecordedUrl(null);
+    onFileChosen(null);
+  }
+
+  return (
+    <div className="field">
+      <label>Audio</label>
+      <div className="chip-select" style={{ marginBottom: 10 }}>
+        <button type="button" className={`chip-toggle ${mode === 'upload' ? 'active' : ''}`} onClick={() => setMode('upload')}>Upload file</button>
+        <button type="button" className={`chip-toggle ${mode === 'library' ? 'active' : ''}`} onClick={() => setMode('library')}>Saved recordings</button>
+        <button type="button" className={`chip-toggle ${mode === 'record' ? 'active' : ''}`} onClick={() => setMode('record')}>Record now</button>
+      </div>
+
+      {mode === 'upload' && (
+        <input type="file" accept="audio/*" onChange={(e) => onFileChosen(e.target.files?.[0] || null)} />
+      )}
+
+      {mode === 'library' && (
+        libraryLoading ? (
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Loading...</p>
+        ) : library.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>No saved recordings yet — upload or record one instead.</p>
+        ) : (
+          <select
+            value={existingId || ''}
+            onChange={(e) => {
+              const found = library.find((m) => String(m.id) === e.target.value);
+              onExistingChosen(found || null);
+            }}
+          >
+            <option value="">Choose a saved recording...</option>
+            {library.map((m) => <option key={m.id} value={m.id}>{m.title || 'Untitled'}</option>)}
+          </select>
+        )
+      )}
+
+      {mode === 'record' && (
+        <div>
+          {micError && <div className="banner error" style={{ marginBottom: 8 }}>{micError}</div>}
+          {!recording && !recordedUrl && (
+            <button type="button" className="btn secondary" onClick={startRecording}>
+              <i className="ti ti-microphone" /> Start recording
+            </button>
+          )}
+          {recording && (
+            <button type="button" className="btn" style={{ background: 'var(--danger)' }} onClick={stopRecording}>
+              <i className="ti ti-player-stop" /> Stop recording
+            </button>
+          )}
+          {recordedUrl && !recording && (
+            <div>
+              <audio controls src={recordedUrl} style={{ width: '100%', marginBottom: 8 }} />
+              <button type="button" className="btn secondary" onClick={reRecord}>Re-record</button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ComposeForm({ channel, onBack, onComposed, setError }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [audioFile, setAudioFile] = useState(null);
+  const [existingAudio, setExistingAudio] = useState(null); // full message object, if reusing a saved recording
   const [imageFile, setImageFile] = useState(null);
   const [mediaKind, setMediaKind] = useState('audio'); // for voice_note: 'audio' | 'image'
   const [saving, setSaving] = useState(false);
+
+  function handleAudioFileChosen(file) {
+    setAudioFile(file);
+    setExistingAudio(null);
+  }
+
+  function handleExistingAudioChosen(msg) {
+    setExistingAudio(msg);
+    setAudioFile(null);
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -123,12 +246,12 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
       setError('Enter a message to send');
       return;
     }
-    if (channel === 'call' && !body.trim() && !audioFile) {
-      setError('Enter something to read aloud, or upload a recording');
+    if (channel === 'call' && !body.trim() && !audioFile && !existingAudio) {
+      setError('Enter something to read aloud, choose a recording, or record one');
       return;
     }
     if (channel === 'voice_note') {
-      if (mediaKind === 'audio' && !audioFile) { setError('Choose an audio file to upload'); return; }
+      if (mediaKind === 'audio' && !audioFile && !existingAudio) { setError('Choose, upload, or record an audio clip'); return; }
       if (mediaKind === 'image' && !imageFile) { setError('Choose a photo to upload'); return; }
     }
 
@@ -138,7 +261,9 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
       if (channel === 'sms') {
         created = await api.messages.create({ type: 'sms', title: title || null, text_content: body });
       } else if (channel === 'call') {
-        if (audioFile) {
+        if (existingAudio) {
+          created = existingAudio;
+        } else if (audioFile) {
           created = await api.messages.uploadAudio(audioFile, title || audioFile.name);
           if (body.trim()) created = await api.messages.editText(created.id, created.title, body);
         } else {
@@ -146,11 +271,15 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
         }
       } else if (channel === 'voice_note') {
         if (mediaKind === 'audio') {
-          created = await api.messages.uploadAudio(audioFile, title || audioFile.name);
+          if (existingAudio) {
+            created = existingAudio;
+          } else {
+            created = await api.messages.uploadAudio(audioFile, title || audioFile.name);
+          }
         } else {
           created = await api.messages.uploadImage(imageFile, title || imageFile.name);
         }
-        if (body.trim()) created = await api.messages.editText(created.id, created.title, body);
+        if (body.trim() && !existingAudio) created = await api.messages.editText(created.id, created.title, body);
       }
       onComposed(created);
     } catch (err) {
@@ -185,13 +314,19 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
         {channel === 'call' && (
           <>
             <div className="field">
-              <label>Message to read aloud (leave blank if uploading a recording instead)</label>
+              <label>Message to read aloud (leave blank if using a recording instead)</label>
               <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What should be said on the call?" />
             </div>
-            <div className="field">
-              <label>Or upload a recording instead</label>
-              <input type="file" accept="audio/*" onChange={(e) => setAudioFile(e.target.files?.[0] || null)} />
-            </div>
+            <AudioSourcePicker
+              onFileChosen={handleAudioFileChosen}
+              onExistingChosen={handleExistingAudioChosen}
+              existingId={existingAudio?.id}
+            />
+            {existingAudio && (
+              <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: -8, marginBottom: 14 }}>
+                Using saved recording "{existingAudio.title || 'Untitled'}" — any text above won't be added to it.
+              </p>
+            )}
           </>
         )}
 
@@ -205,10 +340,18 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
               </div>
             </div>
             {mediaKind === 'audio' ? (
-              <div className="field">
-                <label>Audio file</label>
-                <input type="file" accept="audio/*" onChange={(e) => setAudioFile(e.target.files?.[0] || null)} />
-              </div>
+              <>
+                <AudioSourcePicker
+                  onFileChosen={handleAudioFileChosen}
+                  onExistingChosen={handleExistingAudioChosen}
+                  existingId={existingAudio?.id}
+                />
+                {existingAudio && (
+                  <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: -8, marginBottom: 14 }}>
+                    Using saved recording "{existingAudio.title || 'Untitled'}" — any caption below won't be added to it.
+                  </p>
+                )}
+              </>
             ) : (
               <div className="field">
                 <label>Photo</label>

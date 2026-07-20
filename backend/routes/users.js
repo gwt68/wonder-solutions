@@ -9,7 +9,7 @@ router.use(requireAuth);
 // GET all users (never exposes password hashes)
 router.get('/', async (req, res) => {
   try {
-    const { rows } = await pool.query('SELECT id, username, created_at FROM users ORDER BY created_at ASC');
+    const { rows } = await pool.query('SELECT id, username, name, phone, email, created_at FROM users ORDER BY created_at ASC');
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -19,15 +19,17 @@ router.get('/', async (req, res) => {
 
 // POST create a new user
 router.post('/', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, name, phone, email } = req.body;
   if (!username || username.trim().length < 2) return res.status(400).json({ error: 'Username must be at least 2 characters' });
   if (!password || password.length < 4) return res.status(400).json({ error: 'Password must be at least 4 characters' });
 
   try {
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      'INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username, created_at',
-      [username.trim(), hash]
+      `INSERT INTO users (username, password_hash, name, phone, email)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, username, name, phone, email, created_at`,
+      [username.trim(), hash, name || null, phone || null, email || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) {

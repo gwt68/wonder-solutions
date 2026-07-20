@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { api, setToken } from '../api.js';
+import PasswordInput from '../components/PasswordInput.jsx';
 
 export default function Login({ onLogin }) {
   const [mode, setMode] = useState('login'); // 'login' | 'recover'
@@ -62,7 +63,7 @@ function LoginForm({ onLogin, onForgot }) {
         </div>
         <div className="field">
           <label>Password</label>
-          <input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} />
+          <PasswordInput required value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         <button type="submit" className="btn" style={{ width: '100%' }} disabled={loading}>
           {loading ? 'Logging in...' : 'Log in'}
@@ -119,7 +120,7 @@ function RecoverForm({ onBack }) {
       <form onSubmit={handleSubmit}>
         <div className="field">
           <label>Recovery key</label>
-          <input required autoFocus type="password" value={recoveryKey} onChange={(e) => setRecoveryKey(e.target.value)} />
+          <PasswordInput required autoFocus value={recoveryKey} onChange={(e) => setRecoveryKey(e.target.value)} />
         </div>
         <div className="field">
           <label>New username</label>
@@ -127,7 +128,7 @@ function RecoverForm({ onBack }) {
         </div>
         <div className="field">
           <label>New password</label>
-          <input required type="password" minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+          <PasswordInput required minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
         </div>
         <button type="submit" className="btn" style={{ width: '100%' }} disabled={loading}>
           {loading ? 'Resetting...' : 'Reset username & password'}
