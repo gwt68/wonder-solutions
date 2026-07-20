@@ -56,19 +56,32 @@ export default function Settings() {
   const [usersSuccess, setUsersSuccess] = useState('');
   const [addingUser, setAddingUser] = useState(false);
 
-  const [ownerPhone, setOwnerPhone] = useState('');
-  const [ownerPhoneInput, setOwnerPhoneInput] = useState('');
-  const [opError, setOpError] = useState('');
-  const [opSuccess, setOpSuccess] = useState('');
-  const [opSaving, setOpSaving] = useState(false);
+  const [trustedPhones, setTrustedPhones] = useState([]);
+  const [tpLoading, setTpLoading] = useState(true);
+  const [newTpNumber, setNewTpNumber] = useState('');
+  const [newTpLabel, setNewTpLabel] = useState('');
+  const [tpError, setTpError] = useState('');
+  const [tpSuccess, setTpSuccess] = useState('');
+  const [addingTp, setAddingTp] = useState(false);
 
   useEffect(() => {
     api.settings.getPin().then((r) => setCurrentPin(r.pin)).catch((e) => setPinError(e.message)).finally(() => setPinLoading(false));
     api.settings.getPortalUsername().then((r) => setCurrentUsername(r.username)).catch((e) => setUserError(e.message)).finally(() => setUserLoading(false));
     api.settings.getTwilioNumber().then((r) => setTwilioNumber(r.number)).catch(() => {});
     loadUsers();
-    api.settings.getOwnerPhone().then((r) => setOwnerPhone(r.phone)).catch(() => {});
+    loadTrustedPhones();
   }, []);
+
+  async function loadTrustedPhones() {
+    setTpLoading(true);
+    try {
+      setTrustedPhones(await api.trustedPhones.list());
+    } catch (err) {
+      setTpError(err.message);
+    } finally {
+      setTpLoading(false);
+    }
+  }
 
   async function loadUsers() {
     setUsersLoading(true);
@@ -108,18 +121,30 @@ export default function Settings() {
     }
   }
 
-  async function handleSaveOwnerPhone(e) {
+  async function handleAddTrustedPhone(e) {
     e.preventDefault();
-    setOpError(''); setOpSuccess(''); setOpSaving(true);
+    setTpError(''); setTpSuccess(''); setAddingTp(true);
     try {
-      await api.settings.setOwnerPhone(ownerPhoneInput);
-      setOwnerPhone(ownerPhoneInput);
-      setOwnerPhoneInput('');
-      setOpSuccess('Saved. Texts from this number to your Wonder Solutions line will be saved as new messages.');
+      await api.trustedPhones.add(newTpNumber, newTpLabel || null);
+      setNewTpNumber('');
+      setNewTpLabel('');
+      setTpSuccess('Number added.');
+      await loadTrustedPhones();
     } catch (err) {
-      setOpError(err.message);
+      setTpError(err.message);
     } finally {
-      setOpSaving(false);
+      setAddingTp(false);
+    }
+  }
+
+  async function handleRemoveTrustedPhone(id) {
+    if (!confirm('Remove this number? Texts sent from it will no longer be saved automatically.')) return;
+    setTpError('');
+    try {
+      await api.trustedPhones.remove(id);
+      await loadTrustedPhones();
+    } catch (err) {
+      setTpError(err.message);
     }
   }
 
@@ -311,19 +336,35 @@ export default function Settings() {
       </h3>
       <div className="card" style={{ padding: 20, maxWidth: 420 }}>
         <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>
-          Text your Wonder Solutions number from this phone, and it's automatically saved as a new text message here — no need to open the portal.
+          Texts sent from any of these numbers to your Wonder Solutions number are automatically saved as a new text message here — no need to open the portal.
         </p>
-        {opError && <div className="banner error">{opError}</div>}
-        {opSuccess && <div className="banner ok">{opSuccess}</div>}
-        {ownerPhone && (
-          <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginBottom: 12 }}>Current: {ownerPhone}</p>
-        )}
-        <form onSubmit={handleSaveOwnerPhone}>
-          <div className="field">
-            <label>Your phone number</label>
-            <input required value={ownerPhoneInput} onChange={(e) => setOwnerPhoneInput(e.target.value)} placeholder="+19145551234" />
+        {tpError && <div className="banner error">{tpError}</div>}
+        {tpSuccess && <div className="banner ok">{tpSuccess}</div>}
+
+        {!tpLoading && trustedPhones.length > 0 && (
+          <div className="list" style={{ marginBottom: 16 }}>
+            {trustedPhones.map((tp) => (
+              <div className="row" key={tp.id}>
+                <div className="row-main">
+                  <span className="row-title">{tp.phone_number}</span>
+                  {tp.label && <span className="row-sub">{tp.label}</span>}
+                </div>
+                <button className="icon-btn danger" onClick={() => handleRemoveTrustedPhone(tp.id)} aria-label="Remove number"><i className="ti ti-trash" /></button>
+              </div>
+            ))}
           </div>
-          <button type="submit" className="btn" disabled={opSaving}>{opSaving ? 'Saving...' : 'Save number'}</button>
+        )}
+
+        <form onSubmit={handleAddTrustedPhone}>
+          <div className="field">
+            <label>Phone number</label>
+            <input required value={newTpNumber} onChange={(e) => setNewTpNumber(e.target.value)} placeholder="+19145551234" />
+          </div>
+          <div className="field">
+            <label>Label (optional)</label>
+            <input value={newTpLabel} onChange={(e) => setNewTpLabel(e.target.value)} placeholder="e.g. my cell" />
+          </div>
+          <button type="submit" className="btn" disabled={addingTp}>{addingTp ? 'Adding...' : 'Add number'}</button>
         </form>
       </div>
     </div>

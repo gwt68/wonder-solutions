@@ -161,4 +161,9 @@ export const api = {
     getOwnerPhone: () => request('/settings/owner-phone'),
     setOwnerPhone: (phone) => request('/settings/owner-phone', { method: 'PUT', body: JSON.stringify({ phone }) }),
   },
+  trustedPhones: {
+    list: () => request('/trusted-phones'),
+    add: (phone_number, label) => request('/trusted-phones', { method: 'POST', body: JSON.stringify({ phone_number, label }) }),
+    remove: (id) => request(`/trusted-phones/${id}`, { method: 'DELETE' }),
+  },
 };

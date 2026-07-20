@@ -12,6 +12,7 @@ const { router: sendsRoutes, processDueSends } = require('./routes/sends');
 const publicRoutes = require('./routes/public');
 const webhooksRoutes = require('./routes/webhooks');
 const usersRoutes = require('./routes/users');
+const trustedPhonesRoutes = require('./routes/trustedPhones');
 
 const app = express();
 app.use(cors());
@@ -27,6 +28,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/sends', sendsRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/users', usersRoutes);
+app.use('/api/trusted-phones', trustedPhonesRoutes);
 app.use('/webhooks', webhooksRoutes);
 
 app.get('/', (req, res) => res.send('Wonder Solutions backend is running.'));

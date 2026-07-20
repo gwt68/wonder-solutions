@@ -155,7 +155,7 @@ router.post('/handle', async (req, res) => {
       } else if (digits === '5') {
         await announceStatus(twiml);
       } else if (digits === '6') {
-        await startBroadcastMessageSelect(callSid, twiml);
+        await startBroadcastCategorySelect(callSid, twiml);
       } else if (digits === '7') {
         await updateSession(callSid, 'assign_group_phone_entry');
         assignGroupPhoneEntry(twiml);
@@ -391,6 +391,16 @@ router.post('/handle', async (req, res) => {
     }
 
     // ----- Branch 5: send a broadcast -----
+
+    case 'broadcast_category_select': {
+      const types = BROADCAST_CATEGORY_TYPES[digits];
+      if (types) {
+        await startBroadcastMessageSelect(callSid, twiml, types);
+      } else {
+        broadcastCategoryPrompt(twiml, true);
+      }
+      break;
+    }
 
     case 'broadcast_message_select': {
       const messages = session.data.broadcast_messages || [];
@@ -847,10 +857,34 @@ async function saveContact(callSid, twiml, groupId) {
 
 // ---------- send-a-broadcast helpers ----------
 
-async function startBroadcastMessageSelect(callSid, twiml) {
-  const { rows } = await pool.query('SELECT id, title, type FROM messages ORDER BY created_at DESC LIMIT 9');
+async function startBroadcastCategorySelect(callSid, twiml) {
+  await updateSession(callSid, 'broadcast_category_select');
+  broadcastCategoryPrompt(twiml);
+}
+
+function broadcastCategoryPrompt(twiml, retry = false) {
+  const prefix = retry ? "Sorry, I didn't get that. " : '';
+  gatherDigits(
+    twiml,
+    `${BASE_URL}/voice/handle`,
+    `${prefix}Press 1 for texts. Press 2 for recordings. Press 3 for photos.`,
+    { numDigits: 1 }
+  );
+}
+
+const BROADCAST_CATEGORY_TYPES = {
+  '1': ['sms'],
+  '2': ['voice_note', 'call'],
+  '3': ['image'],
+};
+
+async function startBroadcastMessageSelect(callSid, twiml, types) {
+  const { rows } = await pool.query(
+    'SELECT id, title, type FROM messages WHERE type = ANY($1::text[]) ORDER BY created_at DESC LIMIT 9',
+    [types]
+  );
   if (!rows.length) {
-    twiml.say('You have no saved messages to send.', SAY_OPTS);
+    twiml.say('You have no saved messages of that kind yet.', SAY_OPTS);
     await updateSession(callSid, 'main_menu');
     mainMenu(twiml);
     return;
@@ -974,17 +1008,17 @@ router.post('/sms-incoming', async (req, res) => {
   const twiml = new MessagingResponse();
 
   try {
-    const { rows } = await pool.query(`SELECT value FROM settings WHERE key = 'owner_phone_number'`);
-    const ownerPhone = rows.length ? rows[0].value : null;
+    const { rows } = await pool.query('SELECT 1 FROM trusted_phones WHERE phone_number = $1', [from]);
+    const isTrusted = rows.length > 0;
 
-    if (ownerPhone && from === ownerPhone && body && body.trim()) {
+    if (isTrusted && body && body.trim()) {
       await pool.query(
         `INSERT INTO messages (title, type, text_content) VALUES ($1, 'sms', $2)`,
         [`Texted in`, body.trim()]
       );
       twiml.message('Saved to Wonder Solutions as a new text message.');
     }
-    // If it's not from the owner's number, respond with nothing — don't
+    // If it's not from a trusted number, respond with nothing — don't
     // acknowledge or process messages from anyone else.
   } catch (err) {
     console.error('sms-incoming error:', err);
