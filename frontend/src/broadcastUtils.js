@@ -38,6 +38,13 @@ export function groupSendsIntoBroadcasts(sends) {
     b.sortTime = b.scheduledAt || b.latestSentAt || b.createdAt;
     b.totalCost = b.recipients.reduce((sum, r) => sum + (r.cost ? parseFloat(r.cost) : 0), 0);
     b.costUnit = b.recipients.find((r) => r.cost_unit)?.cost_unit || 'USD';
+
+    b.methodCounts = b.recipients.reduce((acc, r) => {
+      acc[r.effective_method] = (acc[r.effective_method] || 0) + 1;
+      return acc;
+    }, {});
+    const distinctMethods = Object.keys(b.methodCounts);
+    b.singleMethod = distinctMethods.length === 1 ? distinctMethods[0] : null;
   }
 
   broadcasts.sort((a, b) => new Date(b.sortTime) - new Date(a.sortTime));

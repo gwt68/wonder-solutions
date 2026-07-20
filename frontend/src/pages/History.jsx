@@ -20,7 +20,7 @@ const ANSWERED_BY_LABELS = {
 
 const METHOD_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
 const METHOD_ICONS = { sms: 'ti-message', call: 'ti-phone', voice_note: 'ti-microphone' };
-const TYPE_LABELS = { sms: 'Text', voice_note: 'Recording', image: 'Photo' };
+
 
 function formatDuration(seconds) {
   if (!seconds && seconds !== 0) return null;
@@ -101,7 +101,7 @@ export default function History() {
                   <div>
                     <div style={{ fontWeight: 500, fontSize: 14.5 }}>
                       {b.messageTitle || 'Untitled message'}
-                      <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}> · {TYPE_LABELS[b.messageType] || b.messageType}</span>
+                      <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}> · {b.singleMethod ? (METHOD_LABELS[b.singleMethod] || b.singleMethod) : 'Mixed methods'}</span>
                     </div>
                     <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginTop: 2 }}>
                       To {b.total} recipient{b.total !== 1 ? 's' : ''}
