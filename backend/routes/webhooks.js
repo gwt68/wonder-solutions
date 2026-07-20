@@ -93,6 +93,7 @@ async function retryMissingCosts() {
       `SELECT id, twilio_sid, method FROM sends
        WHERE cost IS NULL AND twilio_sid IS NOT NULL AND status = 'sent'
          AND created_at > NOW() - INTERVAL '24 hours'
+       ORDER BY created_at ASC
        LIMIT 50`
     );
     if (!rows.length) return;
