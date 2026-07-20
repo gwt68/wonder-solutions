@@ -260,16 +260,16 @@ export default function SendForm({ message, onSent }) {
                 <div
                   key={c.id}
                   style={{
-                    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+                    display: 'grid', gridTemplateColumns: '20px 150px 1fr', alignItems: 'center', gap: 10,
                     padding: '9px 12px', borderBottom: '1px solid var(--line)',
                   }}
                 >
-                  <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} style={{ flexShrink: 0 }} />
-                  <div style={{ flexShrink: 0, width: 150, overflow: 'hidden' }}>
+                  <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} />
+                  <div style={{ overflow: 'hidden' }}>
                     <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || 'Unnamed contact'}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.phone_number}</div>
                   </div>
-                  <div style={{ display: 'flex', gap: 5, flexShrink: 0, marginLeft: 'auto' }}>
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     {methods.map((m) => {
                       const isActive = isSelected && activeMethods.has(m);
                       const disabled =
