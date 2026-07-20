@@ -19,7 +19,7 @@ function livelyVoice(node) {
   const originalSay = node.say.bind(node);
   node.say = (text, opts = {}) => {
     const sayNode = originalSay({ ...SAY_OPTS, ...opts });
-    sayNode.prosody({ rate: '112%', pitch: '+8%' }, text);
+    sayNode.prosody({ rate: '112%' }, text);
     return sayNode;
   };
   return node;
