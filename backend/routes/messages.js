@@ -33,7 +33,10 @@ router.post('/', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO messages (title, type, text_content, audio_url)
-       VALUES ($1, $2, $3, $4) RETURNING id, title, type, text_content, audio_url, created_at`,
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, title, type, text_content, audio_url,
+                 (audio_data IS NOT NULL) AS has_uploaded_audio,
+                 (image_data IS NOT NULL) AS has_image, created_at`,
       [title || null, type, text_content || null, audio_url || null]
     );
     res.status(201).json(rows[0]);
@@ -53,7 +56,9 @@ router.post('/upload', requireAuth, upload.single('audio'), async (req, res) => 
     const { rows } = await pool.query(
       `INSERT INTO messages (title, type, audio_data, audio_mime_type)
        VALUES ($1, 'voice_note', $2, $3)
-       RETURNING id, title, type, text_content, audio_url, created_at`,
+       RETURNING id, title, type, text_content, audio_url,
+                 (audio_data IS NOT NULL) AS has_uploaded_audio,
+                 (image_data IS NOT NULL) AS has_image, created_at`,
       [title, req.file.buffer, req.file.mimetype]
     );
     res.status(201).json(rows[0]);
@@ -73,7 +78,9 @@ router.post('/upload-image', requireAuth, upload.single('image'), async (req, re
     const { rows } = await pool.query(
       `INSERT INTO messages (title, type, image_data, image_mime_type)
        VALUES ($1, 'image', $2, $3)
-       RETURNING id, title, type, text_content, audio_url, created_at`,
+       RETURNING id, title, type, text_content, audio_url,
+                 (audio_data IS NOT NULL) AS has_uploaded_audio,
+                 (image_data IS NOT NULL) AS has_image, created_at`,
       [title, req.file.buffer, req.file.mimetype]
     );
     res.status(201).json(rows[0]);
@@ -92,7 +99,9 @@ router.put('/:id', requireAuth, async (req, res) => {
          title = COALESCE($1, title),
          text_content = COALESCE($2, text_content)
        WHERE id = $3
-       RETURNING id, title, type, text_content, audio_url, created_at`,
+       RETURNING id, title, type, text_content, audio_url,
+                 (audio_data IS NOT NULL) AS has_uploaded_audio,
+                 (image_data IS NOT NULL) AS has_image, created_at`,
       [title, text_content, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Message not found' });
@@ -115,7 +124,9 @@ router.put('/:id/audio', requireAuth, upload.single('audio'), async (req, res) =
          audio_mime_type = $2,
          audio_url = NULL
        WHERE id = $3
-       RETURNING id, title, type, text_content, audio_url, created_at`,
+       RETURNING id, title, type, text_content, audio_url,
+                 (audio_data IS NOT NULL) AS has_uploaded_audio,
+                 (image_data IS NOT NULL) AS has_image, created_at`,
       [req.file.buffer, req.file.mimetype, req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Message not found' });

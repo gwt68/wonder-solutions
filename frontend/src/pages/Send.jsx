@@ -1,64 +1,34 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { api, audioUrl, imageUrl } from '../api.js';
 import SendForm from '../components/SendForm.jsx';
 
-const TYPE_ICONS = { sms: 'ti-message', call: 'ti-phone', voice_note: 'ti-microphone', image: 'ti-photo' };
+const CHANNELS = [
+  { key: 'sms', label: 'Text message', icon: 'ti-message', desc: 'A plain text message' },
+  { key: 'call', label: 'Phone call', icon: 'ti-phone', desc: 'Something read aloud, or an audio recording played on a call' },
+  { key: 'voice_note', label: 'Voice note (MMS)', icon: 'ti-microphone', desc: 'An audio clip or photo sent as a picture/voice message' },
+];
 
 export default function Send() {
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [step, setStep] = useState('channel'); // 'channel' | 'compose' | 'recipients'
+  const [channel, setChannel] = useState(null);
+  const [message, setMessage] = useState(null);
   const [error, setError] = useState('');
-  const [selected, setSelected] = useState(null);
 
-  useEffect(() => {
-    api.messages.list()
-      .then(setMessages)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const texts = messages.filter((m) => m.type === 'sms');
-  const recordings = messages.filter((m) => m.type === 'voice_note' || m.type === 'call');
-  const photos = messages.filter((m) => m.type === 'image');
-
-  function MessageCard({ m }) {
-    return (
-      <button
-        type="button"
-        onClick={() => setSelected(m)}
-        className="card"
-        style={{
-          textAlign: 'left', padding: 14, cursor: 'pointer', border: '1px solid var(--line)',
-          display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-        }}
-      >
-        <div style={{
-          width: 32, height: 32, borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--accent)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 15,
-        }}>
-          <i className={`ti ${TYPE_ICONS[m.type] || 'ti-file'}`} />
-        </div>
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontWeight: 500, fontSize: 14, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {m.title || 'Untitled'}
-          </div>
-          {m.text_content && (
-            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {m.text_content}
-            </div>
-          )}
-        </div>
-      </button>
-    );
+  function chooseChannel(c) {
+    setChannel(c);
+    setStep('compose');
+    setError('');
   }
 
-  function MessageGrid({ items }) {
-    if (!items.length) return <p style={{ fontSize: 13, color: 'var(--ink-faint)' }}>None yet.</p>;
-    return (
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, marginBottom: 24 }}>
-        {items.map((m) => <MessageCard key={m.id} m={m} />)}
-      </div>
-    );
+  function backToChannels() {
+    setStep('channel');
+    setChannel(null);
+    setMessage(null);
+  }
+
+  async function handleComposed(newMessage) {
+    setMessage(newMessage);
+    setStep('recipients');
   }
 
   return (
@@ -66,59 +36,196 @@ export default function Send() {
       <div className="page-header">
         <div>
           <h1>Send</h1>
-          <p>Pick a message, then choose who gets it</p>
+          <p>Choose what you want to send, write it, then pick who gets it</p>
         </div>
       </div>
 
       {error && <div className="banner error">{error}</div>}
 
-      {!selected ? (
-        loading ? (
-          <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
-        ) : messages.length === 0 ? (
-          <div className="card empty-state">
-            <h3>Nothing to send yet</h3>
-            <p>Create a text, recording, or photo on the Messages page first.</p>
-          </div>
-        ) : (
-          <div>
-            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Texts</h3>
-            <MessageGrid items={texts} />
-            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Recordings</h3>
-            <MessageGrid items={recordings} />
-            <h3 style={{ fontSize: 14, marginBottom: 10 }}>Photos</h3>
-            <MessageGrid items={photos} />
-          </div>
-        )
-      ) : (
+      {step === 'channel' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, maxWidth: 720 }}>
+          {CHANNELS.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              className="card"
+              onClick={() => chooseChannel(c.key)}
+              style={{ textAlign: 'left', padding: 20, cursor: 'pointer', border: '1px solid var(--line)' }}
+            >
+              <div style={{
+                width: 38, height: 38, borderRadius: 9, background: 'var(--accent-soft)', color: 'var(--accent)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, marginBottom: 12,
+              }}>
+                <i className={`ti ${c.icon}`} />
+              </div>
+              <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 4 }}>{c.label}</div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{c.desc}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {step === 'compose' && (
+        <ComposeForm
+          channel={channel}
+          onBack={backToChannels}
+          onComposed={handleComposed}
+          setError={setError}
+        />
+      )}
+
+      {step === 'recipients' && message && (
         <div className="card" style={{ padding: 22, maxWidth: 560 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
             <div>
               <p style={{ fontSize: 12.5, color: 'var(--ink-soft)', margin: '0 0 2px' }}>Sending</p>
-              <p style={{ fontWeight: 600, fontSize: 15.5 }}>{selected.title || 'Untitled message'}</p>
+              <p style={{ fontWeight: 600, fontSize: 15.5 }}>{message.title || 'Untitled message'}</p>
             </div>
-            <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setSelected(null)}>
-              Change message
+            <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={backToChannels}>
+              Start over
             </button>
           </div>
 
-          {selected.text_content && (
+          {message.text_content && (
             <p style={{ fontSize: 14, background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 14, whiteSpace: 'pre-wrap' }}>
-              {selected.text_content}
+              {message.text_content}
             </p>
           )}
-          {(selected.audio_url || selected.has_uploaded_audio) && (
-            <audio controls src={audioUrl(selected.id)} style={{ width: '100%', marginBottom: 14 }} />
+          {(message.audio_url || message.has_uploaded_audio) && (
+            <audio controls src={audioUrl(message.id)} style={{ width: '100%', marginBottom: 14 }} />
           )}
-          {selected.has_image && (
-            <img src={imageUrl(selected.id)} alt={selected.title || 'Photo'} style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, marginBottom: 14, display: 'block' }} />
+          {message.has_image && (
+            <img src={imageUrl(message.id)} alt={message.title || 'Photo'} style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, marginBottom: 14, display: 'block' }} />
           )}
 
           <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
-            <SendForm key={selected.id} message={selected} />
+            <SendForm key={message.id} message={message} />
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ComposeForm({ channel, onBack, onComposed, setError }) {
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [audioFile, setAudioFile] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [mediaKind, setMediaKind] = useState('audio'); // for voice_note: 'audio' | 'image'
+  const [saving, setSaving] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+
+    if (channel === 'sms' && !body.trim()) {
+      setError('Enter a message to send');
+      return;
+    }
+    if (channel === 'call' && !body.trim() && !audioFile) {
+      setError('Enter something to read aloud, or upload a recording');
+      return;
+    }
+    if (channel === 'voice_note') {
+      if (mediaKind === 'audio' && !audioFile) { setError('Choose an audio file to upload'); return; }
+      if (mediaKind === 'image' && !imageFile) { setError('Choose a photo to upload'); return; }
+    }
+
+    setSaving(true);
+    try {
+      let created;
+      if (channel === 'sms') {
+        created = await api.messages.create({ type: 'sms', title: title || null, text_content: body });
+      } else if (channel === 'call') {
+        if (audioFile) {
+          created = await api.messages.uploadAudio(audioFile, title || audioFile.name);
+          if (body.trim()) created = await api.messages.editText(created.id, created.title, body);
+        } else {
+          created = await api.messages.create({ type: 'sms', title: title || null, text_content: body });
+        }
+      } else if (channel === 'voice_note') {
+        if (mediaKind === 'audio') {
+          created = await api.messages.uploadAudio(audioFile, title || audioFile.name);
+        } else {
+          created = await api.messages.uploadImage(imageFile, title || imageFile.name);
+        }
+        if (body.trim()) created = await api.messages.editText(created.id, created.title, body);
+      }
+      onComposed(created);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const channelInfo = CHANNELS.find((c) => c.key === channel);
+
+  return (
+    <div className="card" style={{ padding: 22, maxWidth: 520 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <h3 style={{ fontSize: 15 }}>{channelInfo.label}</h3>
+        <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={onBack}>Back</button>
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        <div className="field">
+          <label>Title (for your reference only)</label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional" />
+        </div>
+
+        {channel === 'sms' && (
+          <div className="field">
+            <label>Message</label>
+            <textarea required rows={5} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What should this text say?" />
+          </div>
+        )}
+
+        {channel === 'call' && (
+          <>
+            <div className="field">
+              <label>Message to read aloud (leave blank if uploading a recording instead)</label>
+              <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What should be said on the call?" />
+            </div>
+            <div className="field">
+              <label>Or upload a recording instead</label>
+              <input type="file" accept="audio/*" onChange={(e) => setAudioFile(e.target.files?.[0] || null)} />
+            </div>
+          </>
+        )}
+
+        {channel === 'voice_note' && (
+          <>
+            <div className="field">
+              <label>What are you sending?</label>
+              <div className="chip-select">
+                <button type="button" className={`chip-toggle ${mediaKind === 'audio' ? 'active' : ''}`} onClick={() => setMediaKind('audio')}>Audio</button>
+                <button type="button" className={`chip-toggle ${mediaKind === 'image' ? 'active' : ''}`} onClick={() => setMediaKind('image')}>Photo</button>
+              </div>
+            </div>
+            {mediaKind === 'audio' ? (
+              <div className="field">
+                <label>Audio file</label>
+                <input type="file" accept="audio/*" onChange={(e) => setAudioFile(e.target.files?.[0] || null)} />
+              </div>
+            ) : (
+              <div className="field">
+                <label>Photo</label>
+                <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
+              </div>
+            )}
+            <div className="field">
+              <label>Caption (optional — sent as text alongside it)</label>
+              <textarea rows={3} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Add a message to go with it" />
+            </div>
+          </>
+        )}
+
+        <button type="submit" className="btn" disabled={saving} style={{ width: '100%' }}>
+          {saving ? 'Saving...' : 'Continue to recipients'}
+        </button>
+      </form>
     </div>
   );
 }

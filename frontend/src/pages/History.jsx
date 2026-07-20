@@ -20,7 +20,7 @@ const ANSWERED_BY_LABELS = {
 
 const METHOD_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
 const METHOD_ICONS = { sms: 'ti-message', call: 'ti-phone', voice_note: 'ti-microphone' };
-const TYPE_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
+const TYPE_LABELS = { sms: 'Text', voice_note: 'Recording', image: 'Photo' };
 
 function formatDuration(seconds) {
   if (!seconds && seconds !== 0) return null;

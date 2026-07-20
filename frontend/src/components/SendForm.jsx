@@ -119,11 +119,36 @@ export default function SendForm({ message, onSent }) {
   if (loading) return <p style={{ color: 'var(--ink-soft)' }}>Loading contacts...</p>;
 
   if (result) {
+    if (result.scheduled) {
+      return (
+        <div className="banner ok">
+          Scheduled for {result.count} recipient{result.count !== 1 ? 's' : ''}.
+        </div>
+      );
+    }
+
+    const failed = (result.sends || []).filter((s) => s.status === 'failed');
+    const succeeded = result.count - failed.length;
+
     return (
-      <div className="banner ok">
-        {result.scheduled
-          ? `Scheduled for ${result.count} recipient${result.count !== 1 ? 's' : ''}.`
-          : `Sent to ${result.count} recipient${result.count !== 1 ? 's' : ''}.`}
+      <div>
+        {succeeded > 0 && (
+          <div className="banner ok">
+            Sent to {succeeded} recipient{succeeded !== 1 ? 's' : ''}.
+          </div>
+        )}
+        {failed.length > 0 && (
+          <div className="banner error">
+            <strong>{failed.length} failed to send:</strong>
+            <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {failed.map((s) => (
+                <li key={s.id} style={{ fontSize: 13 }}>
+                  {s.error_message || 'Unknown error'}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     );
   }
