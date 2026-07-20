@@ -7,8 +7,23 @@ const { createSendBatch } = require('./sends');
 const VoiceResponse = twilio.twiml.VoiceResponse;
 const BASE_URL = process.env.BASE_URL; // e.g. https://wonder-solutions-backend.up.railway.app
 
-// A more natural-sounding voice for every spoken prompt (Amazon Polly neural voice via Twilio).
-const SAY_OPTS = { voice: 'Polly.Joanna-Neural' };
+// A male neural voice, spoken with a touch more pace and pitch for a livelier,
+// more energetic feel than flat default TTS.
+const SAY_OPTS = { voice: 'Polly.Matthew-Neural' };
+
+// Wraps a TwiML node (VoiceResponse or a <Gather>) so every .say() call on it
+// automatically gets a bit of extra energy via real SSML prosody (using
+// Twilio's actual builder methods — passing raw SSML as a plain string gets
+// escaped and read aloud literally, so this has to go through .prosody()).
+function livelyVoice(node) {
+  const originalSay = node.say.bind(node);
+  node.say = (text, opts = {}) => {
+    const sayNode = originalSay({ ...SAY_OPTS, ...opts });
+    sayNode.prosody({ rate: '112%', pitch: '+8%' }, text);
+    return sayNode;
+  };
+  return node;
+}
 
 // Classic phone-keypad multi-tap letters, for entering a name via touch-tone.
 const KEY_LETTERS = {
@@ -60,13 +75,13 @@ async function getPin() {
 // ---------- prompt builders ----------
 
 function gatherDigits(twiml, action, prompt, opts = {}) {
-  const gather = twiml.gather({
+  const gather = livelyVoice(twiml.gather({
     numDigits: opts.numDigits,
     finishOnKey: opts.finishOnKey ?? '#',
     action,
     method: 'POST',
     timeout: opts.timeout ?? 8,
-  });
+  }));
   gather.say(prompt, SAY_OPTS);
   // if caller enters nothing, Twilio falls through past <Gather> - repeat the menu
   twiml.redirect(action.replace('/handle', '/repeat'));
@@ -85,7 +100,7 @@ router.post('/incoming', async (req, res) => {
   await clearSession(callSid); // fresh session on every new call
   await getSession(callSid); // creates pin_entry session
 
-  const twiml = new VoiceResponse();
+  const twiml = livelyVoice(new VoiceResponse());
   gatherDigits(
     twiml,
     `${BASE_URL}/voice/handle`,
@@ -103,7 +118,7 @@ router.post('/handle', async (req, res) => {
   // Appending .mp3 gives the actual playable media.
   const recordingUrl = req.body.RecordingUrl ? `${req.body.RecordingUrl}.mp3` : null;
   const session = await getSession(callSid);
-  const twiml = new VoiceResponse();
+  const twiml = livelyVoice(new VoiceResponse());
 
   switch (session.step) {
     case 'pin_entry': {
@@ -528,7 +543,7 @@ router.post('/handle', async (req, res) => {
 router.post('/repeat', async (req, res) => {
   const callSid = req.body.CallSid;
   const session = await getSession(callSid);
-  const twiml = new VoiceResponse();
+  const twiml = livelyVoice(new VoiceResponse());
   // simplest approach: send caller back through /handle with no digits, which
   // re-prompts for most steps. Recording steps rely on Twilio's own timeout instead.
   twiml.redirect(`${BASE_URL}/voice/handle`);
@@ -591,12 +606,12 @@ async function startReview(callSid, twiml) {
 async function playReviewMessage(twiml, messageId, index, total) {
   const { rows } = await pool.query('SELECT * FROM messages WHERE id = $1', [messageId]);
   const msg = rows[0];
-  const gather = twiml.gather({
+  const gather = livelyVoice(twiml.gather({
     numDigits: 1,
     action: `${BASE_URL}/voice/handle`,
     method: 'POST',
     timeout: 8,
-  });
+  }));
   gather.say(`Message ${index + 1} of ${total}.`, SAY_OPTS);
   if (msg.audio_url) gather.play(msg.audio_url);
   gather.say('Press 1 to keep, press 2 to delete, press pound for the next message, press 0 to return to the main menu.', SAY_OPTS);
@@ -645,7 +660,7 @@ async function announceStatus(twiml) {
 }
 
 function gatherSingleKey(twiml, action, prompt) {
-  const gather = twiml.gather({ numDigits: 1, finishOnKey: '', action, method: 'POST', timeout: 5 });
+  const gather = livelyVoice(twiml.gather({ numDigits: 1, finishOnKey: '', action, method: 'POST', timeout: 5 }));
   if (prompt) gather.say(prompt, SAY_OPTS);
   twiml.redirect(action.replace('/handle', '/repeat'));
   return twiml;
