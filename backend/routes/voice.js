@@ -7,6 +7,9 @@ const { createSendBatch } = require('./sends');
 const VoiceResponse = twilio.twiml.VoiceResponse;
 const BASE_URL = process.env.BASE_URL; // e.g. https://wonder-solutions-backend.up.railway.app
 
+// A more natural-sounding voice for every spoken prompt (Amazon Polly neural voice via Twilio).
+const SAY_OPTS = { voice: 'Polly.Joanna-Neural' };
+
 // Classic phone-keypad multi-tap letters, for entering a name via touch-tone.
 const KEY_LETTERS = {
   '2': ['A', 'B', 'C'],
@@ -32,14 +35,17 @@ async function getSession(callSid) {
 }
 
 async function updateSession(callSid, step, dataPatch = {}, attempts = null) {
-  const session = await getSession(callSid);
-  const newData = { ...session.data, ...dataPatch };
-  const newAttempts = attempts !== null ? attempts : session.attempts;
-  await pool.query(
-    `UPDATE call_sessions SET step = $1, data = $2, attempts = $3, updated_at = NOW() WHERE call_sid = $4`,
-    [step, newData, newAttempts, callSid]
+  // Merges the data patch directly in Postgres (JSONB concatenation), avoiding
+  // an extra SELECT before the UPDATE — cuts a full DB round trip off every
+  // single interaction, which matters a lot for how snappy the call feels.
+  const { rows } = await pool.query(
+    `UPDATE call_sessions
+     SET step = $1, data = data || $2::jsonb, attempts = COALESCE($3, attempts), updated_at = NOW()
+     WHERE call_sid = $4
+     RETURNING *`,
+    [step, JSON.stringify(dataPatch), attempts, callSid]
   );
-  return { ...session, step, data: newData, attempts: newAttempts };
+  return rows[0];
 }
 
 async function clearSession(callSid) {
@@ -61,14 +67,14 @@ function gatherDigits(twiml, action, prompt, opts = {}) {
     method: 'POST',
     timeout: opts.timeout ?? 8,
   });
-  gather.say(prompt);
+  gather.say(prompt, SAY_OPTS);
   // if caller enters nothing, Twilio falls through past <Gather> - repeat the menu
   twiml.redirect(action.replace('/handle', '/repeat'));
   return twiml;
 }
 
 function say(twiml, text) {
-  twiml.say(text);
+  twiml.say(text, SAY_OPTS);
   return twiml;
 }
 
@@ -83,7 +89,7 @@ router.post('/incoming', async (req, res) => {
   gatherDigits(
     twiml,
     `${BASE_URL}/voice/handle`,
-    'Welcome. Please enter your P I N followed by the pound sign.'
+    'Welcome. Please enter your PIN followed by the pound sign.'
   );
   res.type('text/xml').send(twiml.toString());
 });
@@ -294,7 +300,7 @@ router.post('/handle', async (req, res) => {
       if (result.finished) {
         const finalName = result.data.name_buffer.trim();
         await updateSession(callSid, 'contact_method_select', { pending_name: finalName || null });
-        twiml.say(finalName ? `Name saved as ${finalName.split('').join(' ')}.` : 'No name entered.');
+        twiml.say(finalName ? `Name saved as ${finalName.split('').join(' ')}.` : 'No name entered.', SAY_OPTS);
         methodSelect(twiml);
       } else {
         await updateSession(callSid, 'contact_name_entry_key', result.data);
@@ -396,7 +402,7 @@ router.post('/handle', async (req, res) => {
       } else if (digits === '2') {
         const groups = await pool.query('SELECT id, name FROM groups ORDER BY id');
         if (!groups.rows.length) {
-          twiml.say('You have no groups yet.');
+          twiml.say('You have no groups yet.', SAY_OPTS);
           broadcastTargetPrompt(twiml);
         } else {
           await updateSession(callSid, 'broadcast_group_pick', { group_page: groups.rows });
@@ -452,7 +458,7 @@ router.post('/handle', async (req, res) => {
       if (digits === '1') {
         await executeBroadcast(callSid, twiml);
       } else {
-        twiml.say('Cancelled.');
+        twiml.say('Cancelled.', SAY_OPTS);
         await updateSession(callSid, 'main_menu');
         mainMenu(twiml);
       }
@@ -467,16 +473,16 @@ router.post('/handle', async (req, res) => {
         if (rows.length) {
           const groups = await pool.query('SELECT id, name FROM groups ORDER BY id');
           if (!groups.rows.length) {
-            twiml.say('You have no groups yet. Create one first from the web portal, or by adding a new contact by phone.');
+            twiml.say('You have no groups yet. Create one first from the web portal, or by adding a new contact by phone.', SAY_OPTS);
             await updateSession(callSid, 'main_menu');
             mainMenu(twiml);
           } else {
             await updateSession(callSid, 'assign_group_select', { assign_contact_id: rows[0].id, group_page: groups.rows });
-            twiml.say(`Found ${rows[0].name || 'that contact'}.`);
+            twiml.say(`Found ${rows[0].name || 'that contact'}.`, SAY_OPTS);
             broadcastGroupList(twiml, groups.rows);
           }
         } else {
-          twiml.say('No contact found with that number.');
+          twiml.say('No contact found with that number.', SAY_OPTS);
           assignGroupPhoneEntry(twiml);
         }
       } else {
@@ -498,7 +504,7 @@ router.post('/handle', async (req, res) => {
             `INSERT INTO contact_groups (contact_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
             [session.data.assign_contact_id, group.id]
           );
-          twiml.say(`Added to ${group.name}.`);
+          twiml.say(`Added to ${group.name}.`, SAY_OPTS);
           await updateSession(callSid, 'main_menu');
           mainMenu(twiml);
         } else {
@@ -548,7 +554,7 @@ function mainMenu(twiml, retry = false) {
 }
 
 function recordPrompt(twiml) {
-  twiml.say('Record your message after the beep. Press pound when finished.');
+  twiml.say('Record your message after the beep. Press pound when finished.', SAY_OPTS);
   twiml.record({
     action: `${BASE_URL}/voice/handle`,
     method: 'POST',
@@ -571,14 +577,14 @@ function recordReviewPrompt(twiml, retry = false) {
 async function startReview(callSid, twiml) {
   const { rows } = await pool.query(`SELECT id FROM messages ORDER BY created_at DESC`);
   if (!rows.length) {
-    twiml.say('You have no saved messages.');
+    twiml.say('You have no saved messages.', SAY_OPTS);
     await updateSession(callSid, 'main_menu');
     mainMenu(twiml);
     return;
   }
   const ids = rows.map(r => r.id);
   await updateSession(callSid, 'review_list', { message_ids: ids, review_index: 0 });
-  twiml.say(`You have ${ids.length} saved messages.`);
+  twiml.say(`You have ${ids.length} saved messages.`, SAY_OPTS);
   await playReviewMessage(twiml, ids[0], 0, ids.length);
 }
 
@@ -591,9 +597,9 @@ async function playReviewMessage(twiml, messageId, index, total) {
     method: 'POST',
     timeout: 8,
   });
-  gather.say(`Message ${index + 1} of ${total}.`);
+  gather.say(`Message ${index + 1} of ${total}.`, SAY_OPTS);
   if (msg.audio_url) gather.play(msg.audio_url);
-  gather.say('Press 1 to keep, press 2 to delete, press pound for the next message, press 0 to return to the main menu.');
+  gather.say('Press 1 to keep, press 2 to delete, press pound for the next message, press 0 to return to the main menu.', SAY_OPTS);
   twiml.redirect(`${BASE_URL}/voice/repeat`);
 }
 
@@ -634,13 +640,13 @@ async function announceStatus(twiml) {
     `${groupCount} group${groupCount === '1' ? '' : 's'}, and ` +
     `${messageCount} saved message${messageCount === '1' ? '' : 's'}. ` +
     `${sentToday} message${sentToday === '1' ? '' : 's'} sent today.`
-  );
+  , SAY_OPTS);
   mainMenu(twiml);
 }
 
 function gatherSingleKey(twiml, action, prompt) {
   const gather = twiml.gather({ numDigits: 1, finishOnKey: '', action, method: 'POST', timeout: 5 });
-  if (prompt) gather.say(prompt);
+  if (prompt) gather.say(prompt, SAY_OPTS);
   twiml.redirect(action.replace('/handle', '/repeat'));
   return twiml;
 }
@@ -660,7 +666,7 @@ function nameEntryPrompt(twiml) {
     'Press a number key one or more times to choose a letter. ' +
     'Press a different key to move to the next letter. ' +
     'Press star to erase, 0 for space, and pound when you are finished.'
-  );
+  , SAY_OPTS);
   gatherSingleKey(twiml, `${BASE_URL}/voice/handle`, 'Go ahead.');
 }
 
@@ -766,7 +772,7 @@ function groupList(twiml, groups, retry = false) {
 }
 
 function newGroupRecordPrompt(twiml) {
-  twiml.say("Record the new group's name after the beep, then press pound.");
+  twiml.say("Record the new group's name after the beep, then press pound.", SAY_OPTS);
   twiml.record({
     action: `${BASE_URL}/voice/handle`,
     method: 'POST',
@@ -799,7 +805,7 @@ async function saveContact(callSid, twiml, groupId) {
   }
 
   await updateSession(callSid, 'contact_saved_next');
-  twiml.say('Contact saved.');
+  twiml.say('Contact saved.', SAY_OPTS);
   gatherDigits(
     twiml,
     `${BASE_URL}/voice/handle`,
@@ -813,7 +819,7 @@ async function saveContact(callSid, twiml, groupId) {
 async function startBroadcastMessageSelect(callSid, twiml) {
   const { rows } = await pool.query('SELECT id, title, type FROM messages ORDER BY created_at DESC LIMIT 9');
   if (!rows.length) {
-    twiml.say('You have no saved messages to send.');
+    twiml.say('You have no saved messages to send.', SAY_OPTS);
     await updateSession(callSid, 'main_menu');
     mainMenu(twiml);
     return;
@@ -895,15 +901,15 @@ async function executeBroadcast(callSid, twiml) {
   }
 
   if (!contactIds.length) {
-    twiml.say('No recipients found.');
+    twiml.say('No recipients found.', SAY_OPTS);
   } else {
     const recipients = contactIds.map((id) => ({ contact_id: id })); // uses each contact's own default method
     try {
       const result = await createSendBatch({ message_id: broadcast_message_id, recipients });
-      twiml.say(`Sent to ${result.count} recipient${result.count === 1 ? '' : 's'}.`);
+      twiml.say(`Sent to ${result.count} recipient${result.count === 1 ? '' : 's'}.`, SAY_OPTS);
     } catch (err) {
       console.error('IVR broadcast error:', err);
-      twiml.say('Something went wrong sending the message.');
+      twiml.say('Something went wrong sending the message.', SAY_OPTS);
     }
   }
   await updateSession(callSid, 'main_menu');
