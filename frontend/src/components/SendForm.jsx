@@ -282,7 +282,7 @@ export default function SendForm({ message, onSent }) {
                           key={m}
                           type="button"
                           disabled={disabled}
-                          onClick={() => { if (!isSelected) toggleContact(c); toggleMethodForContact(c, m); }}
+                          onClick={() => toggleMethodForContact(c, m)}
                           className={`method-toggle ${isActive ? 'active' : ''}`}
                           title={disabled ? disabledReason : methodExplanation}
                         >
