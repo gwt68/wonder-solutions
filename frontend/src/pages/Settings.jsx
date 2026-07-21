@@ -50,6 +50,7 @@ export default function Settings() {
   const [twilioNumber, setTwilioNumber] = useState(null);
 
   const [users, setUsers] = useState([]);
+  const [editingUser, setEditingUser] = useState(null);
   const [usersLoading, setUsersLoading] = useState(true);
   const [newUserName, setNewUserName] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
@@ -318,13 +319,16 @@ export default function Settings() {
                 <div className="row-main">
                   <span className="row-title">{u.name || u.username}</span>
                   <span className="row-sub">
-                    @{u.username}
+                    {u.username}
                     {u.phone && ` · ${u.phone}`}
                     {u.email && ` · ${u.email}`}
                     {' · Added '}{new Date(u.created_at).toLocaleDateString()}
                   </span>
                 </div>
-                <button className="icon-btn danger" onClick={() => handleRemoveUser(u.id)} aria-label="Remove user"><i className="ti ti-trash" /></button>
+                <div className="row-actions">
+                  <button className="icon-btn" onClick={() => setEditingUser(u)} aria-label="Edit user"><i className="ti ti-edit" /></button>
+                  <button className="icon-btn danger" onClick={() => handleRemoveUser(u.id)} aria-label="Remove user"><i className="ti ti-trash" /></button>
+                </div>
               </div>
             ))}
           </div>
@@ -393,6 +397,75 @@ export default function Settings() {
             <input value={newTpLabel} onChange={(e) => setNewTpLabel(e.target.value)} placeholder="e.g. my cell" />
           </div>
           <button type="submit" className="btn" disabled={addingTp}>{addingTp ? 'Adding...' : 'Add number'}</button>
+        </form>
+      </div>
+
+      {editingUser && (
+        <EditUserModal
+          user={editingUser}
+          onClose={() => setEditingUser(null)}
+          onSaved={() => { setEditingUser(null); loadUsers(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditUserModal({ user, onClose, onSaved }) {
+  const [username, setUsername] = useState(user.username || '');
+  const [name, setName] = useState(user.name || '');
+  const [phone, setPhone] = useState(user.phone || '');
+  const [email, setEmail] = useState(user.email || '');
+  const [newPassword, setNewPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  async function handleSave(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const extra = { name: name || null, phone: phone || null, email: email || null };
+      if (newPassword) extra.password = newPassword;
+      await api.users.update(user.id, username, extra);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Edit user</h2>
+        {error && <div className="banner error">{error}</div>}
+        <form onSubmit={handleSave}>
+          <div className="field">
+            <label>Full name</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" />
+          </div>
+          <div className="field">
+            <label>Username</label>
+            <input required minLength={2} value={username} onChange={(e) => setUsername(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Phone</label>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Optional" />
+          </div>
+          <div className="field">
+            <label>Email</label>
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Optional" />
+          </div>
+          <div className="field">
+            <label>New password (leave blank to keep current password)</label>
+            <PasswordInput minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+          </div>
+          <div className="modal-actions">
+            <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</button>
+          </div>
         </form>
       </div>
     </div>

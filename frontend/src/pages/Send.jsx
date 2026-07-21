@@ -142,7 +142,8 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
       mr.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         setRecordedUrl(URL.createObjectURL(blob));
-        onFileChosen(new File([blob], 'recording.webm', { type: 'audio/webm' }));
+        const stamp = new Date().toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+        onFileChosen(new File([blob], `Recording ${stamp}.webm`, { type: 'audio/webm' }));
         streamRef.current?.getTracks().forEach((t) => t.stop());
       };
       mr.start();

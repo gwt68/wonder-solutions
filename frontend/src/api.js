@@ -148,6 +148,7 @@ export const api = {
   users: {
     list: () => request('/users'),
     create: (username, password, extra = {}) => request('/users', { method: 'POST', body: JSON.stringify({ username, password, ...extra }) }),
+    update: (id, username, extra = {}) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify({ username, ...extra }) }),
     remove: (id) => request(`/users/${id}`, { method: 'DELETE' }),
   },
   settings: {
