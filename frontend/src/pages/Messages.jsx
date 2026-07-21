@@ -161,13 +161,13 @@ export default function Messages() {
           <span className="row-sub" style={{ fontSize: 11 }}>
             ID {m.id} · {new Date(m.created_at).toLocaleString()} · <span className="pill" style={{ padding: '1px 7px', fontSize: 10.5 }}>{TYPE_LABELS[m.type] || m.type}</span>
           </span>
-          {(m.audio_url || m.has_uploaded_audio) && (
-            <audio controls src={audioUrl(m.id)} style={{ marginTop: 4, height: 28, width: '100%', maxWidth: 320 }} />
-          )}
-          {m.has_image && (
-            <img src={imageUrl(m.id)} alt={m.title || 'Photo'} style={{ maxWidth: 60, maxHeight: 60, borderRadius: 6, marginTop: 4, display: 'block' }} />
-          )}
         </div>
+        {(m.audio_url || m.has_uploaded_audio) && (
+          <audio controls src={audioUrl(m.id)} style={{ height: 28, width: 200, flexShrink: 0 }} />
+        )}
+        {m.has_image && (
+          <img src={imageUrl(m.id)} alt={m.title || 'Photo'} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+        )}
         <div className="row-actions">
           <button className="icon-btn" onClick={() => setSendingMessage(m)} aria-label="Send message"><i className="ti ti-send" /></button>
           <button className="icon-btn" onClick={() => setEditing(m)} aria-label="Edit message"><i className="ti ti-edit" /></button>
