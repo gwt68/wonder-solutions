@@ -66,6 +66,21 @@ router.delete('/:id', requireAuth, async (req, res) => {
   }
 });
 
+// POST bulk delete several groups at once, e.g. { ids: [1, 2, 3] }
+router.post('/bulk-delete', requireAuth, async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || !ids.length) {
+    return res.status(400).json({ error: 'ids array is required' });
+  }
+  try {
+    const { rowCount } = await pool.query('DELETE FROM groups WHERE id = ANY($1::int[])', [ids]);
+    res.json({ deleted: rowCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete groups' });
+  }
+});
+
 // GET contacts within a group
 router.get('/:id/contacts', requireAuth, async (req, res) => {
   try {

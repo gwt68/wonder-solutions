@@ -157,4 +157,19 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// POST bulk delete several contacts at once, e.g. { ids: [1, 2, 3] }
+router.post('/bulk-delete', async (req, res) => {
+  const { ids } = req.body;
+  if (!Array.isArray(ids) || !ids.length) {
+    return res.status(400).json({ error: 'ids array is required' });
+  }
+  try {
+    const { rowCount } = await pool.query('DELETE FROM contacts WHERE id = ANY($1::int[])', [ids]);
+    res.json({ deleted: rowCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete contacts' });
+  }
+});
+
 module.exports = router;

@@ -48,6 +48,8 @@ export default function Contacts() {
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [logContact, setLogContact] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [groupFilter, setGroupFilter] = useState('all');
   const fileInputRef = useRef(null);
 
@@ -123,6 +125,37 @@ export default function Contacts() {
       await load();
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  function toggleSelected(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      const allSelected = sortedContacts.length > 0 && sortedContacts.every((c) => prev.has(c.id));
+      return allSelected ? new Set() : new Set(sortedContacts.map((c) => c.id));
+    });
+  }
+
+  async function handleBulkDelete() {
+    if (!selected.size) return;
+    if (!confirm(`Remove ${selected.size} selected contact${selected.size !== 1 ? 's' : ''}? This can't be undone.`)) return;
+    setBulkDeleting(true);
+    setError('');
+    try {
+      await api.contacts.bulkDelete([...selected]);
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -231,6 +264,22 @@ export default function Contacts() {
         </div>
       )}
 
+      {contacts.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
+              {sortedContacts.length > 0 && sortedContacts.every((c) => selected.has(c.id)) ? 'Unselect all' : 'Select all'}
+            </button>
+            {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} selected</span>}
+          </div>
+          {selected.size > 0 && (
+            <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
+              <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+            </button>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
       ) : contacts.length === 0 ? (
@@ -265,6 +314,13 @@ export default function Contacts() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 32 }}>
+                  <input
+                    type="checkbox"
+                    checked={sortedContacts.length > 0 && sortedContacts.every((c) => selected.has(c.id))}
+                    onChange={toggleSelectAll}
+                  />
+                </th>
                 <th onClick={() => handleSort('name')}>Name{sortArrow('name')}</th>
                 <th onClick={() => handleSort('phone_number')}>Phone{sortArrow('phone_number')}</th>
                 <th>Methods</th>
@@ -275,6 +331,9 @@ export default function Contacts() {
             <tbody>
               {sortedContacts.map((c) => (
                 <tr key={c.id}>
+                  <td>
+                    <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} />
+                  </td>
                   <td>
                     <div style={{ fontWeight: 500 }}>{c.name || 'Unnamed contact'}</div>
                     {c.email && <div style={{ color: 'var(--ink-soft)', fontSize: 12.5 }}>{c.email}</div>}

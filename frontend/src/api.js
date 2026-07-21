@@ -94,6 +94,7 @@ export const api = {
     create: (data) => request('/contacts', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => request(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     remove: (id) => request(`/contacts/${id}`, { method: 'DELETE' }),
+    bulkDelete: (ids) => request('/contacts/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
     bulkImport: (contacts) => request('/contacts/bulk', { method: 'POST', body: JSON.stringify({ contacts }) }),
   },
   groups: {
@@ -101,6 +102,7 @@ export const api = {
     create: (data) => request('/groups', { method: 'POST', body: JSON.stringify(data) }),
     update: (id, data) => request(`/groups/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     remove: (id) => request(`/groups/${id}`, { method: 'DELETE' }),
+    bulkDelete: (ids) => request('/groups/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
     contacts: (id) => request(`/groups/${id}/contacts`),
     addContacts: (id, contact_ids) => request(`/groups/${id}/contacts`, { method: 'POST', body: JSON.stringify({ contact_ids }) }),
     removeContact: (id, contactId) => request(`/groups/${id}/contacts/${contactId}`, { method: 'DELETE' }),

@@ -10,6 +10,8 @@ export default function Groups() {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [detailGroup, setDetailGroup] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -65,6 +67,37 @@ export default function Groups() {
     }
   }
 
+  function toggleSelected(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelected((prev) => {
+      const allSelected = groups.length > 0 && groups.every((g) => prev.has(g.id));
+      return allSelected ? new Set() : new Set(groups.map((g) => g.id));
+    });
+  }
+
+  async function handleBulkDelete() {
+    if (!selected.size) return;
+    if (!confirm(`Delete ${selected.size} selected group${selected.size !== 1 ? 's' : ''}? Contacts won't be deleted, just removed from these groups.`)) return;
+    setBulkDeleting(true);
+    setError('');
+    try {
+      await api.groups.bulkDelete([...selected]);
+      setSelected(new Set());
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkDeleting(false);
+    }
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -77,6 +110,22 @@ export default function Groups() {
 
       {error && <div className="banner error">{error}</div>}
 
+      {groups.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+            <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
+              {groups.every((g) => selected.has(g.id)) ? 'Unselect all' : 'Select all'}
+            </button>
+            {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} selected</span>}
+          </div>
+          {selected.size > 0 && (
+            <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
+              <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+            </button>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
       ) : groups.length === 0 ? (
@@ -88,6 +137,13 @@ export default function Groups() {
         <div className="list">
           {groups.map((g) => (
             <div className="row" key={g.id} style={{ cursor: 'pointer' }} onClick={() => setDetailGroup(g)}>
+              <input
+                type="checkbox"
+                checked={selected.has(g.id)}
+                onChange={() => toggleSelected(g.id)}
+                onClick={(e) => e.stopPropagation()}
+                style={{ marginRight: 4 }}
+              />
               <div className="row-main">
                 <span className="row-title">
                   {g.name}
