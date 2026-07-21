@@ -145,6 +145,10 @@ input, select, textarea {
   max-width: 980px;
 }
 
+.main.main-wide {
+  max-width: none;
+}
+
 .page-header {
   display: flex;
   align-items: flex-end;

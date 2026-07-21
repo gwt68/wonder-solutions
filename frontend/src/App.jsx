@@ -69,7 +69,7 @@ export default function App() {
           <i className="ti ti-logout" /> Log out
         </button>
       </aside>
-      <main className="main">
+      <main className={`main ${page === 'contacts' ? 'main-wide' : ''}`}>
         {page === 'dashboard' && <Dashboard onNavigate={setPage} />}
         {page === 'contacts' && <Contacts />}
         {page === 'groups' && <Groups />}

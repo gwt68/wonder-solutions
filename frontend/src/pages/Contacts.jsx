@@ -500,7 +500,7 @@ export default function Contacts() {
                     {c.email && <div style={{ color: 'var(--ink-soft)', fontSize: 12.5 }}>{c.email}</div>}
                   </td>
                   <td style={{ fontWeight: 500 }}>{c.last_name || ''}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{c.phone_number}</td>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, whiteSpace: 'nowrap' }}>{c.phone_number}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       {(c.methods && c.methods.length ? c.methods : [c.preferred_method]).map((m) => (
