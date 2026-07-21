@@ -141,14 +141,14 @@ export default function Messages() {
 
   function renderRow(m) {
     return (
-      <div className="row" key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+      <div className="row" key={m.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 12 }}>
         <input
           type="checkbox"
           checked={selected.has(m.id)}
           onChange={() => toggleSelected(m.id)}
           style={{ marginTop: 4, flexShrink: 0 }}
         />
-        <div className="row-main">
+        <div className="row-main" style={{ flex: 1, minWidth: 0 }}>
           <span className="row-title">
             <i className={`ti ${TYPE_ICONS[m.type] || 'ti-file'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
             {m.title || 'Untitled message'}
