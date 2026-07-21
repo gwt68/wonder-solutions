@@ -44,12 +44,16 @@ export default function Contacts() {
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [importPreview, setImportPreview] = useState(null); // { valid: [...], invalidCount }
+  const [importDefaultMethod, setImportDefaultMethod] = useState('sms');
+  const [importGroupId, setImportGroupId] = useState('');
   const [importing, setImporting] = useState(false);
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [logContact, setLogContact] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkMethodOpen, setBulkMethodOpen] = useState(false);
   const [groupFilter, setGroupFilter] = useState('all');
   const fileInputRef = useRef(null);
 
@@ -176,7 +180,6 @@ export default function Contacts() {
   async function handleFileSelected(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setImporting(true);
     setError('');
     setImportResult(null);
     try {
@@ -184,21 +187,42 @@ export default function Contacts() {
       const workbook = XLSX.read(buffer, { type: 'array' });
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-      const normalized = rows.map(normalizeRow).filter((r) => r.phone_number);
+      const normalized = rows.map(normalizeRow);
+      const valid = normalized.filter((r) => r.phone_number);
+      const invalidCount = normalized.length - valid.length;
 
-      if (!normalized.length) {
+      if (!valid.length) {
         setError('No rows with a phone number were found in that file.');
         return;
       }
 
-      const result = await api.contacts.bulkImport(normalized);
-      setImportResult(result);
-      await load();
+      setImportDefaultMethod('sms');
+      setImportGroupId('');
+      setImportPreview({ valid, invalidCount });
     } catch (err) {
       setError('Could not read that file. Make sure it\'s a .xlsx or .csv file with a phone number column.');
     } finally {
-      setImporting(false);
       e.target.value = '';
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!importPreview) return;
+    setImporting(true);
+    setError('');
+    try {
+      const rowsToImport = importPreview.valid.map((r) => ({
+        ...r,
+        preferred_method: r.preferred_method || importDefaultMethod,
+      }));
+      const result = await api.contacts.bulkImport(rowsToImport, importGroupId || null);
+      setImportResult(result);
+      setImportPreview(null);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setImporting(false);
     }
   }
 
@@ -260,7 +284,21 @@ export default function Contacts() {
       {importResult && (
         <div className="banner ok">
           Imported {importResult.created} contact{importResult.created !== 1 ? 's' : ''}.
-          {importResult.skipped > 0 && ` ${importResult.skipped} row${importResult.skipped !== 1 ? 's' : ''} skipped (missing or invalid phone number).`}
+          {importResult.skipped > 0 && (
+            <>
+              {' '}{importResult.skipped} row{importResult.skipped !== 1 ? 's' : ''} skipped:
+              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                {importResult.errors.slice(0, 10).map((e, i) => (
+                  <li key={i} style={{ fontSize: 12.5 }}>
+                    {e.row.phone_number || e.row.name || 'Row'} — {e.reason}
+                  </li>
+                ))}
+                {importResult.errors.length > 10 && (
+                  <li style={{ fontSize: 12.5 }}>...and {importResult.errors.length - 10} more</li>
+                )}
+              </ul>
+            </>
+          )}
         </div>
       )}
 
@@ -273,9 +311,14 @@ export default function Contacts() {
             {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} selected</span>}
           </div>
           {selected.size > 0 && (
-            <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
-              <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkMethodOpen(true)}>
+                <i className="ti ti-adjustments" /> Set method for {selected.size}
+              </button>
+              <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
+                <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -498,11 +541,175 @@ export default function Contacts() {
       {logContact && (
         <ContactLogModal contact={logContact} onClose={() => setLogContact(null)} />
       )}
+
+      {importPreview && (
+        <div className="modal-overlay" onClick={() => !importing && setImportPreview(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <h2>Review import</h2>
+            <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
+              {importPreview.valid.length} contact{importPreview.valid.length !== 1 ? 's' : ''} ready to import.
+              {importPreview.invalidCount > 0 && ` ${importPreview.invalidCount} row${importPreview.invalidCount !== 1 ? 's' : ''} will be skipped (no phone number).`}
+            </p>
+
+            <div className="field">
+              <label>Default method (for rows without one specified)</label>
+              <div className="chip-select">
+                {ALL_METHODS.map((m) => (
+                  <button
+                    type="button"
+                    key={m.value}
+                    className={`chip-toggle ${importDefaultMethod === m.value ? 'active' : ''}`}
+                    onClick={() => setImportDefaultMethod(m.value)}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {groups.length > 0 && (
+              <div className="field">
+                <label>Add all to a group (optional)</label>
+                <select value={importGroupId} onChange={(e) => setImportGroupId(e.target.value)}>
+                  <option value="">Don't add to a group</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 14 }}>
+              <table className="data-table" style={{ fontSize: 12.5 }}>
+                <thead>
+                  <tr><th>Name</th><th>Phone</th><th>Method</th></tr>
+                </thead>
+                <tbody>
+                  {importPreview.valid.slice(0, 100).map((r, i) => (
+                    <tr key={i}>
+                      <td>{r.name || '—'}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)' }}>{r.phone_number}</td>
+                      <td>{METHOD_LABELS[r.preferred_method] || (
+                        <span style={{ color: 'var(--ink-faint)' }}>{METHOD_LABELS[importDefaultMethod]} (default)</span>
+                      )}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {importPreview.valid.length > 100 && (
+                <p style={{ fontSize: 12, color: 'var(--ink-faint)', padding: '8px 10px' }}>
+                  ...and {importPreview.valid.length - 100} more
+                </p>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button type="button" className="btn secondary" onClick={() => setImportPreview(null)} disabled={importing}>Cancel</button>
+              <button type="button" className="btn" onClick={handleConfirmImport} disabled={importing}>
+                {importing ? 'Importing...' : `Import ${importPreview.valid.length} contact${importPreview.valid.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {bulkMethodOpen && (
+        <BulkMethodModal
+          count={selected.size}
+          onClose={() => setBulkMethodOpen(false)}
+          onSaved={async () => { setBulkMethodOpen(false); setSelected(new Set()); await load(); }}
+          contactIds={[...selected]}
+        />
+      )}
     </div>
   );
 }
 
 const METHOD_LABELS_LOWER = { sms: 'text', call: 'phone call', voice_note: 'voice note' };
+
+function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
+  const [methods, setMethods] = useState(['sms']);
+  const [preferred, setPreferred] = useState('sms');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  function toggleMethod(value) {
+    setMethods((prev) => {
+      const has = prev.includes(value);
+      let next = has ? prev.filter((m) => m !== value) : [...prev, value];
+      if (!next.length) next = [value];
+      return next;
+    });
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setError('');
+    try {
+      await api.contacts.bulkUpdate(contactIds, methods, preferred);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Set method for {count} contact{count !== 1 ? 's' : ''}</h2>
+        {error && <div className="banner error">{error}</div>}
+        <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>
+          This replaces how these contacts receive messages — their current method settings will be overwritten.
+        </p>
+
+        <div className="field">
+          <label>Enabled methods</label>
+          <div className="chip-select">
+            {ALL_METHODS.map((m) => {
+              const active = methods.includes(m.value);
+              return (
+                <button
+                  type="button"
+                  key={m.value}
+                  className={`chip-toggle ${active ? 'active' : ''}`}
+                  onClick={() => toggleMethod(m.value)}
+                >
+                  {active && <i className="ti ti-check" />}
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {methods.length > 1 && (
+          <div className="field">
+            <label>Default method</label>
+            <div className="chip-select">
+              {ALL_METHODS.filter((m) => methods.includes(m.value)).map((m) => (
+                <button
+                  type="button"
+                  key={m.value}
+                  className={`chip-toggle ${preferred === m.value ? 'active' : ''}`}
+                  onClick={() => setPreferred(m.value)}
+                >
+                  <i className={preferred === m.value ? 'ti ti-star-filled' : 'ti ti-star'} />
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="modal-actions">
+          <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" className="btn" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : `Apply to ${count}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function ContactLogModal({ contact, onClose }) {
   const [sends, setSends] = useState([]);

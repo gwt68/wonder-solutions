@@ -59,9 +59,9 @@ router.post('/', async (req, res) => {
 });
 
 // POST bulk-import contacts (used by the Excel upload feature)
-// Expects: { contacts: [{ name, phone_number, email, address, preferred_method, notes }, ...] }
+// Expects: { contacts: [{ name, phone_number, email, address, preferred_method, notes }, ...], group_id }
 router.post('/bulk', async (req, res) => {
-  const { contacts } = req.body;
+  const { contacts, group_id } = req.body;
   if (!Array.isArray(contacts) || !contacts.length) {
     return res.status(400).json({ error: 'contacts array is required' });
   }
@@ -77,14 +77,15 @@ router.post('/bulk', async (req, res) => {
     }
     try {
       const method = c.preferred_method || 'sms';
-      await pool.query(
+      const { rows } = await pool.query(
         `INSERT INTO contacts (name, phone_number, email, address, preferred_method, methods, notes)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          ON CONFLICT (phone_number) DO UPDATE SET
            name = COALESCE(EXCLUDED.name, contacts.name),
            email = COALESCE(EXCLUDED.email, contacts.email),
            address = COALESCE(EXCLUDED.address, contacts.address),
-           notes = COALESCE(EXCLUDED.notes, contacts.notes)`,
+           notes = COALESCE(EXCLUDED.notes, contacts.notes)
+         RETURNING id`,
         [
           c.name || null,
           phone,
@@ -95,6 +96,12 @@ router.post('/bulk', async (req, res) => {
           c.notes || null,
         ]
       );
+      if (group_id && rows.length) {
+        await pool.query(
+          `INSERT INTO contact_groups (contact_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+          [rows[0].id, group_id]
+        );
+      }
       results.created++;
     } catch (err) {
       results.skipped++;
@@ -154,6 +161,29 @@ router.delete('/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete contact' });
+  }
+});
+
+// POST bulk-update several contacts' delivery methods at once, e.g.
+// { ids: [1,2,3], methods: ['voice_note'], preferred_method: 'voice_note' }
+router.post('/bulk-update', async (req, res) => {
+  const { ids, methods, preferred_method } = req.body;
+  if (!Array.isArray(ids) || !ids.length) {
+    return res.status(400).json({ error: 'ids array is required' });
+  }
+  if (!Array.isArray(methods) || !methods.length) {
+    return res.status(400).json({ error: 'methods array is required' });
+  }
+  const finalPreferred = methods.includes(preferred_method) ? preferred_method : methods[0];
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE contacts SET methods = $1, preferred_method = $2 WHERE id = ANY($3::int[])`,
+      [methods, finalPreferred, ids]
+    );
+    res.json({ updated: rowCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update contacts' });
   }
 });
 

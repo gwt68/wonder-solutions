@@ -95,7 +95,8 @@ export const api = {
     update: (id, data) => request(`/contacts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     remove: (id) => request(`/contacts/${id}`, { method: 'DELETE' }),
     bulkDelete: (ids) => request('/contacts/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
-    bulkImport: (contacts) => request('/contacts/bulk', { method: 'POST', body: JSON.stringify({ contacts }) }),
+    bulkImport: (contacts, group_id) => request('/contacts/bulk', { method: 'POST', body: JSON.stringify({ contacts, group_id: group_id || null }) }),
+    bulkUpdate: (ids, methods, preferred_method) => request('/contacts/bulk-update', { method: 'POST', body: JSON.stringify({ ids, methods, preferred_method }) }),
   },
   groups: {
     list: () => request('/groups'),
