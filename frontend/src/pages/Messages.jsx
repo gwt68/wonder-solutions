@@ -207,74 +207,80 @@ export default function Messages() {
       {loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
       ) : (
-        <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <h3 style={{ fontSize: 15 }}>Texts</h3>
-            <button className="btn" onClick={openNewText}><i className="ti ti-plus" /> New text</button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
+              <h3 style={{ fontSize: 15 }}>Texts ({texts.length})</h3>
+              <button className="btn" onClick={openNewText}><i className="ti ti-plus" /> New text</button>
+            </div>
+            {texts.length === 0 ? (
+              <div className="empty-state" style={{ padding: 24 }}>
+                <h3>No texts yet</h3>
+                <p>Write your first text message.</p>
+              </div>
+            ) : (
+              <div className="list" style={{ maxHeight: 420, overflowY: 'auto', padding: 14, border: 'none', borderRadius: 0 }}>
+                {texts.map(renderRow)}
+              </div>
+            )}
           </div>
-          {texts.length === 0 ? (
-            <div className="card empty-state" style={{ marginBottom: 32 }}>
-              <h3>No texts yet</h3>
-              <p>Write your first text message.</p>
-            </div>
-          ) : (
-            <div className="list" style={{ marginBottom: 32 }}>
-              {texts.map(renderRow)}
-            </div>
-          )}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <h3 style={{ fontSize: 15 }}>Recordings</h3>
-            <div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*"
-                style={{ display: 'none' }}
-                onChange={handleFileSelected}
-              />
-              <button className="btn" onClick={handleUploadClick} disabled={uploading}>
-                <i className="ti ti-upload" /> {uploading ? 'Uploading...' : 'Upload audio'}
-              </button>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
+              <h3 style={{ fontSize: 15 }}>Recordings ({recordings.length})</h3>
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="audio/*"
+                  style={{ display: 'none' }}
+                  onChange={handleFileSelected}
+                />
+                <button className="btn" onClick={handleUploadClick} disabled={uploading}>
+                  <i className="ti ti-upload" /> {uploading ? 'Uploading...' : 'Upload audio'}
+                </button>
+              </div>
             </div>
+            {recordings.length === 0 ? (
+              <div className="empty-state" style={{ padding: 24 }}>
+                <h3>No recordings yet</h3>
+                <p>Upload an audio file, or call your Wonder Solutions line and press 1 to record one.</p>
+              </div>
+            ) : (
+              <div className="list" style={{ maxHeight: 420, overflowY: 'auto', padding: 14, border: 'none', borderRadius: 0 }}>
+                {recordings.map(renderRow)}
+              </div>
+            )}
           </div>
-          {recordings.length === 0 ? (
-            <div className="card empty-state" style={{ marginBottom: 32 }}>
-              <h3>No recordings yet</h3>
-              <p>Upload an audio file, or call your Wonder Solutions line and press 1 to record one.</p>
-            </div>
-          ) : (
-            <div className="list" style={{ marginBottom: 32 }}>
-              {recordings.map(renderRow)}
-            </div>
-          )}
 
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <h3 style={{ fontSize: 15 }}>Photos</h3>
-            <div>
-              <input
-                ref={imageInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: 'none' }}
-                onChange={handleImageFileSelected}
-              />
-              <button className="btn" onClick={handleUploadImageClick} disabled={uploadingImage}>
-                <i className="ti ti-upload" /> {uploadingImage ? 'Uploading...' : 'Upload photo'}
-              </button>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
+              <h3 style={{ fontSize: 15 }}>Photos ({photos.length})</h3>
+              <div>
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: 'none' }}
+                  onChange={handleImageFileSelected}
+                />
+                <button className="btn" onClick={handleUploadImageClick} disabled={uploadingImage}>
+                  <i className="ti ti-upload" /> {uploadingImage ? 'Uploading...' : 'Upload photo'}
+                </button>
+              </div>
             </div>
+            {photos.length === 0 ? (
+              <div className="empty-state" style={{ padding: 24 }}>
+                <h3>No photos yet</h3>
+                <p>Upload a picture to send as an MMS.</p>
+              </div>
+            ) : (
+              <div className="list" style={{ maxHeight: 420, overflowY: 'auto', padding: 14, border: 'none', borderRadius: 0 }}>
+                {photos.map(renderRow)}
+              </div>
+            )}
           </div>
-          {photos.length === 0 ? (
-            <div className="card empty-state">
-              <h3>No photos yet</h3>
-              <p>Upload a picture to send as an MMS.</p>
-            </div>
-          ) : (
-            <div className="list">
-              {photos.map(renderRow)}
-            </div>
-          )}
-        </>
+        </div>
       )}
 
       {newTextOpen && (
