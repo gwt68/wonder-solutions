@@ -32,6 +32,7 @@ const IMPORT_FIELDS = [
   { key: 'phone_number', label: 'Phone number', required: true, synonyms: ['phone', 'phone number', 'phone_number', 'mobile', 'cell'] },
   { key: 'first_name', label: 'First name', synonyms: ['first name', 'first_name', 'firstname', 'fname', 'given name'] },
   { key: 'last_name', label: 'Last name', synonyms: ['last name', 'last_name', 'lastname', 'lname', 'surname', 'family name'] },
+  { key: 'full_name', label: 'Full name (splits into first/last)', synonyms: ['name', 'full name', 'contact name'] },
   { key: 'email', label: 'Email', synonyms: ['email', 'email address'] },
   { key: 'address', label: 'Address', synonyms: ['address', 'street address'] },
   { key: 'city', label: 'City', synonyms: ['city', 'town'] },
@@ -66,6 +67,13 @@ function guessMapping(headers) {
   return mapping;
 }
 
+// Splits "John Smith" into { first: 'John', last: 'Smith' }; a single word goes entirely to first
+function splitFullName(full) {
+  const parts = full.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return { first: full.trim(), last: '' };
+  return { first: parts[0], last: parts.slice(1).join(' ') };
+}
+
 // Turns one raw spreadsheet row (array of cells) into our contact shape, using the mapping
 function extractRow(rowArr, mapping) {
   const get = (key) => {
@@ -74,9 +82,19 @@ function extractRow(rowArr, mapping) {
     const v = rowArr[idx];
     return v === undefined || v === null ? '' : v;
   };
+
+  let first_name = get('first_name').toString();
+  let last_name = get('last_name').toString();
+  const fullName = get('full_name').toString();
+  if (!first_name && !last_name && fullName) {
+    const split = splitFullName(fullName);
+    first_name = split.first;
+    last_name = split.last;
+  }
+
   return {
-    first_name: get('first_name').toString(),
-    last_name: get('last_name').toString(),
+    first_name,
+    last_name,
     phone_number: get('phone_number').toString(),
     email: get('email').toString(),
     address: get('address').toString(),
