@@ -18,6 +18,8 @@ export default function Messages() {
   const [savingText, setSavingText] = useState(false);
   const [editing, setEditing] = useState(null);
   const [sendingMessage, setSendingMessage] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const fileInputRef = useRef(null);
   const imageInputRef = useRef(null);
 
@@ -41,6 +43,34 @@ export default function Messages() {
       await load();
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  function toggleSelected(id) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelected(new Set());
+  }
+
+  async function handleBulkDelete() {
+    if (!selected.size) return;
+    if (!confirm(`Delete ${selected.size} selected message${selected.size !== 1 ? 's' : ''}? This can't be undone.`)) return;
+    setBulkDeleting(true);
+    setError('');
+    try {
+      await api.messages.bulkDelete([...selected]);
+      clearSelection();
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBulkDeleting(false);
     }
   }
 
@@ -111,7 +141,13 @@ export default function Messages() {
 
   function renderRow(m) {
     return (
-      <div className="row" key={m.id}>
+      <div className="row" key={m.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+        <input
+          type="checkbox"
+          checked={selected.has(m.id)}
+          onChange={() => toggleSelected(m.id)}
+          style={{ marginTop: 4, flexShrink: 0 }}
+        />
         <div className="row-main">
           <span className="row-title">
             <i className={`ti ${TYPE_ICONS[m.type] || 'ti-file'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
@@ -147,6 +183,26 @@ export default function Messages() {
       </div>
 
       {error && <div className="banner error">{error}</div>}
+
+      {selected.size > 0 && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 8,
+          padding: '10px 14px', marginBottom: 16,
+        }}>
+          <span style={{ fontSize: 13.5, fontWeight: 500, color: 'var(--accent)' }}>
+            {selected.size} selected
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={clearSelection}>
+              Clear
+            </button>
+            <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
+              <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+            </button>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>

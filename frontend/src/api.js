@@ -109,6 +109,7 @@ export const api = {
     list: () => request('/messages'),
     create: (data) => request('/messages', { method: 'POST', body: JSON.stringify(data) }),
     remove: (id) => request(`/messages/${id}`, { method: 'DELETE' }),
+    bulkDelete: (ids) => request('/messages/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
     rename: (id, title) => request(`/messages/${id}`, { method: 'PUT', body: JSON.stringify({ title }) }),
     editText: (id, title, text_content) => request(`/messages/${id}`, { method: 'PUT', body: JSON.stringify({ title, text_content }) }),
     uploadAudio: (file, title) => {
