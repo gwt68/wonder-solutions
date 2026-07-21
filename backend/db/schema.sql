@@ -1,9 +1,19 @@
 -- Wonder Solutions messaging platform schema
 
+-- Note: email, address, and methods were added to this table via manual
+-- migration and are not reflected below; this CREATE TABLE only covers the
+-- original columns plus the first/last name and city/state/zip/country
+-- fields added later. See db/migrations/ for the incremental changes.
 CREATE TABLE IF NOT EXISTS contacts (
   id SERIAL PRIMARY KEY,
-  name VARCHAR(255),
+  name VARCHAR(255), -- legacy single-field name, kept for old rows that haven't been re-entered
+  first_name VARCHAR(255),
+  last_name VARCHAR(255),
   phone_number VARCHAR(20) NOT NULL UNIQUE,
+  city VARCHAR(255),
+  state VARCHAR(255),
+  zip VARCHAR(20),
+  country VARCHAR(255),
   preferred_method VARCHAR(20) NOT NULL DEFAULT 'sms', -- 'sms' | 'call' | 'voice_note'
   notes TEXT,
   created_at TIMESTAMP DEFAULT NOW()

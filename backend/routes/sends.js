@@ -182,7 +182,8 @@ router.get('/', async (req, res) => {
   try {
     const baseQuery = `
       SELECT s.*, COALESCE(s.method, c.preferred_method) AS effective_method,
-             c.name AS contact_name, c.phone_number, c.preferred_method,
+             COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name) AS contact_name,
+             c.phone_number, c.preferred_method,
              m.title AS message_title, m.type AS message_type,
              m.text_content AS message_text, m.audio_url AS message_audio_url,
              (m.audio_data IS NOT NULL) AS message_has_uploaded_audio,

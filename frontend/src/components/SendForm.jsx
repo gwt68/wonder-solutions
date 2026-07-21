@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, audioUrl, imageUrl } from '../api.js';
+import { api, audioUrl, imageUrl, contactDisplayName } from '../api.js';
 
 const METHOD_LABELS = { sms: 'text', call: 'phone call', voice_note: 'voice note' };
 const METHOD_OPTIONS = [
@@ -189,7 +189,7 @@ export default function SendForm({ message, onSent }) {
           <div style={{ maxHeight: 140, overflowY: 'auto', fontSize: 13, color: 'var(--ink-soft)', marginBottom: 12 }}>
             {selectedContacts.map((c) => (
               <div key={c.id}>
-                {c.name || c.phone_number} — {[...selected.get(c.id)].map((m) => METHOD_LABELS[m]).join(' + ')}
+                {contactDisplayName(c) || c.phone_number} — {[...selected.get(c.id)].map((m) => METHOD_LABELS[m]).join(' + ')}
               </div>
             ))}
           </div>
@@ -266,7 +266,7 @@ export default function SendForm({ message, onSent }) {
                 >
                   <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} />
                   <div style={{ overflow: 'hidden' }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name || 'Unnamed contact'}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{contactDisplayName(c) || 'Unnamed contact'}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.phone_number}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>

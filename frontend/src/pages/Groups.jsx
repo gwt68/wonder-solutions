@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api, groupAudioLabelUrl } from '../api.js';
+import { api, groupAudioLabelUrl, contactDisplayName } from '../api.js';
 
 export default function Groups() {
   const [groups, setGroups] = useState([]);
@@ -296,7 +296,7 @@ function GroupDetailModal({ group, onClose, onChanged }) {
                 {members.map((c) => (
                   <div className="row" key={c.id}>
                     <div className="row-main">
-                      <span className="row-title">{c.name || c.phone_number}</span>
+                      <span className="row-title">{contactDisplayName(c) || c.phone_number}</span>
                       <span className="row-sub">{c.phone_number}</span>
                     </div>
                     <button className="icon-btn danger" onClick={() => handleRemoveMember(c.id)} aria-label="Remove from group">
@@ -319,7 +319,7 @@ function GroupDetailModal({ group, onClose, onChanged }) {
                 availableContacts.map((c) => (
                   <label key={c.id} className="checkbox-row" style={{ padding: '9px 12px', borderBottom: '1px solid var(--line)', fontSize: 13.5 }}>
                     <input type="checkbox" checked={picked.has(c.id)} onChange={() => togglePicked(c.id)} />
-                    <span style={{ flex: 1 }}>{c.name || c.phone_number}</span>
+                    <span style={{ flex: 1 }}>{contactDisplayName(c) || c.phone_number}</span>
                   </label>
                 ))
               )}

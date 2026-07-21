@@ -62,6 +62,14 @@ export function groupAudioLabelUrl(groupId) {
   return `${BASE}/api/groups/${groupId}/audio-label`;
 }
 
+// Prefers first/last name, falling back to the legacy single "name" field
+// on older contacts that haven't been re-entered yet
+export function contactDisplayName(contact) {
+  if (!contact) return '';
+  const full = [contact.first_name, contact.last_name].filter(Boolean).join(' ').trim();
+  return full || contact.name || '';
+}
+
 export const api = {
   auth: {
     login: async (username, password) => {

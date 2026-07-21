@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
-import { api, audioUrl, imageUrl } from '../api.js';
+import { api, audioUrl, imageUrl, contactDisplayName } from '../api.js';
 
 const METHOD_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
 
@@ -11,16 +11,25 @@ const ALL_METHODS = [
 ];
 
 function emptyForm() {
-  return { name: '', phone_number: '', email: '', address: '', methods: ['sms'], preferred_method: 'sms', notes: '', group_ids: [] };
+  return {
+    first_name: '', last_name: '', phone_number: '', email: '',
+    address: '', city: '', state: '', zip: '', country: '',
+    methods: ['sms'], preferred_method: 'sms', notes: '', group_ids: [],
+  };
 }
 
 // Fields we can pull from an uploaded spreadsheet, and the header names we
 // guess against when auto-mapping columns
 const IMPORT_FIELDS = [
   { key: 'phone_number', label: 'Phone number', required: true, synonyms: ['phone', 'phone number', 'phone_number', 'mobile', 'cell'] },
-  { key: 'name', label: 'Name', synonyms: ['name', 'full name', 'contact name'] },
+  { key: 'first_name', label: 'First name', synonyms: ['first name', 'first_name', 'firstname', 'fname', 'given name'] },
+  { key: 'last_name', label: 'Last name', synonyms: ['last name', 'last_name', 'lastname', 'lname', 'surname', 'family name'] },
   { key: 'email', label: 'Email', synonyms: ['email', 'email address'] },
   { key: 'address', label: 'Address', synonyms: ['address', 'street address'] },
+  { key: 'city', label: 'City', synonyms: ['city', 'town'] },
+  { key: 'state', label: 'State', synonyms: ['state', 'province', 'region'] },
+  { key: 'zip', label: 'Zip', synonyms: ['zip', 'zip code', 'zipcode', 'postal code', 'postalcode'] },
+  { key: 'country', label: 'Country', synonyms: ['country'] },
   { key: 'notes', label: 'Notes', synonyms: ['notes', 'note'] },
   { key: 'preferred_method', label: 'Preferred method', synonyms: ['preferred_method', 'method', 'contact method'] },
 ];
@@ -58,10 +67,15 @@ function extractRow(rowArr, mapping) {
     return v === undefined || v === null ? '' : v;
   };
   return {
-    name: get('name').toString(),
+    first_name: get('first_name').toString(),
+    last_name: get('last_name').toString(),
     phone_number: get('phone_number').toString(),
     email: get('email').toString(),
     address: get('address').toString(),
+    city: get('city').toString(),
+    state: get('state').toString(),
+    zip: get('zip').toString(),
+    country: get('country').toString(),
     notes: get('notes').toString(),
     preferred_method: (get('preferred_method') || '').toString().toLowerCase().replace(/\s+/g, '_'),
   };
@@ -120,10 +134,15 @@ export default function Contacts() {
   function openEdit(contact) {
     setEditing(contact);
     setForm({
-      name: contact.name || '',
+      first_name: contact.first_name || '',
+      last_name: contact.last_name || '',
       phone_number: contact.phone_number,
       email: contact.email || '',
       address: contact.address || '',
+      city: contact.city || '',
+      state: contact.state || '',
+      zip: contact.zip || '',
+      country: contact.country || '',
       methods: contact.methods && contact.methods.length ? contact.methods : [contact.preferred_method],
       preferred_method: contact.preferred_method,
       notes: contact.notes || '',
@@ -305,7 +324,7 @@ export default function Contacts() {
     const copy = [...filtered];
     copy.sort((a, b) => {
       let av, bv;
-      if (sortField === 'name') { av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase(); }
+      if (sortField === 'name') { av = contactDisplayName(a).toLowerCase(); bv = contactDisplayName(b).toLowerCase(); }
       else if (sortField === 'phone_number') { av = a.phone_number; bv = b.phone_number; }
       else if (sortField === 'groups') { av = (a.groups[0]?.name || '').toLowerCase(); bv = (b.groups[0]?.name || '').toLowerCase(); }
       else { av = ''; bv = ''; }
@@ -322,8 +341,8 @@ export default function Contacts() {
   }
 
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div className="page-header" style={{ flexShrink: 0 }}>
         <div>
           <h1>Contacts</h1>
           <p>{contacts.length} contact{contacts.length !== 1 ? 's' : ''} in your list</p>
@@ -343,84 +362,87 @@ export default function Contacts() {
         </div>
       </div>
 
-      {error && <div className="banner error">{error}</div>}
-      {importResult && (
-        <div className="banner ok">
-          Imported {importResult.created} contact{importResult.created !== 1 ? 's' : ''}.
-          {importResult.skipped > 0 && (
-            <>
-              {' '}{importResult.skipped} row{importResult.skipped !== 1 ? 's' : ''} skipped:
-              <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
-                {importResult.errors.slice(0, 10).map((e, i) => (
-                  <li key={i} style={{ fontSize: 12.5 }}>
-                    {e.row.phone_number || e.row.name || 'Row'} — {e.reason}
-                  </li>
-                ))}
-                {importResult.errors.length > 10 && (
-                  <li style={{ fontSize: 12.5 }}>...and {importResult.errors.length - 10} more</li>
-                )}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
-
-      {contacts.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
-              {sortedContacts.length > 0 && sortedContacts.every((c) => selected.has(c.id)) ? 'Unselect all' : 'Select all'}
-            </button>
-            {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} selected</span>}
+      <div style={{ flexShrink: 0 }}>
+        {error && <div className="banner error">{error}</div>}
+        {importResult && (
+          <div className="banner ok">
+            Imported {importResult.created} contact{importResult.created !== 1 ? 's' : ''}.
+            {importResult.skipped > 0 && (
+              <>
+                {' '}{importResult.skipped} row{importResult.skipped !== 1 ? 's' : ''} skipped:
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                  {importResult.errors.slice(0, 10).map((e, i) => (
+                    <li key={i} style={{ fontSize: 12.5 }}>
+                      {e.row.phone_number || [e.row.first_name, e.row.last_name].filter(Boolean).join(' ') || 'Row'} — {e.reason}
+                    </li>
+                  ))}
+                  {importResult.errors.length > 10 && (
+                    <li style={{ fontSize: 12.5 }}>...and {importResult.errors.length - 10} more</li>
+                  )}
+                </ul>
+              </>
+            )}
           </div>
-          {selected.size > 0 && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkMethodOpen(true)}>
-                <i className="ti ti-adjustments" /> Set method for {selected.size}
-              </button>
-              {groups.length > 0 && (
-                <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkGroupOpen(true)}>
-                  <i className="ti ti-users-group" /> Add to group ({selected.size})
-                </button>
-              )}
-              <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
-                <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+        )}
 
-      {loading ? (
-        <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
-      ) : contacts.length === 0 ? (
-        <div className="card empty-state">
-          <h3>No contacts yet</h3>
-          <p>Add your first contact, import a spreadsheet, or call your Wonder Solutions line and press 3.</p>
-        </div>
-      ) : (
-        <>
-          {groups.length > 0 && (
-            <div className="chip-select" style={{ marginBottom: 14 }}>
+        {contacts.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
+                {sortedContacts.length > 0 && sortedContacts.every((c) => selected.has(c.id)) ? 'Unselect all' : 'Select all'}
+              </button>
+              {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} selected</span>}
+            </div>
+            {selected.size > 0 && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkMethodOpen(true)}>
+                  <i className="ti ti-adjustments" /> Set method for {selected.size}
+                </button>
+                {groups.length > 0 && (
+                  <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkGroupOpen(true)}>
+                    <i className="ti ti-users-group" /> Add to group ({selected.size})
+                  </button>
+                )}
+                <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
+                  <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!loading && contacts.length > 0 && groups.length > 0 && (
+          <div className="chip-select" style={{ marginBottom: 14 }}>
+            <button
+              type="button"
+              className={`chip-toggle ${groupFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setGroupFilter('all')}
+            >
+              All contacts
+            </button>
+            {groups.map((g) => (
               <button
                 type="button"
-                className={`chip-toggle ${groupFilter === 'all' ? 'active' : ''}`}
-                onClick={() => setGroupFilter('all')}
+                key={g.id}
+                className={`chip-toggle ${String(groupFilter) === String(g.id) ? 'active' : ''}`}
+                onClick={() => setGroupFilter(g.id)}
               >
-                All contacts
+                {g.name}
               </button>
-              {groups.map((g) => (
-                <button
-                  type="button"
-                  key={g.id}
-                  className={`chip-toggle ${String(groupFilter) === String(g.id) ? 'active' : ''}`}
-                  onClick={() => setGroupFilter(g.id)}
-                >
-                  {g.name}
-                </button>
-              ))}
-            </div>
-          )}
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
+        {loading ? (
+          <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
+        ) : contacts.length === 0 ? (
+          <div className="card empty-state">
+            <h3>No contacts yet</h3>
+            <p>Add your first contact, import a spreadsheet, or call your Wonder Solutions line and press 3.</p>
+          </div>
+        ) : (
           <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
             <thead>
@@ -446,7 +468,7 @@ export default function Contacts() {
                     <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} />
                   </td>
                   <td>
-                    <div style={{ fontWeight: 500 }}>{c.name || 'Unnamed contact'}</div>
+                    <div style={{ fontWeight: 500 }}>{contactDisplayName(c) || 'Unnamed contact'}</div>
                     {c.email && <div style={{ color: 'var(--ink-soft)', fontSize: 12.5 }}>{c.email}</div>}
                   </td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{c.phone_number}</td>
@@ -476,8 +498,8 @@ export default function Contacts() {
             </tbody>
           </table>
         </div>
-        </>
-      )}
+        )}
+      </div>
 
       {modalOpen && (
         <div className="modal-overlay" onClick={() => setModalOpen(false)}>
@@ -485,8 +507,16 @@ export default function Contacts() {
             <h2>{editing ? 'Edit contact' : 'Add contact'}</h2>
             <form onSubmit={handleSave}>
               <div className="field">
-                <label>Name</label>
-                <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="Optional" />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label>First name</label>
+                    <input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div>
+                    <label>Last name</label>
+                    <input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} placeholder="Optional" />
+                  </div>
+                </div>
               </div>
               <div className="field">
                 <label>Phone number</label>
@@ -511,6 +541,30 @@ export default function Contacts() {
                 <input
                   value={form.address}
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="field">
+                <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label>City</label>
+                    <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div>
+                    <label>State</label>
+                    <input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="Optional" />
+                  </div>
+                  <div>
+                    <label>Zip</label>
+                    <input value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} placeholder="Optional" />
+                  </div>
+                </div>
+              </div>
+              <div className="field">
+                <label>Country</label>
+                <input
+                  value={form.country}
+                  onChange={(e) => setForm({ ...form, country: e.target.value })}
                   placeholder="Optional"
                 />
               </div>
@@ -692,7 +746,7 @@ export default function Contacts() {
                 <tbody>
                   {importExtracted.valid.slice(0, 100).map((r, i) => (
                     <tr key={i}>
-                      <td>{r.name || '—'}</td>
+                      <td>{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
                       <td style={{ fontFamily: 'var(--font-mono)' }}>{r.phone_number}</td>
                       <td>{METHOD_LABELS[r.preferred_method] || (
                         <span style={{ color: 'var(--ink-faint)' }}>
@@ -912,7 +966,7 @@ function ContactLogModal({ contact, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>History for {contact.name || contact.phone_number}</h2>
+        <h2>History for {contactDisplayName(contact) || contact.phone_number}</h2>
         {error && <div className="banner error">{error}</div>}
         {loading ? (
           <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
