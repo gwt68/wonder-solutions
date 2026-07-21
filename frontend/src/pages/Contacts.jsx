@@ -83,7 +83,7 @@ export default function Contacts() {
   const [importHeaders, setImportHeaders] = useState([]);
   const [importDataRows, setImportDataRows] = useState([]);
   const [importMapping, setImportMapping] = useState({});
-  const [importDefaultMethod, setImportDefaultMethod] = useState('sms');
+  const [importDefaultMethod, setImportDefaultMethod] = useState('');
   const [importGroupId, setImportGroupId] = useState('');
   const [importing, setImporting] = useState(false);
   const [sortField, setSortField] = useState('name');
@@ -92,6 +92,7 @@ export default function Contacts() {
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkMethodOpen, setBulkMethodOpen] = useState(false);
+  const [bulkGroupOpen, setBulkGroupOpen] = useState(false);
   const [groupFilter, setGroupFilter] = useState('all');
   const fileInputRef = useRef(null);
 
@@ -252,7 +253,7 @@ export default function Contacts() {
       setImportWorkbook(workbook);
       setImportSheetNames(workbook.SheetNames);
       loadSheet(workbook, workbook.SheetNames[0]);
-      setImportDefaultMethod('sms');
+      setImportDefaultMethod('');
       setImportGroupId('');
     } catch (err) {
       setError('Could not read that file. Make sure it\'s a .xlsx, .xls, or .csv file.');
@@ -377,6 +378,11 @@ export default function Contacts() {
               <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkMethodOpen(true)}>
                 <i className="ti ti-adjustments" /> Set method for {selected.size}
               </button>
+              {groups.length > 0 && (
+                <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkGroupOpen(true)}>
+                  <i className="ti ti-users-group" /> Add to group ({selected.size})
+                </button>
+              )}
               <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
                 <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
               </button>
@@ -661,19 +667,11 @@ export default function Contacts() {
             </p>
 
             <div className="field">
-              <label>Default method (for rows without one specified)</label>
-              <div className="chip-select">
-                {ALL_METHODS.map((m) => (
-                  <button
-                    type="button"
-                    key={m.value}
-                    className={`chip-toggle ${importDefaultMethod === m.value ? 'active' : ''}`}
-                    onClick={() => setImportDefaultMethod(m.value)}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+              <label>Default method (optional, for rows without one specified)</label>
+              <select value={importDefaultMethod} onChange={(e) => setImportDefaultMethod(e.target.value)}>
+                <option value="">Don't set a default (uses text message automatically)</option>
+                {ALL_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
             </div>
 
             {groups.length > 0 && (
@@ -697,7 +695,9 @@ export default function Contacts() {
                       <td>{r.name || '—'}</td>
                       <td style={{ fontFamily: 'var(--font-mono)' }}>{r.phone_number}</td>
                       <td>{METHOD_LABELS[r.preferred_method] || (
-                        <span style={{ color: 'var(--ink-faint)' }}>{METHOD_LABELS[importDefaultMethod]} (default)</span>
+                        <span style={{ color: 'var(--ink-faint)' }}>
+                          {importDefaultMethod ? `${METHOD_LABELS[importDefaultMethod]} (default)` : `${METHOD_LABELS.sms} (auto)`}
+                        </span>
                       )}</td>
                     </tr>
                   ))}
@@ -727,9 +727,17 @@ export default function Contacts() {
       {bulkMethodOpen && (
         <BulkMethodModal
           count={selected.size}
-          groups={groups}
           onClose={() => setBulkMethodOpen(false)}
           onSaved={async () => { setBulkMethodOpen(false); setSelected(new Set()); await load(); }}
+          contactIds={[...selected]}
+        />
+      )}
+      {bulkGroupOpen && (
+        <BulkGroupModal
+          count={selected.size}
+          groups={groups}
+          onClose={() => setBulkGroupOpen(false)}
+          onSaved={async () => { setBulkGroupOpen(false); setSelected(new Set()); await load(); }}
           contactIds={[...selected]}
         />
       )}
@@ -739,10 +747,9 @@ export default function Contacts() {
 
 const METHOD_LABELS_LOWER = { sms: 'text', call: 'phone call', voice_note: 'voice note' };
 
-function BulkMethodModal({ count, contactIds, groups, onClose, onSaved }) {
+function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
   const [methods, setMethods] = useState(['sms']);
   const [preferred, setPreferred] = useState('sms');
-  const [groupIds, setGroupIds] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -755,16 +762,11 @@ function BulkMethodModal({ count, contactIds, groups, onClose, onSaved }) {
     });
   }
 
-  function toggleGroupId(id) {
-    setGroupIds((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]));
-  }
-
   async function handleSave() {
     setSaving(true);
     setError('');
     try {
       await api.contacts.bulkUpdate(contactIds, methods, preferred);
-      if (groupIds.length) await api.groups.bulkAssign(contactIds, groupIds);
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -821,32 +823,72 @@ function BulkMethodModal({ count, contactIds, groups, onClose, onSaved }) {
           </div>
         )}
 
-        {groups.length > 0 && (
-          <div className="field">
-            <label>Add to group(s)</label>
-            <p className="field-hint">Optional — adds these contacts to the selected groups without removing any existing memberships.</p>
-            <div className="chip-select">
-              {groups.map((g) => {
-                const active = groupIds.includes(g.id);
-                return (
-                  <button
-                    type="button"
-                    key={g.id}
-                    className={`chip-toggle ${active ? 'active' : ''}`}
-                    onClick={() => toggleGroupId(g.id)}
-                  >
-                    {active && <i className="ti ti-check" />}
-                    {g.name}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
         <div className="modal-actions">
           <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>Cancel</button>
           <button type="button" className="btn" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : `Apply to ${count}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkGroupModal({ count, contactIds, groups, onClose, onSaved }) {
+  const [groupIds, setGroupIds] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  function toggleGroupId(id) {
+    setGroupIds((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]));
+  }
+
+  async function handleSave() {
+    if (!groupIds.length) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.groups.bulkAssign(contactIds, groupIds);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h2>Add {count} contact{count !== 1 ? 's' : ''} to group(s)</h2>
+        {error && <div className="banner error">{error}</div>}
+        <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>
+          Adds these contacts to the groups you pick, without removing any existing memberships.
+        </p>
+
+        <div className="field">
+          <label>Groups</label>
+          <div className="chip-select">
+            {groups.map((g) => {
+              const active = groupIds.includes(g.id);
+              return (
+                <button
+                  type="button"
+                  key={g.id}
+                  className={`chip-toggle ${active ? 'active' : ''}`}
+                  onClick={() => toggleGroupId(g.id)}
+                >
+                  {active && <i className="ti ti-check" />}
+                  {g.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="modal-actions">
+          <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" className="btn" onClick={handleSave} disabled={saving || !groupIds.length}>
             {saving ? 'Saving...' : `Apply to ${count}`}
           </button>
         </div>
