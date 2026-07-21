@@ -14,23 +14,56 @@ function emptyForm() {
   return { name: '', phone_number: '', email: '', address: '', methods: ['sms'], preferred_method: 'sms', notes: '', group_ids: [] };
 }
 
-// Maps common header variants in an uploaded spreadsheet to our field names
-function normalizeRow(row) {
-  const get = (...keys) => {
-    for (const k of keys) {
-      const found = Object.keys(row).find((rk) => rk.trim().toLowerCase() === k);
-      if (found && row[found] !== undefined && row[found] !== '') return row[found];
-    }
-    return '';
+// Fields we can pull from an uploaded spreadsheet, and the header names we
+// guess against when auto-mapping columns
+const IMPORT_FIELDS = [
+  { key: 'phone_number', label: 'Phone number', required: true, synonyms: ['phone', 'phone number', 'phone_number', 'mobile', 'cell'] },
+  { key: 'name', label: 'Name', synonyms: ['name', 'full name', 'contact name'] },
+  { key: 'email', label: 'Email', synonyms: ['email', 'email address'] },
+  { key: 'address', label: 'Address', synonyms: ['address', 'street address'] },
+  { key: 'notes', label: 'Notes', synonyms: ['notes', 'note'] },
+  { key: 'preferred_method', label: 'Preferred method', synonyms: ['preferred_method', 'method', 'contact method'] },
+];
+
+// Reads a sheet into a header row + raw data rows, keyed by column index
+// rather than header text, so mapping works even with blank/duplicate headers
+function readSheet(workbook, sheetName) {
+  const sheet = workbook.Sheets[sheetName];
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+  const headerRow = raw[0] || [];
+  const headers = headerRow.map((h, i) => {
+    const text = (h ?? '').toString().trim();
+    return text || `Column ${XLSX.utils.encode_col(i)}`;
+  });
+  const dataRows = raw.slice(1).filter((r) => r.some((cell) => cell !== '' && cell !== undefined && cell !== null));
+  return { headers, dataRows };
+}
+
+// Guesses which column index goes with each of our fields, based on header text
+function guessMapping(headers) {
+  const mapping = {};
+  for (const f of IMPORT_FIELDS) {
+    const idx = headers.findIndex((h) => f.synonyms.includes(h.trim().toLowerCase()));
+    mapping[f.key] = idx >= 0 ? idx : '';
+  }
+  return mapping;
+}
+
+// Turns one raw spreadsheet row (array of cells) into our contact shape, using the mapping
+function extractRow(rowArr, mapping) {
+  const get = (key) => {
+    const idx = mapping[key];
+    if (idx === '' || idx === undefined || idx === null) return '';
+    const v = rowArr[idx];
+    return v === undefined || v === null ? '' : v;
   };
   return {
-    name: get('name', 'full name', 'contact name'),
-    phone_number: get('phone', 'phone number', 'phone_number', 'mobile', 'cell').toString(),
-    email: get('email', 'email address'),
-    address: get('address', 'street address'),
-    notes: get('notes', 'note'),
-    preferred_method: (get('preferred_method', 'method', 'contact method') || 'sms')
-      .toString().toLowerCase().replace(/\s+/g, '_'),
+    name: get('name').toString(),
+    phone_number: get('phone_number').toString(),
+    email: get('email').toString(),
+    address: get('address').toString(),
+    notes: get('notes').toString(),
+    preferred_method: (get('preferred_method') || '').toString().toLowerCase().replace(/\s+/g, '_'),
   };
 }
 
@@ -44,7 +77,12 @@ export default function Contacts() {
   const [form, setForm] = useState(emptyForm());
   const [saving, setSaving] = useState(false);
   const [importResult, setImportResult] = useState(null);
-  const [importPreview, setImportPreview] = useState(null); // { valid: [...], invalidCount }
+  const [importWorkbook, setImportWorkbook] = useState(null);
+  const [importSheetNames, setImportSheetNames] = useState([]);
+  const [importSheetName, setImportSheetName] = useState('');
+  const [importHeaders, setImportHeaders] = useState([]);
+  const [importDataRows, setImportDataRows] = useState([]);
+  const [importMapping, setImportMapping] = useState({});
   const [importDefaultMethod, setImportDefaultMethod] = useState('sms');
   const [importGroupId, setImportGroupId] = useState('');
   const [importing, setImporting] = useState(false);
@@ -177,6 +215,28 @@ export default function Contacts() {
     fileInputRef.current?.click();
   }
 
+  function loadSheet(workbook, sheetName) {
+    const { headers, dataRows } = readSheet(workbook, sheetName);
+    setImportSheetName(sheetName);
+    setImportHeaders(headers);
+    setImportDataRows(dataRows);
+    setImportMapping(guessMapping(headers));
+  }
+
+  function handleSheetChange(sheetName) {
+    loadSheet(importWorkbook, sheetName);
+  }
+
+  function resetImport() {
+    if (importing) return;
+    setImportWorkbook(null);
+    setImportSheetNames([]);
+    setImportSheetName('');
+    setImportHeaders([]);
+    setImportDataRows([]);
+    setImportMapping({});
+  }
+
   async function handleFileSelected(e) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -185,39 +245,41 @@ export default function Contacts() {
     try {
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
-      const sheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-      const normalized = rows.map(normalizeRow);
-      const valid = normalized.filter((r) => r.phone_number);
-      const invalidCount = normalized.length - valid.length;
-
-      if (!valid.length) {
-        setError('No rows with a phone number were found in that file.');
+      if (!workbook.SheetNames.length) {
+        setError('That file has no sheets.');
         return;
       }
-
+      setImportWorkbook(workbook);
+      setImportSheetNames(workbook.SheetNames);
+      loadSheet(workbook, workbook.SheetNames[0]);
       setImportDefaultMethod('sms');
       setImportGroupId('');
-      setImportPreview({ valid, invalidCount });
     } catch (err) {
-      setError('Could not read that file. Make sure it\'s a .xlsx or .csv file with a phone number column.');
+      setError('Could not read that file. Make sure it\'s a .xlsx, .xls, or .csv file.');
     } finally {
       e.target.value = '';
     }
   }
 
+  const importExtracted = useMemo(() => {
+    if (!importDataRows.length) return { valid: [], invalidCount: 0 };
+    const rows = importDataRows.map((r) => extractRow(r, importMapping));
+    const valid = rows.filter((r) => r.phone_number);
+    return { valid, invalidCount: rows.length - valid.length };
+  }, [importDataRows, importMapping]);
+
   async function handleConfirmImport() {
-    if (!importPreview) return;
+    if (!importExtracted.valid.length) return;
     setImporting(true);
     setError('');
     try {
-      const rowsToImport = importPreview.valid.map((r) => ({
+      const rowsToImport = importExtracted.valid.map((r) => ({
         ...r,
         preferred_method: r.preferred_method || importDefaultMethod,
       }));
       const result = await api.contacts.bulkImport(rowsToImport, importGroupId || null);
       setImportResult(result);
-      setImportPreview(null);
+      resetImport();
       await load();
     } catch (err) {
       setError(err.message);
@@ -542,13 +604,60 @@ export default function Contacts() {
         <ContactLogModal contact={logContact} onClose={() => setLogContact(null)} />
       )}
 
-      {importPreview && (
-        <div className="modal-overlay" onClick={() => !importing && setImportPreview(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
-            <h2>Review import</h2>
+      {importWorkbook && (
+        <div className="modal-overlay" onClick={() => resetImport()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
+            <h2>Import contacts</h2>
+
+            <details style={{ marginBottom: 14 }}>
+              <summary style={{ cursor: 'pointer', color: 'var(--accent)', fontSize: 13 }}>
+                Tips for a smooth import
+              </summary>
+              <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+                <li>Use one header row at the top, then one contact per row below it.</li>
+                <li>Helpful column names: Name, Phone Number, Email, Address, Notes, Preferred Method.</li>
+                <li>Phone numbers should include the country code, e.g. +19145551234.</li>
+                <li>Preferred method can be sms, call, or voice_note — leave it blank to use the default you pick below.</li>
+                <li>If your workbook has multiple sheets, only one can be imported at a time — pick it below.</li>
+              </ul>
+            </details>
+
+            {importSheetNames.length > 1 && (
+              <div className="field">
+                <label>Sheet</label>
+                <select value={importSheetName} onChange={(e) => handleSheetChange(e.target.value)}>
+                  {importSheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div className="field">
+              <label>Match spreadsheet columns</label>
+              <p className="field-hint">We guessed these from your header row — adjust anything that looks wrong.</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {IMPORT_FIELDS.map((f) => (
+                  <div key={f.key}>
+                    <label style={{ fontSize: 12, color: 'var(--ink-soft)' }}>
+                      {f.label}{f.required ? ' *' : ''}
+                    </label>
+                    <select
+                      value={importMapping[f.key] ?? ''}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setImportMapping((m) => ({ ...m, [f.key]: v === '' ? '' : Number(v) }));
+                      }}
+                    >
+                      <option value="">— Not in file —</option>
+                      {importHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
-              {importPreview.valid.length} contact{importPreview.valid.length !== 1 ? 's' : ''} ready to import.
-              {importPreview.invalidCount > 0 && ` ${importPreview.invalidCount} row${importPreview.invalidCount !== 1 ? 's' : ''} will be skipped (no phone number).`}
+              {importExtracted.valid.length} contact{importExtracted.valid.length !== 1 ? 's' : ''} ready to import.
+              {importExtracted.invalidCount > 0 && ` ${importExtracted.invalidCount} row${importExtracted.invalidCount !== 1 ? 's' : ''} will be skipped (no phone number).`}
             </p>
 
             <div className="field">
@@ -583,7 +692,7 @@ export default function Contacts() {
                   <tr><th>Name</th><th>Phone</th><th>Method</th></tr>
                 </thead>
                 <tbody>
-                  {importPreview.valid.slice(0, 100).map((r, i) => (
+                  {importExtracted.valid.slice(0, 100).map((r, i) => (
                     <tr key={i}>
                       <td>{r.name || '—'}</td>
                       <td style={{ fontFamily: 'var(--font-mono)' }}>{r.phone_number}</td>
@@ -594,17 +703,22 @@ export default function Contacts() {
                   ))}
                 </tbody>
               </table>
-              {importPreview.valid.length > 100 && (
+              {importExtracted.valid.length === 0 && (
+                <p style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 10px' }}>
+                  No rows yet — check that "Phone number" is mapped to the right column above.
+                </p>
+              )}
+              {importExtracted.valid.length > 100 && (
                 <p style={{ fontSize: 12, color: 'var(--ink-faint)', padding: '8px 10px' }}>
-                  ...and {importPreview.valid.length - 100} more
+                  ...and {importExtracted.valid.length - 100} more
                 </p>
               )}
             </div>
 
             <div className="modal-actions">
-              <button type="button" className="btn secondary" onClick={() => setImportPreview(null)} disabled={importing}>Cancel</button>
-              <button type="button" className="btn" onClick={handleConfirmImport} disabled={importing}>
-                {importing ? 'Importing...' : `Import ${importPreview.valid.length} contact${importPreview.valid.length !== 1 ? 's' : ''}`}
+              <button type="button" className="btn secondary" onClick={() => resetImport()} disabled={importing}>Cancel</button>
+              <button type="button" className="btn" onClick={handleConfirmImport} disabled={importing || !importExtracted.valid.length}>
+                {importing ? 'Importing...' : `Import ${importExtracted.valid.length} contact${importExtracted.valid.length !== 1 ? 's' : ''}`}
               </button>
             </div>
           </div>
@@ -613,6 +727,7 @@ export default function Contacts() {
       {bulkMethodOpen && (
         <BulkMethodModal
           count={selected.size}
+          groups={groups}
           onClose={() => setBulkMethodOpen(false)}
           onSaved={async () => { setBulkMethodOpen(false); setSelected(new Set()); await load(); }}
           contactIds={[...selected]}
@@ -624,9 +739,10 @@ export default function Contacts() {
 
 const METHOD_LABELS_LOWER = { sms: 'text', call: 'phone call', voice_note: 'voice note' };
 
-function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
+function BulkMethodModal({ count, contactIds, groups, onClose, onSaved }) {
   const [methods, setMethods] = useState(['sms']);
   const [preferred, setPreferred] = useState('sms');
+  const [groupIds, setGroupIds] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -639,11 +755,16 @@ function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
     });
   }
 
+  function toggleGroupId(id) {
+    setGroupIds((prev) => (prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]));
+  }
+
   async function handleSave() {
     setSaving(true);
     setError('');
     try {
       await api.contacts.bulkUpdate(contactIds, methods, preferred);
+      if (groupIds.length) await api.groups.bulkAssign(contactIds, groupIds);
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -655,7 +776,7 @@ function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Set method for {count} contact{count !== 1 ? 's' : ''}</h2>
+        <h2>Update {count} contact{count !== 1 ? 's' : ''}</h2>
         {error && <div className="banner error">{error}</div>}
         <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>
           This replaces how these contacts receive messages — their current method settings will be overwritten.
@@ -696,6 +817,29 @@ function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
                   {m.label}
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+
+        {groups.length > 0 && (
+          <div className="field">
+            <label>Add to group(s)</label>
+            <p className="field-hint">Optional — adds these contacts to the selected groups without removing any existing memberships.</p>
+            <div className="chip-select">
+              {groups.map((g) => {
+                const active = groupIds.includes(g.id);
+                return (
+                  <button
+                    type="button"
+                    key={g.id}
+                    className={`chip-toggle ${active ? 'active' : ''}`}
+                    onClick={() => toggleGroupId(g.id)}
+                  >
+                    {active && <i className="ti ti-check" />}
+                    {g.name}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}

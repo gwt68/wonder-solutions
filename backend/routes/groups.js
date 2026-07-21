@@ -139,6 +139,33 @@ router.post('/:id/contacts', requireAuth, async (req, res) => {
   }
 });
 
+// POST assign several contacts to several groups at once, e.g.
+// { contact_ids: [1, 2], group_ids: [3, 4] }
+router.post('/bulk-assign', requireAuth, async (req, res) => {
+  const { contact_ids, group_ids } = req.body;
+  if (!Array.isArray(contact_ids) || !contact_ids.length) {
+    return res.status(400).json({ error: 'contact_ids array is required' });
+  }
+  if (!Array.isArray(group_ids) || !group_ids.length) {
+    return res.status(400).json({ error: 'group_ids array is required' });
+  }
+  try {
+    const values = [];
+    for (const cid of contact_ids) {
+      for (const gid of group_ids) {
+        values.push(`(${parseInt(cid, 10)}, ${parseInt(gid, 10)})`);
+      }
+    }
+    await pool.query(
+      `INSERT INTO contact_groups (contact_id, group_id) VALUES ${values.join(',')} ON CONFLICT DO NOTHING`
+    );
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to assign contacts to groups' });
+  }
+});
+
 // DELETE remove a single contact from a group
 router.delete('/:id/contacts/:contactId', requireAuth, async (req, res) => {
   try {

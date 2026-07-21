@@ -107,6 +107,7 @@ export const api = {
     contacts: (id) => request(`/groups/${id}/contacts`),
     addContacts: (id, contact_ids) => request(`/groups/${id}/contacts`, { method: 'POST', body: JSON.stringify({ contact_ids }) }),
     removeContact: (id, contactId) => request(`/groups/${id}/contacts/${contactId}`, { method: 'DELETE' }),
+    bulkAssign: (contact_ids, group_ids) => request('/groups/bulk-assign', { method: 'POST', body: JSON.stringify({ contact_ids, group_ids }) }),
   },
   messages: {
     list: () => request('/messages'),
