@@ -4,6 +4,14 @@ import { api, audioUrl, imageUrl, contactDisplayName } from '../api.js';
 
 const METHOD_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
 
+// For the First name column: shows the legacy full name when a contact
+// hasn't been split into first/last yet, so it isn't just blank
+function firstNameCell(c) {
+  if (c.first_name) return c.first_name;
+  if (!c.last_name) return c.name || 'Unnamed contact';
+  return '';
+}
+
 const ALL_METHODS = [
   { value: 'sms', label: 'Text message' },
   { value: 'call', label: 'Phone call' },
@@ -100,7 +108,7 @@ export default function Contacts() {
   const [importDefaultMethod, setImportDefaultMethod] = useState('');
   const [importGroupId, setImportGroupId] = useState('');
   const [importing, setImporting] = useState(false);
-  const [sortField, setSortField] = useState('name');
+  const [sortField, setSortField] = useState('first_name');
   const [sortDir, setSortDir] = useState('asc');
   const [logContact, setLogContact] = useState(null);
   const [selected, setSelected] = useState(new Set());
@@ -324,7 +332,8 @@ export default function Contacts() {
     const copy = [...filtered];
     copy.sort((a, b) => {
       let av, bv;
-      if (sortField === 'name') { av = contactDisplayName(a).toLowerCase(); bv = contactDisplayName(b).toLowerCase(); }
+      if (sortField === 'first_name') { av = firstNameCell(a).toLowerCase(); bv = firstNameCell(b).toLowerCase(); }
+      else if (sortField === 'last_name') { av = (a.last_name || '').toLowerCase(); bv = (b.last_name || '').toLowerCase(); }
       else if (sortField === 'phone_number') { av = a.phone_number; bv = b.phone_number; }
       else if (sortField === 'groups') { av = (a.groups[0]?.name || '').toLowerCase(); bv = (b.groups[0]?.name || '').toLowerCase(); }
       else { av = ''; bv = ''; }
@@ -454,7 +463,8 @@ export default function Contacts() {
                     onChange={toggleSelectAll}
                   />
                 </th>
-                <th onClick={() => handleSort('name')}>Name{sortArrow('name')}</th>
+                <th onClick={() => handleSort('first_name')}>First name{sortArrow('first_name')}</th>
+                <th onClick={() => handleSort('last_name')}>Last name{sortArrow('last_name')}</th>
                 <th onClick={() => handleSort('phone_number')}>Phone{sortArrow('phone_number')}</th>
                 <th>Methods</th>
                 <th onClick={() => handleSort('groups')}>Groups{sortArrow('groups')}</th>
@@ -468,9 +478,10 @@ export default function Contacts() {
                     <input type="checkbox" checked={selected.has(c.id)} onChange={() => toggleSelected(c.id)} />
                   </td>
                   <td>
-                    <div style={{ fontWeight: 500 }}>{contactDisplayName(c) || 'Unnamed contact'}</div>
+                    <div style={{ fontWeight: 500 }}>{firstNameCell(c)}</div>
                     {c.email && <div style={{ color: 'var(--ink-soft)', fontSize: 12.5 }}>{c.email}</div>}
                   </td>
+                  <td style={{ fontWeight: 500 }}>{c.last_name || ''}</td>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{c.phone_number}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
