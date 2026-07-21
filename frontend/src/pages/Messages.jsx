@@ -141,27 +141,31 @@ export default function Messages() {
 
   function renderRow(m) {
     return (
-      <div className="row" key={m.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 12 }}>
+      <div className="row" key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-start', gap: 10, padding: '8px 12px' }}>
         <input
           type="checkbox"
           checked={selected.has(m.id)}
           onChange={() => toggleSelected(m.id)}
-          style={{ marginTop: 4, flexShrink: 0 }}
+          style={{ flexShrink: 0 }}
         />
-        <div className="row-main" style={{ flex: 1, minWidth: 0 }}>
-          <span className="row-title">
-            <i className={`ti ${TYPE_ICONS[m.type] || 'ti-file'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
-            {m.title || 'Untitled message'}
+        <div className="row-main" style={{ flex: 1, minWidth: 0, gap: 1 }}>
+          <span className="row-title" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
+            <i className={`ti ${TYPE_ICONS[m.type] || 'ti-file'}`} style={{ color: 'var(--ink-faint)', flexShrink: 0 }} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title || 'Untitled message'}</span>
+            {m.text_content && (
+              <span style={{ color: 'var(--ink-soft)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                — {m.text_content}
+              </span>
+            )}
           </span>
-          <span className="row-sub">
-            ID {m.id} · {new Date(m.created_at).toLocaleString()} · <span className="pill">{TYPE_LABELS[m.type] || m.type}</span>
+          <span className="row-sub" style={{ fontSize: 11 }}>
+            ID {m.id} · {new Date(m.created_at).toLocaleString()} · <span className="pill" style={{ padding: '1px 7px', fontSize: 10.5 }}>{TYPE_LABELS[m.type] || m.type}</span>
           </span>
-          {m.text_content && <p style={{ margin: '6px 0 0', fontSize: 14 }}>{m.text_content}</p>}
           {(m.audio_url || m.has_uploaded_audio) && (
-            <audio controls src={audioUrl(m.id)} style={{ marginTop: 6 }} />
+            <audio controls src={audioUrl(m.id)} style={{ marginTop: 4, height: 28, width: '100%', maxWidth: 320 }} />
           )}
           {m.has_image && (
-            <img src={imageUrl(m.id)} alt={m.title || 'Photo'} style={{ maxWidth: 220, maxHeight: 220, borderRadius: 8, marginTop: 6, display: 'block' }} />
+            <img src={imageUrl(m.id)} alt={m.title || 'Photo'} style={{ maxWidth: 60, maxHeight: 60, borderRadius: 6, marginTop: 4, display: 'block' }} />
           )}
         </div>
         <div className="row-actions">
@@ -207,7 +211,7 @@ export default function Messages() {
       {loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 18px', borderBottom: '1px solid var(--line)' }}>
               <h3 style={{ fontSize: 15 }}>Texts ({texts.length})</h3>
@@ -219,7 +223,7 @@ export default function Messages() {
                 <p>Write your first text message.</p>
               </div>
             ) : (
-              <div className="list" style={{ maxHeight: 420, overflowY: 'auto', padding: 14, border: 'none', borderRadius: 0 }}>
+              <div className="list" style={{ maxHeight: 210, overflowY: 'auto', padding: 8, border: 'none', borderRadius: 0, gap: 6 }}>
                 {texts.map(renderRow)}
               </div>
             )}
@@ -247,7 +251,7 @@ export default function Messages() {
                 <p>Upload an audio file, or call your Wonder Solutions line and press 1 to record one.</p>
               </div>
             ) : (
-              <div className="list" style={{ maxHeight: 420, overflowY: 'auto', padding: 14, border: 'none', borderRadius: 0 }}>
+              <div className="list" style={{ maxHeight: 210, overflowY: 'auto', padding: 8, border: 'none', borderRadius: 0, gap: 6 }}>
                 {recordings.map(renderRow)}
               </div>
             )}
@@ -275,7 +279,7 @@ export default function Messages() {
                 <p>Upload a picture to send as an MMS.</p>
               </div>
             ) : (
-              <div className="list" style={{ maxHeight: 420, overflowY: 'auto', padding: 14, border: 'none', borderRadius: 0 }}>
+              <div className="list" style={{ maxHeight: 210, overflowY: 'auto', padding: 8, border: 'none', borderRadius: 0, gap: 6 }}>
                 {photos.map(renderRow)}
               </div>
             )}
