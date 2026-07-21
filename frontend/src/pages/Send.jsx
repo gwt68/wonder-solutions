@@ -190,7 +190,11 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
             }}
           >
             <option value="">Choose a saved recording...</option>
-            {library.map((m) => <option key={m.id} value={m.id}>{m.title || 'Untitled'}</option>)}
+            {library.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.title || 'Untitled'} — {new Date(m.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })} (ID {m.id})
+              </option>
+            ))}
           </select>
         )
       )}
