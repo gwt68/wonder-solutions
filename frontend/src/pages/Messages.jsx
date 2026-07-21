@@ -18,6 +18,8 @@ export default function Messages() {
   const [savingText, setSavingText] = useState(false);
   const [editing, setEditing] = useState(null);
   const [sendingMessage, setSendingMessage] = useState(null);
+  const [viewingText, setViewingText] = useState(null);
+  const [viewingImage, setViewingImage] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const fileInputRef = useRef(null);
@@ -152,21 +154,37 @@ export default function Messages() {
           <span className="row-title" style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
             <i className={`ti ${TYPE_ICONS[m.type] || 'ti-file'}`} style={{ color: 'var(--ink-faint)', flexShrink: 0 }} />
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.title || 'Untitled message'}</span>
-            {m.text_content && (
-              <span style={{ color: 'var(--ink-soft)', fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                — {m.text_content}
-              </span>
-            )}
           </span>
           <span className="row-sub" style={{ fontSize: 11 }}>
             ID {m.id} · {new Date(m.created_at).toLocaleString()} · <span className="pill" style={{ padding: '1px 7px', fontSize: 10.5 }}>{TYPE_LABELS[m.type] || m.type}</span>
           </span>
         </div>
+        {m.text_content && (
+          <button
+            type="button"
+            onClick={() => setViewingText(m)}
+            title="Click to view full text"
+            style={{
+              flexShrink: 0, width: 180, textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--line)',
+              borderRadius: 6, padding: '5px 8px', fontSize: 11.5, color: 'var(--ink-soft)', cursor: 'pointer',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}
+          >
+            {m.text_content}
+          </button>
+        )}
         {(m.audio_url || m.has_uploaded_audio) && (
           <audio controls src={audioUrl(m.id)} style={{ height: 28, width: 200, flexShrink: 0 }} />
         )}
         {m.has_image && (
-          <img src={imageUrl(m.id)} alt={m.title || 'Photo'} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+          <button
+            type="button"
+            onClick={() => setViewingImage(m)}
+            title="Click to view full size"
+            style={{ flexShrink: 0, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }}
+          >
+            <img src={imageUrl(m.id)} alt={m.title || 'Photo'} style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+          </button>
         )}
         <div className="row-actions">
           <button className="icon-btn" onClick={() => setSendingMessage(m)} aria-label="Send message"><i className="ti ti-send" /></button>
@@ -327,6 +345,30 @@ export default function Messages() {
 
       {sendingMessage && (
         <SendModal message={sendingMessage} onClose={() => setSendingMessage(null)} />
+      )}
+
+      {viewingText && (
+        <div className="modal-overlay" onClick={() => setViewingText(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>{viewingText.title || 'Untitled message'}</h2>
+            <p style={{ whiteSpace: 'pre-wrap', fontSize: 14.5 }}>{viewingText.text_content}</p>
+            <div className="modal-actions">
+              <button type="button" className="btn secondary" onClick={() => setViewingText(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {viewingImage && (
+        <div className="modal-overlay" onClick={() => setViewingImage(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+            <h2>{viewingImage.title || 'Untitled photo'}</h2>
+            <img src={imageUrl(viewingImage.id)} alt={viewingImage.title || 'Photo'} style={{ width: '100%', borderRadius: 8 }} />
+            <div className="modal-actions">
+              <button type="button" className="btn secondary" onClick={() => setViewingImage(null)}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
