@@ -6,6 +6,7 @@ import Messages from './pages/Messages.jsx';
 import Send from './pages/Send.jsx';
 import History from './pages/History.jsx';
 import Settings from './pages/Settings.jsx';
+import Users from './pages/Users.jsx';
 import Login from './pages/Login.jsx';
 import { setToken } from './api.js';
 
@@ -16,6 +17,7 @@ const PAGES = [
   { key: 'messages', label: 'Messages' },
   { key: 'send', label: 'Send' },
   { key: 'history', label: 'History' },
+  { key: 'users', label: 'Users' },
   { key: 'settings', label: 'Settings' },
 ];
 
@@ -76,6 +78,7 @@ export default function App() {
         {page === 'messages' && <Messages />}
         {page === 'send' && <Send />}
         {page === 'history' && <History />}
+        {page === 'users' && <Users />}
         {page === 'settings' && <Settings />}
       </main>
     </div>
