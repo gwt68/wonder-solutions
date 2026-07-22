@@ -5,7 +5,10 @@ const { requireAuth } = require('./auth');
 
 router.use(requireAuth);
 
-// GET all contacts, with their group memberships
+function scopeParam(req) {
+  return req.isAdmin ? null : req.userId;
+}
+
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -17,9 +20,10 @@ router.get('/', async (req, res) => {
       FROM contacts c
       LEFT JOIN contact_groups cg ON cg.contact_id = c.id
       LEFT JOIN groups g ON g.id = cg.group_id
+      WHERE ($1::int IS NULL OR c.user_id = $1)
       GROUP BY c.id
       ORDER BY c.created_at DESC
-    `);
+    `, [scopeParam(req)]);
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -27,7 +31,6 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST create a new contact
 router.post('/', async (req, res) => {
   const { first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes, group_ids } = req.body;
   if (!phone_number) return res.status(400).json({ error: 'phone_number is required' });
@@ -37,21 +40,12 @@ router.post('/', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `INSERT INTO contacts (first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
+      `INSERT INTO contacts (first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes, user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
       [
-        first_name || null,
-        last_name || null,
-        phone_number,
-        email || null,
-        address || null,
-        city || null,
-        state || null,
-        zip || null,
-        country || null,
-        defaultMethod,
-        enabledMethods,
-        notes || null,
+        first_name || null, last_name || null, phone_number, email || null, address || null,
+        city || null, state || null, zip || null, country || null,
+        defaultMethod, enabledMethods, notes || null, req.userId,
       ]
     );
     const contact = rows[0];
@@ -71,8 +65,6 @@ router.post('/', async (req, res) => {
   }
 });
 
-// POST bulk-import contacts (used by the Excel upload feature)
-// Expects: { contacts: [{ first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, notes }, ...], group_id }
 router.post('/bulk', async (req, res) => {
   const { contacts, group_id } = req.body;
   if (!Array.isArray(contacts) || !contacts.length) {
@@ -91,9 +83,9 @@ router.post('/bulk', async (req, res) => {
     try {
       const method = c.preferred_method || 'sms';
       const { rows } = await pool.query(
-        `INSERT INTO contacts (first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         ON CONFLICT (phone_number) DO UPDATE SET
+        `INSERT INTO contacts (first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes, user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+         ON CONFLICT (user_id, phone_number) DO UPDATE SET
            first_name = COALESCE(EXCLUDED.first_name, contacts.first_name),
            last_name = COALESCE(EXCLUDED.last_name, contacts.last_name),
            email = COALESCE(EXCLUDED.email, contacts.email),
@@ -105,18 +97,9 @@ router.post('/bulk', async (req, res) => {
            notes = COALESCE(EXCLUDED.notes, contacts.notes)
          RETURNING id`,
         [
-          c.first_name || null,
-          c.last_name || null,
-          phone,
-          c.email || null,
-          c.address || null,
-          c.city || null,
-          c.state || null,
-          c.zip || null,
-          c.country || null,
-          method,
-          [method],
-          c.notes || null,
+          c.first_name || null, c.last_name || null, phone, c.email || null, c.address || null,
+          c.city || null, c.state || null, c.zip || null, c.country || null,
+          method, [method], c.notes || null, req.userId,
         ]
       );
       if (group_id && rows.length) {
@@ -135,7 +118,6 @@ router.post('/bulk', async (req, res) => {
   res.json(results);
 });
 
-// PUT update a contact
 router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes, group_ids } = req.body;
@@ -149,33 +131,14 @@ router.put('/:id', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `UPDATE contacts SET
-         first_name = $1,
-         last_name = $2,
-         phone_number = COALESCE($3, phone_number),
-         email = $4,
-         address = $5,
-         city = $6,
-         state = $7,
-         zip = $8,
-         country = $9,
-         preferred_method = COALESCE($10, preferred_method),
-         methods = COALESCE($11, methods),
-         notes = $12
-       WHERE id = $13 RETURNING *`,
+         first_name = $1, last_name = $2, phone_number = COALESCE($3, phone_number),
+         email = $4, address = $5, city = $6, state = $7, zip = $8, country = $9,
+         preferred_method = COALESCE($10, preferred_method), methods = COALESCE($11, methods), notes = $12
+       WHERE id = $13 AND ($14::int IS NULL OR user_id = $14) RETURNING *`,
       [
-        first_name || null,
-        last_name || null,
-        phone_number,
-        email || null,
-        address || null,
-        city || null,
-        state || null,
-        zip || null,
-        country || null,
-        defaultMethod,
-        enabledMethods,
-        notes || null,
-        id,
+        first_name || null, last_name || null, phone_number, email || null, address || null,
+        city || null, state || null, zip || null, country || null,
+        defaultMethod, enabledMethods, notes || null, id, scopeParam(req),
       ]
     );
     if (!rows.length) return res.status(404).json({ error: 'Contact not found' });
@@ -195,10 +158,12 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE a contact
 router.delete('/:id', async (req, res) => {
   try {
-    await pool.query('DELETE FROM contacts WHERE id = $1', [req.params.id]);
+    await pool.query(
+      'DELETE FROM contacts WHERE id = $1 AND ($2::int IS NULL OR user_id = $2)',
+      [req.params.id, scopeParam(req)]
+    );
     res.status(204).end();
   } catch (err) {
     console.error(err);
@@ -206,21 +171,16 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-// POST bulk-update several contacts' delivery methods at once, e.g.
-// { ids: [1,2,3], methods: ['voice_note'], preferred_method: 'voice_note' }
 router.post('/bulk-update', async (req, res) => {
   const { ids, methods, preferred_method } = req.body;
-  if (!Array.isArray(ids) || !ids.length) {
-    return res.status(400).json({ error: 'ids array is required' });
-  }
-  if (!Array.isArray(methods) || !methods.length) {
-    return res.status(400).json({ error: 'methods array is required' });
-  }
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids array is required' });
+  if (!Array.isArray(methods) || !methods.length) return res.status(400).json({ error: 'methods array is required' });
   const finalPreferred = methods.includes(preferred_method) ? preferred_method : methods[0];
   try {
     const { rowCount } = await pool.query(
-      `UPDATE contacts SET methods = $1, preferred_method = $2 WHERE id = ANY($3::int[])`,
-      [methods, finalPreferred, ids]
+      `UPDATE contacts SET methods = $1, preferred_method = $2
+       WHERE id = ANY($3::int[]) AND ($4::int IS NULL OR user_id = $4)`,
+      [methods, finalPreferred, ids, scopeParam(req)]
     );
     res.json({ updated: rowCount });
   } catch (err) {
@@ -229,14 +189,14 @@ router.post('/bulk-update', async (req, res) => {
   }
 });
 
-// POST bulk delete several contacts at once, e.g. { ids: [1, 2, 3] }
 router.post('/bulk-delete', async (req, res) => {
   const { ids } = req.body;
-  if (!Array.isArray(ids) || !ids.length) {
-    return res.status(400).json({ error: 'ids array is required' });
-  }
+  if (!Array.isArray(ids) || !ids.length) return res.status(400).json({ error: 'ids array is required' });
   try {
-    const { rowCount } = await pool.query('DELETE FROM contacts WHERE id = ANY($1::int[])', [ids]);
+    const { rowCount } = await pool.query(
+      'DELETE FROM contacts WHERE id = ANY($1::int[]) AND ($2::int IS NULL OR user_id = $2)',
+      [ids, scopeParam(req)]
+    );
     res.json({ deleted: rowCount });
   } catch (err) {
     console.error(err);
