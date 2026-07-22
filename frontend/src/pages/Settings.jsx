@@ -49,18 +49,6 @@ export default function Settings() {
 
   const [twilioNumber, setTwilioNumber] = useState(null);
 
-  const [users, setUsers] = useState([]);
-  const [editingUser, setEditingUser] = useState(null);
-  const [usersLoading, setUsersLoading] = useState(true);
-  const [newUserName, setNewUserName] = useState('');
-  const [newUserPassword, setNewUserPassword] = useState('');
-  const [newUserFullName, setNewUserFullName] = useState('');
-  const [newUserPhone, setNewUserPhone] = useState('');
-  const [newUserEmail, setNewUserEmail] = useState('');
-  const [usersError, setUsersError] = useState('');
-  const [usersSuccess, setUsersSuccess] = useState('');
-  const [addingUser, setAddingUser] = useState(false);
-
   const [trustedPhones, setTrustedPhones] = useState([]);
   const [tpLoading, setTpLoading] = useState(true);
   const [newTpNumber, setNewTpNumber] = useState('');
@@ -73,7 +61,6 @@ export default function Settings() {
     api.settings.getPin().then((r) => setCurrentPin(r.pin)).catch((e) => setPinError(e.message)).finally(() => setPinLoading(false));
     api.settings.getPortalUsername().then((r) => setCurrentUsername(r.username)).catch((e) => setUserError(e.message)).finally(() => setUserLoading(false));
     api.settings.getTwilioNumber().then((r) => setTwilioNumber(r.number)).catch(() => {});
-    loadUsers();
     loadTrustedPhones();
   }, []);
 
@@ -85,47 +72,6 @@ export default function Settings() {
       setTpError(err.message);
     } finally {
       setTpLoading(false);
-    }
-  }
-
-  async function loadUsers() {
-    setUsersLoading(true);
-    try {
-      setUsers(await api.users.list());
-    } catch (err) {
-      setUsersError(err.message);
-    } finally {
-      setUsersLoading(false);
-    }
-  }
-
-  async function handleAddUser(e) {
-    e.preventDefault();
-    setUsersError(''); setUsersSuccess(''); setAddingUser(true);
-    try {
-      await api.users.create(newUserName, newUserPassword, { name: newUserFullName || null, phone: newUserPhone || null, email: newUserEmail || null });
-      setNewUserName('');
-      setNewUserPassword('');
-      setNewUserFullName('');
-      setNewUserPhone('');
-      setNewUserEmail('');
-      setUsersSuccess('User added.');
-      await loadUsers();
-    } catch (err) {
-      setUsersError(err.message);
-    } finally {
-      setAddingUser(false);
-    }
-  }
-
-  async function handleRemoveUser(id) {
-    if (!confirm('Remove this user? They will no longer be able to log in.')) return;
-    setUsersError('');
-    try {
-      await api.users.remove(id);
-      await loadUsers();
-    } catch (err) {
-      setUsersError(err.message);
     }
   }
 
@@ -303,171 +249,7 @@ export default function Settings() {
       </div>
 
       <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
-        Users
-      </h3>
-      <div className="card" style={{ padding: 20, marginBottom: 28 }}>
-        <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>
-          Give other people their own login instead of sharing one username and password.
-        </p>
-        {usersError && <div className="banner error">{usersError}</div>}
-        {usersSuccess && <div className="banner ok">{usersSuccess}</div>}
-
-        {!usersLoading && users.length > 0 && (
-          <div className="list" style={{ marginBottom: 16 }}>
-            {users.map((u) => (
-              <div className="row" key={u.id}>
-                <div className="row-main">
-                  <span className="row-title">{u.name || u.username}</span>
-                  <span className="row-sub">
-                    {u.username}
-                    {u.phone && ` · ${u.phone}`}
-                    {u.email && ` · ${u.email}`}
-                    {' · Added '}{new Date(u.created_at).toLocaleDateString()}
-                  </span>
-                </div>
-                <div className="row-actions">
-                  <button className="icon-btn" onClick={() => setEditingUser(u)} aria-label="Edit user"><i className="ti ti-edit" /></button>
-                  <button className="icon-btn danger" onClick={() => handleRemoveUser(u.id)} aria-label="Remove user"><i className="ti ti-trash" /></button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <form onSubmit={handleAddUser}>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <div className="field" style={{ flex: 1, minWidth: 140 }}>
-              <label>Full name (optional)</label>
-              <input value={newUserFullName} onChange={(e) => setNewUserFullName(e.target.value)} placeholder="e.g. Sarah Cohen" />
-            </div>
-            <div className="field" style={{ flex: 1, minWidth: 140 }}>
-              <label>Username</label>
-              <input required minLength={2} value={newUserName} onChange={(e) => setNewUserName(e.target.value)} placeholder="e.g. sarah" />
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <div className="field" style={{ flex: 1, minWidth: 140 }}>
-              <label>Phone (optional)</label>
-              <input value={newUserPhone} onChange={(e) => setNewUserPhone(e.target.value)} placeholder="+19145551234" />
-            </div>
-            <div className="field" style={{ flex: 1, minWidth: 140 }}>
-              <label>Email (optional)</label>
-              <input type="email" value={newUserEmail} onChange={(e) => setNewUserEmail(e.target.value)} placeholder="sarah@example.com" />
-            </div>
-          </div>
-          <div className="field" style={{ maxWidth: 300 }}>
-            <label>Password</label>
-            <PasswordInput required minLength={4} value={newUserPassword} onChange={(e) => setNewUserPassword(e.target.value)} />
-          </div>
-          <button type="submit" className="btn" disabled={addingUser}>{addingUser ? 'Adding...' : 'Add user'}</button>
-        </form>
-      </div>
-
-      <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginBottom: 12 }}>
         Text-to-save
       </h3>
       <div className="card" style={{ padding: 20, maxWidth: 420 }}>
-        <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>
-          Texts sent from any of these numbers to your Wonder Solutions number are automatically saved as a new text message here — no need to open the portal.
-        </p>
-        {tpError && <div className="banner error">{tpError}</div>}
-        {tpSuccess && <div className="banner ok">{tpSuccess}</div>}
-
-        {!tpLoading && trustedPhones.length > 0 && (
-          <div className="list" style={{ marginBottom: 16 }}>
-            {trustedPhones.map((tp) => (
-              <div className="row" key={tp.id}>
-                <div className="row-main">
-                  <span className="row-title">{tp.phone_number}</span>
-                  {tp.label && <span className="row-sub">{tp.label}</span>}
-                </div>
-                <button className="icon-btn danger" onClick={() => handleRemoveTrustedPhone(tp.id)} aria-label="Remove number"><i className="ti ti-trash" /></button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <form onSubmit={handleAddTrustedPhone}>
-          <div className="field">
-            <label>Phone number</label>
-            <input required value={newTpNumber} onChange={(e) => setNewTpNumber(e.target.value)} placeholder="+19145551234" />
-          </div>
-          <div className="field">
-            <label>Label (optional)</label>
-            <input value={newTpLabel} onChange={(e) => setNewTpLabel(e.target.value)} placeholder="e.g. my cell" />
-          </div>
-          <button type="submit" className="btn" disabled={addingTp}>{addingTp ? 'Adding...' : 'Add number'}</button>
-        </form>
-      </div>
-
-      {editingUser && (
-        <EditUserModal
-          user={editingUser}
-          onClose={() => setEditingUser(null)}
-          onSaved={() => { setEditingUser(null); loadUsers(); }}
-        />
-      )}
-    </div>
-  );
-}
-
-function EditUserModal({ user, onClose, onSaved }) {
-  const [username, setUsername] = useState(user.username || '');
-  const [name, setName] = useState(user.name || '');
-  const [phone, setPhone] = useState(user.phone || '');
-  const [email, setEmail] = useState(user.email || '');
-  const [newPassword, setNewPassword] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-
-  async function handleSave(e) {
-    e.preventDefault();
-    setSaving(true);
-    setError('');
-    try {
-      const extra = { name: name || null, phone: phone || null, email: email || null };
-      if (newPassword) extra.password = newPassword;
-      await api.users.update(user.id, username, extra);
-      onSaved();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Edit user</h2>
-        {error && <div className="banner error">{error}</div>}
-        <form onSubmit={handleSave}>
-          <div className="field">
-            <label>Full name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Optional" />
-          </div>
-          <div className="field">
-            <label>Username</label>
-            <input required minLength={2} value={username} onChange={(e) => setUsername(e.target.value)} />
-          </div>
-          <div className="field">
-            <label>Phone</label>
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Optional" />
-          </div>
-          <div className="field">
-            <label>Email</label>
-            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Optional" />
-          </div>
-          <div className="field">
-            <label>New password (leave blank to keep current password)</label>
-            <PasswordInput minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
-          </div>
-          <div className="modal-actions">
-            <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving...' : 'Save changes'}</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13,
