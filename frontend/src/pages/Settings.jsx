@@ -252,4 +252,38 @@ export default function Settings() {
         Text-to-save
       </h3>
       <div className="card" style={{ padding: 20, maxWidth: 420 }}>
-        <p style={{ color: 'var(--ink-soft)', fontSize: 13,
+        <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>
+          Texts sent from any of these numbers to your Wonder Solutions number are automatically saved as a new text message here — no need to open the portal.
+        </p>
+        {tpError && <div className="banner error">{tpError}</div>}
+        {tpSuccess && <div className="banner ok">{tpSuccess}</div>}
+
+        {!tpLoading && trustedPhones.length > 0 && (
+          <div className="list" style={{ marginBottom: 16 }}>
+            {trustedPhones.map((tp) => (
+              <div className="row" key={tp.id}>
+                <div className="row-main">
+                  <span className="row-title">{tp.phone_number}</span>
+                  {tp.label && <span className="row-sub">{tp.label}</span>}
+                </div>
+                <button className="icon-btn danger" onClick={() => handleRemoveTrustedPhone(tp.id)} aria-label="Remove number"><i className="ti ti-trash" /></button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={handleAddTrustedPhone}>
+          <div className="field">
+            <label>Phone number</label>
+            <input required value={newTpNumber} onChange={(e) => setNewTpNumber(e.target.value)} placeholder="+19145551234" />
+          </div>
+          <div className="field">
+            <label>Label (optional)</label>
+            <input value={newTpLabel} onChange={(e) => setNewTpLabel(e.target.value)} placeholder="e.g. my cell" />
+          </div>
+          <button type="submit" className="btn" disabled={addingTp}>{addingTp ? 'Adding...' : 'Add number'}</button>
+        </form>
+      </div>
+    </div>
+  );
+}
