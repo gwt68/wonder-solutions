@@ -18,6 +18,20 @@ const ALL_METHODS = [
   { value: 'voice_note', label: 'Voice note (MMS)' },
 ];
 
+const ALL_COLUMNS = [
+  { key: 'last_name', label: 'Last name', default: true },
+  { key: 'phone_number', label: 'Phone', default: true },
+  { key: 'email', label: 'Email', default: false },
+  { key: 'address', label: 'Address', default: false },
+  { key: 'city', label: 'City', default: false },
+  { key: 'state', label: 'State', default: false },
+  { key: 'zip', label: 'Zip', default: false },
+  { key: 'country', label: 'Country', default: false },
+  { key: 'methods', label: 'Methods', default: true },
+  { key: 'groups', label: 'Groups', default: true },
+];
+const DEFAULT_VISIBLE_COLUMNS = ALL_COLUMNS.filter((c) => c.default).map((c) => c.key);
+
 function emptyForm() {
   return {
     first_name: '', last_name: '', phone_number: '', email: '',
@@ -134,6 +148,23 @@ export default function Contacts() {
   const [bulkMethodOpen, setBulkMethodOpen] = useState(false);
   const [bulkGroupOpen, setBulkGroupOpen] = useState(false);
   const [groupFilter, setGroupFilter] = useState('all');
+  const [visibleCols, setVisibleCols] = useState(() => {
+    try {
+      const saved = localStorage.getItem('wonder_contacts_columns');
+      return saved ? JSON.parse(saved) : DEFAULT_VISIBLE_COLUMNS;
+    } catch {
+      return DEFAULT_VISIBLE_COLUMNS;
+    }
+  });
+  const [columnsOpen, setColumnsOpen] = useState(false);
+
+  function toggleColumn(key) {
+    setVisibleCols((prev) => {
+      const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+      localStorage.setItem('wonder_contacts_columns', JSON.stringify(next));
+      return next;
+    });
+  }
   const fileInputRef = useRef(null);
 
   async function load() {
@@ -385,6 +416,28 @@ export default function Contacts() {
           <button className="btn secondary" onClick={handleImportClick} disabled={importing}>
             <i className="ti ti-upload" /> {importing ? 'Importing...' : 'Import Excel'}
           </button>
+          <div style={{ position: 'relative' }}>
+            <button className="btn secondary" onClick={() => setColumnsOpen((o) => !o)}>
+              <i className="ti ti-columns" /> Columns
+            </button>
+            {columnsOpen && (
+              <div
+                className="card"
+                style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, padding: 12, zIndex: 10, minWidth: 180 }}
+              >
+                {ALL_COLUMNS.map((col) => (
+                  <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '5px 4px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={visibleCols.includes(col.key)}
+                      onChange={() => toggleColumn(col.key)}
+                    />
+                    {col.label}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <button className="btn" onClick={openAdd}><i className="ti ti-plus" /> Add contact</button>
         </div>
       </div>
@@ -482,10 +535,16 @@ export default function Contacts() {
                   />
                 </th>
                 <th onClick={() => handleSort('first_name')}>First name{sortArrow('first_name')}</th>
-                <th onClick={() => handleSort('last_name')}>Last name{sortArrow('last_name')}</th>
-                <th onClick={() => handleSort('phone_number')}>Phone{sortArrow('phone_number')}</th>
-                <th>Methods</th>
-                <th onClick={() => handleSort('groups')}>Groups{sortArrow('groups')}</th>
+                {visibleCols.includes('last_name') && <th onClick={() => handleSort('last_name')}>Last name{sortArrow('last_name')}</th>}
+                {visibleCols.includes('phone_number') && <th onClick={() => handleSort('phone_number')}>Phone{sortArrow('phone_number')}</th>}
+                {visibleCols.includes('email') && <th>Email</th>}
+                {visibleCols.includes('address') && <th>Address</th>}
+                {visibleCols.includes('city') && <th>City</th>}
+                {visibleCols.includes('state') && <th>State</th>}
+                {visibleCols.includes('zip') && <th>Zip</th>}
+                {visibleCols.includes('country') && <th>Country</th>}
+                {visibleCols.includes('methods') && <th>Methods</th>}
+                {visibleCols.includes('groups') && <th onClick={() => handleSort('groups')}>Groups{sortArrow('groups')}</th>}
                 <th></th>
               </tr>
             </thead>
@@ -497,24 +556,33 @@ export default function Contacts() {
                   </td>
                   <td>
                     <div style={{ fontWeight: 500 }}>{firstNameCell(c)}</div>
-                    {c.email && <div style={{ color: 'var(--ink-soft)', fontSize: 12.5 }}>{c.email}</div>}
                   </td>
-                  <td style={{ fontWeight: 500 }}>{c.last_name || ''}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, whiteSpace: 'nowrap' }}>{c.phone_number}</td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {(c.methods && c.methods.length ? c.methods : [c.preferred_method]).map((m) => (
-                        <span className={m === c.preferred_method ? 'pill' : 'pill signal'} key={m}>
-                          {METHOD_LABELS[m]}{m === c.preferred_method ? ' ★' : ''}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {c.groups.map((g) => <span className="pill signal" key={g.id}>{g.name}</span>)}
-                    </div>
-                  </td>
+                  {visibleCols.includes('last_name') && <td style={{ fontWeight: 500 }}>{c.last_name || ''}</td>}
+                  {visibleCols.includes('phone_number') && <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, whiteSpace: 'nowrap' }}>{c.phone_number}</td>}
+                  {visibleCols.includes('email') && <td style={{ fontSize: 13 }}>{c.email || ''}</td>}
+                  {visibleCols.includes('address') && <td style={{ fontSize: 13 }}>{c.address || ''}</td>}
+                  {visibleCols.includes('city') && <td style={{ fontSize: 13 }}>{c.city || ''}</td>}
+                  {visibleCols.includes('state') && <td style={{ fontSize: 13 }}>{c.state || ''}</td>}
+                  {visibleCols.includes('zip') && <td style={{ fontSize: 13 }}>{c.zip || ''}</td>}
+                  {visibleCols.includes('country') && <td style={{ fontSize: 13 }}>{c.country || ''}</td>}
+                  {visibleCols.includes('methods') && (
+                    <td>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {(c.methods && c.methods.length ? c.methods : [c.preferred_method]).map((m) => (
+                          <span className={m === c.preferred_method ? 'pill' : 'pill signal'} key={m}>
+                            {METHOD_LABELS[m]}{m === c.preferred_method ? ' ★' : ''}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                  )}
+                  {visibleCols.includes('groups') && (
+                    <td>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {c.groups.map((g) => <span className="pill signal" key={g.id}>{g.name}</span>)}
+                      </div>
+                    </td>
+                  )}
                   <td>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                       <button className="icon-btn" onClick={() => setLogContact(c)} aria-label="View history"><i className="ti ti-history" /></button>
