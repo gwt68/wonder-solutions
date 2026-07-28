@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"/c/Users/Moishe Fuchs/.claude/projects/Z--Server-App-Wonder-Solutions/memory/\" 2>&1)",
+      "Bash(node -c routes/contacts.js)",
+      "Bash(node -c routes/sends.js)",
+      "Bash(npx --yes esbuild src/pages/Contacts.jsx --bundle=false --format=esm --outfile=out.js)"
+    ]
+  }
+}

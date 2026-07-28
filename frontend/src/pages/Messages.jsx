@@ -196,14 +196,15 @@ export default function Messages() {
   }
 
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div className="page-header" style={{ flexShrink: 0 }}>
         <div>
           <h1>Messages</h1>
           <p>Texts, recordings, and photos, ready to send</p>
         </div>
       </div>
 
+      <div style={{ flexShrink: 0 }}>
       {error && <div className="banner error">{error}</div>}
 
       {selected.size > 0 && (
@@ -225,7 +226,9 @@ export default function Messages() {
           </div>
         </div>
       )}
+      </div>
 
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
       {loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
       ) : (
@@ -304,6 +307,7 @@ export default function Messages() {
           </div>
         </div>
       )}
+      </div>
 
       {newTextOpen && (
         <div className="modal-overlay" onClick={() => setNewTextOpen(false)}>
