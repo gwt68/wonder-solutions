@@ -134,34 +134,48 @@ export default function Groups() {
           <p>Create a group here, or create one by phone during the contact-adding flow.</p>
         </div>
       ) : (
-        <div className="list">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
           {groups.map((g) => (
-            <div className="row" key={g.id} style={{ cursor: 'pointer' }} onClick={() => setDetailGroup(g)}>
-              <input
-                type="checkbox"
-                checked={selected.has(g.id)}
-                onChange={() => toggleSelected(g.id)}
-                onClick={(e) => e.stopPropagation()}
-                style={{ marginRight: 4 }}
-              />
-              <div className="row-main">
-                <span className="row-title">
-                  {g.name}
-                  {g.source === 'phone_placeholder' && (
-                    <span className="pill signal" style={{ marginLeft: 8 }}>Needs a name</span>
-                  )}
-                </span>
-                <span className="row-sub">
-                  {g.member_count} member{g.member_count !== 1 ? 's' : ''} · click to view
-                  {g.source === 'phone_placeholder' && ` · created ${new Date(g.created_at).toLocaleString()}`}
-                </span>
+            <div
+              className="card"
+              key={g.id}
+              style={{ padding: 16, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}
+              onClick={() => setDetailGroup(g)}
+            >
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={selected.has(g.id)}
+                  onChange={() => toggleSelected(g.id)}
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ marginTop: 3, flexShrink: 0 }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div className="row-title" style={{ wordBreak: 'break-word' }}>
+                    {g.name}
+                    {g.source === 'phone_placeholder' && (
+                      <span className="pill signal" style={{ marginLeft: 8 }}>Needs a name</span>
+                    )}
+                  </div>
+                  <div className="row-sub" style={{ marginTop: 2 }}>
+                    {g.member_count} member{g.member_count !== 1 ? 's' : ''}
+                    {g.source === 'phone_placeholder' && (
+                      <><br />created {new Date(g.created_at).toLocaleString()}</>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="row-actions" onClick={(e) => e.stopPropagation()}>
-                {g.source === 'phone_placeholder' && g.audio_label_url && (
-                  <audio controls src={groupAudioLabelUrl(g.id)} />
-                )}
-                <button className="icon-btn" onClick={() => openEdit(g)} aria-label="Rename group"><i className="ti ti-edit" /></button>
-                <button className="icon-btn danger" onClick={() => handleDelete(g.id)} aria-label="Delete group"><i className="ti ti-trash" /></button>
+              <div
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {g.source === 'phone_placeholder' && g.audio_label_url ? (
+                  <audio controls src={groupAudioLabelUrl(g.id)} style={{ height: 28, maxWidth: 140 }} />
+                ) : <span />}
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <button className="icon-btn" onClick={() => openEdit(g)} aria-label="Rename group"><i className="ti ti-edit" /></button>
+                  <button className="icon-btn danger" onClick={() => handleDelete(g.id)} aria-label="Delete group"><i className="ti ti-trash" /></button>
+                </div>
               </div>
             </div>
           ))}
