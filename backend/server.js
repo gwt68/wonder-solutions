@@ -12,7 +12,6 @@ const { router: sendsRoutes, processDueSends } = require('./routes/sends');
 const publicRoutes = require('./routes/public');
 const { router: webhooksRoutes, retryMissingCosts } = require('./routes/webhooks');
 const usersRoutes = require('./routes/users');
-const usersRoutes = require('./routes/users');
 const signalhouseTestRoutes = require('./routes/signalhouse-test');
 const trustedPhonesRoutes = require('./routes/trustedPhones');
 
