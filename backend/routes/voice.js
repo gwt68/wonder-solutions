@@ -85,11 +85,11 @@ router.post('/incoming', async (req, res) => {
 
   await clearSession(callSid);
   await pool.query(
-    `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, 'pin_entry', 0, '{}', $2)`,
+    `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, 'entry_menu', 0, '{}', $2)`,
     [callSid, user.id]
   );
 
-  gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'Welcome. Please enter your PIN followed by the pound sign.');
+  entryMenu(twiml);
   res.type('text/xml').send(twiml.toString());
 });
 
@@ -108,6 +108,49 @@ router.post('/handle', async (req, res) => {
   const userId = session.user_id;
 
   switch (session.step) {
+    case 'entry_menu': {
+      if (digits === '1') {
+        await updateSession(callSid, 'conference_code_entry');
+        conferenceCodeEntry(twiml);
+      } else if (digits === '2') {
+        await handleReplayLastMessage(twiml, userId, req.body.From);
+      } else if (digits === '9') {
+        await updateSession(callSid, 'pin_entry');
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'Please enter your PIN followed by the pound sign.');
+      } else {
+        entryMenu(twiml, true);
+      }
+      break;
+    }
+
+    case 'conference_code_entry': {
+      if (digits && digits.length >= 4) {
+        const { rows } = await pool.query(
+          `SELECT * FROM conferences WHERE access_code = $1 AND status != 'ended' AND user_id = $2`,
+          [digits, userId]
+        );
+        if (rows.length) {
+          joinConference(twiml, rows[0].id);
+        } else {
+          say(twiml, "That code wasn't recognized.");
+          conferenceCodeEntry(twiml, true);
+        }
+      } else {
+        conferenceCodeEntry(twiml, true);
+      }
+      break;
+    }
+
+    case 'conference_created_join': {
+      if (digits === '1') {
+        joinConference(twiml, session.data.pending_conference_id);
+      } else {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      }
+      break;
+    }
+
     case 'pin_entry': {
       const correctPin = await getPin(userId);
       if (digits === correctPin) {
@@ -135,6 +178,7 @@ router.post('/handle', async (req, res) => {
       else if (digits === '5') { await announceStatus(twiml, userId); }
       else if (digits === '6') { await startBroadcastCategorySelect(callSid, twiml); }
       else if (digits === '7') { await updateSession(callSid, 'assign_group_phone_entry'); assignGroupPhoneEntry(twiml); }
+      else if (digits === '8') { await startConferenceCreate(callSid, twiml, userId); }
       else { mainMenu(twiml, true); }
       break;
     }
@@ -485,7 +529,7 @@ function mainMenu(twiml, retry = false) {
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
     `${prefix}Main menu. Press 1 to record a new message. Press 2 to review your saved messages. ` +
     `Press 3 to add a contact. Press 4 to change your PIN. Press 5 to hear your account status. ` +
-    `Press 6 to send a message. Press 7 to assign a contact to a group.`);
+    `Press 6 to send a message. Press 7 to assign a contact to a group. Press 8 to start a conference call.`);
 }
 
 function recordPrompt(twiml) {
@@ -768,6 +812,131 @@ function assignGroupPhoneEntry(twiml, retry = false) {
   const prefix = retry ? "That didn't look like a valid number. " : '';
   gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}Enter the contact's phone number followed by the pound sign.`, { finishOnKey: '#' });
 }
+
+// ---------- entry menu (public, unauthenticated callers) ----------
+
+function entryMenu(twiml, retry = false) {
+  const prefix = retry ? "Sorry, I didn't get that. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}Welcome. Press 1 to join a conference call. Press 2 to hear a message that was recently sent to you. ` +
+    `Press 9 if you're an administrator.`, { numDigits: 1 });
+}
+
+function conferenceCodeEntry(twiml, retry = false) {
+  const prefix = retry ? "Sorry, I didn't get that. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}Enter the conference code followed by the pound sign.`, { finishOnKey: '#' });
+}
+
+function conferenceRoomName(conferenceId) {
+  return `wonder-conf-${conferenceId}`;
+}
+
+function joinConference(twiml, conferenceId) {
+  say(twiml, 'Joining the conference now.');
+  const dial = twiml.dial();
+  dial.conference(
+    {
+      startConferenceOnEnter: true,
+      endConferenceOnExit: false,
+      record: 'record-from-start',
+      recordingStatusCallback: `${BASE_URL}/voice/conference-recording`,
+      statusCallback: `${BASE_URL}/voice/conference-status`,
+      statusCallbackEvent: 'start end join leave',
+    },
+    conferenceRoomName(conferenceId)
+  );
+}
+
+// Generates a random 6-digit code, retrying on the rare collision with an
+// existing non-ended conference.
+async function generateConferenceCode() {
+  for (let i = 0; i < 5; i++) {
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const { rows } = await pool.query(`SELECT 1 FROM conferences WHERE access_code = $1 AND status != 'ended'`, [code]);
+    if (!rows.length) return code;
+  }
+  throw new Error('Could not generate a unique conference code');
+}
+
+async function startConferenceCreate(callSid, twiml, userId) {
+  const code = await generateConferenceCode();
+  const { rows } = await pool.query(
+    `INSERT INTO conferences (user_id, access_code, status) VALUES ($1, $2, 'scheduled') RETURNING id`,
+    [userId, code]
+  );
+  const conferenceId = rows[0].id;
+  await updateSession(callSid, 'conference_created_join', { pending_conference_id: conferenceId });
+
+  const spaced = code.split('').join(' ');
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `Your conference code is ${spaced}. Share this with participants — they can call this number and press 1, ` +
+    `then enter the code. Press 1 to join the conference now, or press 2 to return to the main menu.`,
+    { numDigits: 1 });
+}
+
+// Looks up the caller's own contact record (matched by their caller ID against
+// this account's contacts) and plays back the audio from their most recent
+// phone-based send, if any.
+async function handleReplayLastMessage(twiml, userId, callerNumber) {
+  const { rows: contactRows } = await pool.query(
+    'SELECT id FROM contacts WHERE phone_number = $1 AND user_id = $2', [callerNumber, userId]
+  );
+  if (!contactRows.length) {
+    say(twiml, "We couldn't find a recent message for this number. Goodbye.");
+    twiml.hangup();
+    return;
+  }
+
+  const { rows } = await pool.query(
+    `SELECT m.id, m.audio_url, (m.audio_data IS NOT NULL) AS has_uploaded_audio
+     FROM sends s JOIN messages m ON m.id = s.message_id
+     WHERE s.contact_id = $1 AND s.method IN ('call', 'voice_note')
+     ORDER BY s.sent_at DESC LIMIT 1`,
+    [contactRows[0].id]
+  );
+
+  if (!rows.length || (!rows[0].audio_url && !rows[0].has_uploaded_audio)) {
+    say(twiml, "We couldn't find a recent message for this number. Goodbye.");
+    twiml.hangup();
+    return;
+  }
+
+  say(twiml, "Here's the message you were sent.");
+  twiml.play(`${BASE_URL}/api/messages/${rows[0].id}/audio`);
+  twiml.hangup();
+}
+
+// ---------- conference webhooks (Twilio -> us) ----------
+
+router.post('/conference-status', async (req, res) => {
+  const { StatusCallbackEvent, ConferenceSid, FriendlyName } = req.body;
+  try {
+    const match = /^wonder-conf-(\d+)$/.exec(FriendlyName || '');
+    if (match) {
+      const conferenceId = match[1];
+      if (StatusCallbackEvent === 'conference-start') {
+        await pool.query(`UPDATE conferences SET twilio_conference_sid = $1, status = 'active' WHERE id = $2`, [ConferenceSid, conferenceId]);
+      } else if (StatusCallbackEvent === 'conference-end') {
+        await pool.query(`UPDATE conferences SET status = 'ended' WHERE id = $1`, [conferenceId]);
+      }
+    }
+  } catch (err) {
+    console.error('conference-status webhook error:', err);
+  }
+  res.status(200).end();
+});
+
+router.post('/conference-recording', async (req, res) => {
+  const { RecordingUrl, ConferenceSid } = req.body;
+  try {
+    if (RecordingUrl && ConferenceSid) {
+      await pool.query(`UPDATE conferences SET recording_url = $1 WHERE twilio_conference_sid = $2`, [`${RecordingUrl}.mp3`, ConferenceSid]);
+    }
+  } catch (err) {
+    console.error('conference-recording webhook error:', err);
+  }
+  res.status(200).end();
+});
 
 router.post('/sms-incoming', async (req, res) => {
   const to = req.body.To;
