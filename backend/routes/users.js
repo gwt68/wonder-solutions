@@ -13,9 +13,15 @@ function twilioClient() {
 
 router.get('/', async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      'SELECT id, username, name, phone, email, twilio_phone_number, is_admin, created_at FROM users ORDER BY created_at ASC'
-    );
+    const { rows } = await pool.query(`
+      SELECT u.id, u.username, u.name, u.phone, u.email, u.twilio_phone_number, u.is_admin, u.created_at,
+             COALESCE(s.total_cost, 0) AS total_cost
+      FROM users u
+      LEFT JOIN (
+        SELECT user_id, SUM(cost) AS total_cost FROM sends WHERE cost IS NOT NULL GROUP BY user_id
+      ) s ON s.user_id = u.id
+      ORDER BY u.created_at ASC
+    `);
     res.json(rows);
   } catch (err) {
     console.error(err);

@@ -128,6 +128,7 @@ export default function Users() {
               <th>Username</th>
               <th>Name</th>
               <th>Twilio Number</th>
+              <th>Total Cost</th>
               <th>Admin</th>
               <th>Created</th>
               <th></th>
@@ -139,6 +140,7 @@ export default function Users() {
                 <td>{u.username}</td>
                 <td>{u.name || '—'}</td>
                 <td style={{ fontFamily: 'var(--font-mono)' }}>{u.twilio_phone_number || '—'}</td>
+                <td style={{ fontFamily: 'var(--font-mono)' }}>${parseFloat(u.total_cost || 0).toFixed(2)}</td>
                 <td>{u.is_admin ? <span className="pill signal">Admin</span> : '—'}</td>
                 <td>{new Date(u.created_at).toLocaleDateString()}</td>
                 <td>

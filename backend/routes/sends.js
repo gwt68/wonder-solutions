@@ -56,6 +56,7 @@ async function sendToContact(contact, message, method, fromNumber) {
     if (method === 'call') {
       const VoiceResponse = twilio.twiml.VoiceResponse;
       const twiml = new VoiceResponse();
+      const beep = twiml.pause({ length: 1 }); // brief pause lets a voicemail greeting finish before the message plays
       if (hasAudio) twiml.play(audioProxyUrl(message.id));
       else if (message.text_content) twiml.say(message.text_content);
       else return { status: 'failed', error_message: 'This message has nothing to play or say on a call' };
@@ -64,7 +65,7 @@ async function sendToContact(contact, message, method, fromNumber) {
         to: contact.phone_number, from: fromNumber, twiml: twiml.toString(),
         statusCallback: webhookUrl('call-status'),
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-        statusCallbackMethod: 'POST', machineDetection: 'Enable',
+        statusCallbackMethod: 'POST', machineDetection: 'Enable', machineDetectionTimeout: 8,
       });
       return { status: 'sent', twilio_sid: result.sid };
     }
