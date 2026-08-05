@@ -74,8 +74,8 @@ export default function History({ onNavigateToConversation }) {
   const broadcasts = groupSendsIntoBroadcasts(sends);
 
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div className="page-header" style={{ flexShrink: 0 }}>
         <div>
           <h1>History</h1>
           <p>What's been sent and scheduled, grouped by broadcast</p>
@@ -83,7 +83,11 @@ export default function History({ onNavigateToConversation }) {
         <button className="btn secondary" onClick={load}><i className="ti ti-refresh" /> Refresh</button>
       </div>
 
+      <div style={{ flexShrink: 0 }}>
       {error && <div className="banner error">{error}</div>}
+      </div>
+
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
 
       {loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
@@ -191,6 +195,7 @@ export default function History({ onNavigateToConversation }) {
           })}
         </div>
       )}
+      </div>
     </div>
   );
 }
