@@ -16,7 +16,7 @@ const PAGES = [
   { key: 'contacts', label: 'Contacts' },
   { key: 'groups', label: 'Groups' },
   { key: 'messages', label: 'Messages' },
-  { key: 'replies', label: 'Replies' },
+  { key: 'replies', label: 'Conversations' },
   { key: 'send', label: 'Send' },
   { key: 'history', label: 'History' },
   { key: 'users', label: 'Users' },
@@ -26,6 +26,7 @@ const PAGES = [
 export default function App() {
   const [page, setPage] = useState('dashboard');
   const [unreadReplies, setUnreadReplies] = useState(0);
+  const [openConversationContactId, setOpenConversationContactId] = useState(null);
   const [loggedIn, setLoggedIn] = useState(!!localStorage.getItem('wonder_token'));
 
   useEffect(() => {
@@ -90,9 +91,9 @@ export default function App() {
         {page === 'contacts' && <Contacts />}
         {page === 'groups' && <Groups />}
         {page === 'messages' && <Messages />}
-        {page === 'replies' && <Replies onRead={() => setUnreadReplies(0)} />}
+        {page === 'replies' && <Replies onRead={() => setUnreadReplies(0)} openContactId={openConversationContactId} onOpened={() => setOpenConversationContactId(null)} />}
         {page === 'send' && <Send />}
-        {page === 'history' && <History />}
+        {page === 'history' && <History onNavigateToConversation={(contactId) => { setOpenConversationContactId(contactId); setPage('replies'); }} />}
         {page === 'users' && <Users />}
         {page === 'settings' && <Settings />}
       </main>

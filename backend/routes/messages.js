@@ -118,6 +118,7 @@ router.post('/:id/reply', requireAuth, async (req, res) => {
       message_id: message.rows[0].id,
       recipients: [{ contact_id: rows[0].reply_contact_id, methods: ['sms'] }],
       userId: req.userId,
+      isConversationReply: true,
     });
     res.status(201).json(result);
   } catch (err) {

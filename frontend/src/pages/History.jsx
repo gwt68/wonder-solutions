@@ -29,11 +29,16 @@ function formatDuration(seconds) {
   return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
-export default function History() {
+export default function History({ onNavigateToConversation }) {
   const [sends, setSends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(new Set());
+  const [expandedReplyId, setExpandedReplyId] = useState(null);
+
+  function onOpenConversation(contactId) {
+    if (onNavigateToConversation) onNavigateToConversation(contactId);
+  }
 
   async function load() {
     setLoading(true);
@@ -135,34 +140,46 @@ export default function History() {
                     <div className="list">
                       {b.recipients.map((s) => {
                         const duration = formatDuration(s.call_duration);
+                        const isReplyOpen = expandedReplyId === s.id;
                         return (
-                          <div className="row" key={s.id}>
-                            <div className="row-main">
-                              <span className="row-title">
-                                <i className={`ti ${METHOD_ICONS[s.effective_method] || 'ti-send'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
-                                {s.contact_name || s.phone_number}
-                                <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}> · {METHOD_LABELS[s.effective_method] || s.effective_method}</span>
-                              </span>
-                              <span className="row-sub">
-                                {s.phone_number}
-                                {s.delivery_status && ` · ${DELIVERY_LABELS[s.delivery_status] || s.delivery_status}`}
-                                {duration && ` · ${duration}`}
-                                {s.answered_by && ` · ${ANSWERED_BY_LABELS[s.answered_by] || s.answered_by}`}
-                                {s.cost && ` · $${parseFloat(s.cost).toFixed(4)}`}
-                              </span>
-                              {s.error_message && <span className="row-sub" style={{ color: 'var(--danger)' }}>{s.error_message}</span>}
-                              {s.reply_text && (
-                                <p style={{ fontSize: 12.5, background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 6, padding: '6px 9px', margin: '6px 0 0' }}>
-                                  <strong>{s.contact_name || s.phone_number} replied:</strong> {s.reply_text}
-                                </p>
-                              )}
+                          <div className="row" key={s.id} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
+                              <div
+                                className="row-main"
+                                style={s.reply_text ? { cursor: 'pointer' } : undefined}
+                                onClick={() => s.reply_text && setExpandedReplyId(isReplyOpen ? null : s.id)}
+                              >
+                                <span className="row-title">
+                                  <i className={`ti ${METHOD_ICONS[s.effective_method] || 'ti-send'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
+                                  {s.contact_name || s.phone_number}
+                                  <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}> · {METHOD_LABELS[s.effective_method] || s.effective_method}</span>
+                                  {s.reply_text && <span className="pill signal" style={{ marginLeft: 8 }}>Replied</span>}
+                                </span>
+                                <span className="row-sub">
+                                  {s.phone_number}
+                                  {s.delivery_status && ` · ${DELIVERY_LABELS[s.delivery_status] || s.delivery_status}`}
+                                  {duration && ` · ${duration}`}
+                                  {s.answered_by && ` · ${ANSWERED_BY_LABELS[s.answered_by] || s.answered_by}`}
+                                  {s.cost && ` · $${parseFloat(s.cost).toFixed(4)}`}
+                                </span>
+                                {s.error_message && <span className="row-sub" style={{ color: 'var(--danger)' }}>{s.error_message}</span>}
+                              </div>
+                              <div className="row-actions">
+                                <span className="pill" style={s.status === 'failed' ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
+                                  {s.status === 'sent' ? 'Sent' : s.status}
+                                </span>
+                                <button className="icon-btn danger" onClick={() => handleDeleteRecipient(s.id)} aria-label="Delete record"><i className="ti ti-trash" /></button>
+                              </div>
                             </div>
-                            <div className="row-actions">
-                              <span className="pill" style={s.status === 'failed' ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
-                                {s.status === 'sent' ? 'Sent' : s.status}
-                              </span>
-                              <button className="icon-btn danger" onClick={() => handleDeleteRecipient(s.id)} aria-label="Delete record"><i className="ti ti-trash" /></button>
-                            </div>
+                            {isReplyOpen && (
+                              <div
+                                style={{ fontSize: 12.5, background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 6, padding: '8px 10px', margin: '8px 0 0', cursor: 'pointer' }}
+                                onClick={() => onOpenConversation(s.contact_id)}
+                              >
+                                <strong>{s.contact_name || s.phone_number} replied:</strong> {s.reply_text.split(' ').slice(0, 12).join(' ')}{s.reply_text.split(' ').length > 12 ? '…' : ''}
+                                <span style={{ display: 'block', marginTop: 4, textDecoration: 'underline' }}>Continue this conversation →</span>
+                              </div>
+                            )}
                           </div>
                         );
                       })}

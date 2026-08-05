@@ -76,7 +76,7 @@ async function sendToContact(contact, message, method, fromNumber) {
   }
 }
 
-async function createSendBatch({ message_id, recipients, scheduled_at, userId }) {
+async function createSendBatch({ message_id, recipients, scheduled_at, userId, isConversationReply = false }) {
   const { rows: userRows } = await pool.query('SELECT twilio_phone_number FROM users WHERE id = $1', [userId]);
   const fromNumber = userRows[0]?.twilio_phone_number;
 
@@ -118,17 +118,17 @@ async function createSendBatch({ message_id, recipients, scheduled_at, userId })
   for (const { contact, method } of expanded) {
     if (isScheduled) {
       const { rows } = await pool.query(
-        `INSERT INTO sends (contact_id, message_id, status, scheduled_at, method, batch_id, user_id)
-         VALUES ($1, $2, 'scheduled', $3, $4, $5, $6) RETURNING *`,
-        [contact.id, message_id, scheduled_at, method, batchId, userId]
+        `INSERT INTO sends (contact_id, message_id, status, scheduled_at, method, batch_id, user_id, is_conversation_reply)
+         VALUES ($1, $2, 'scheduled', $3, $4, $5, $6, $7) RETURNING *`,
+        [contact.id, message_id, scheduled_at, method, batchId, userId, isConversationReply]
       );
       created.push(rows[0]);
     } else {
       const result = await sendToContact(contact, message, method, fromNumber);
       const { rows } = await pool.query(
-        `INSERT INTO sends (contact_id, message_id, status, twilio_sid, error_message, sent_at, method, batch_id, user_id)
-         VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8) RETURNING *`,
-        [contact.id, message_id, result.status, result.twilio_sid || null, result.error_message || null, method, batchId, userId]
+        `INSERT INTO sends (contact_id, message_id, status, twilio_sid, error_message, sent_at, method, batch_id, user_id, is_conversation_reply)
+         VALUES ($1, $2, $3, $4, $5, NOW(), $6, $7, $8, $9) RETURNING *`,
+        [contact.id, message_id, result.status, result.twilio_sid || null, result.error_message || null, method, batchId, userId, isConversationReply]
       );
       created.push(rows[0]);
     }
@@ -163,16 +163,16 @@ router.get('/', async (req, res) => {
              m.text_content AS message_text, m.audio_url AS message_audio_url,
              (m.audio_data IS NOT NULL) AS message_has_uploaded_audio,
              (m.image_data IS NOT NULL) AS message_has_image,
-             r.text_content AS reply_text, r.created_at AS reply_at
+             r.id AS reply_id, r.text_content AS reply_text, r.created_at AS reply_at
       FROM sends s
       JOIN contacts c ON c.id = s.contact_id
       JOIN messages m ON m.id = s.message_id
       LEFT JOIN LATERAL (
-        SELECT text_content, created_at FROM messages
+        SELECT id, text_content, created_at FROM messages
         WHERE is_reply = TRUE AND reply_contact_id = c.id AND created_at > s.sent_at
         ORDER BY created_at ASC LIMIT 1
       ) r ON TRUE
-      WHERE ($1::int IS NULL OR s.user_id = $1)
+      WHERE ($1::int IS NULL OR s.user_id = $1) AND s.is_conversation_reply = FALSE
     `;
     const { rows } = contact_id
       ? await pool.query(`${baseQuery} AND s.contact_id = $2 ORDER BY COALESCE(s.scheduled_at, s.created_at) DESC`, [scope, contact_id])

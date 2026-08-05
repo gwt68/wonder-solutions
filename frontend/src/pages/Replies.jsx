@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
-export default function Replies({ onRead }) {
+export default function Replies({ onRead, openContactId: navContactId, onOpened }) {
   const [replies, setReplies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -10,6 +10,18 @@ export default function Replies({ onRead }) {
   const [convoLoading, setConvoLoading] = useState(false);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+
+  useEffect(() => {
+    if (navContactId) {
+      setOpenContactId(navContactId);
+      setConvoLoading(true);
+      api.messages.conversation(navContactId)
+        .then(setConversation)
+        .catch((e) => setError(e.message))
+        .finally(() => setConvoLoading(false));
+      if (onOpened) onOpened();
+    }
+  }, [navContactId]);
 
   async function load() {
     setLoading(true);
