@@ -12,7 +12,6 @@ const { router: sendsRoutes, processDueSends } = require('./routes/sends');
 const publicRoutes = require('./routes/public');
 const { router: webhooksRoutes, retryMissingCosts } = require('./routes/webhooks');
 const usersRoutes = require('./routes/users');
-const signalhouseTestRoutes = require('./routes/signalhouse-test');
 const trustedPhonesRoutes = require('./routes/trustedPhones');
 const signupRoutes = require('./routes/signup');
 
@@ -31,7 +30,6 @@ app.use('/api/sends', sendsRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/users', usersRoutes);
-app.use('/api/signalhouse-test', signalhouseTestRoutes);
 app.use('/api/trusted-phones', trustedPhonesRoutes);
 app.use('/api/signup', signupRoutes);
 app.use('/webhooks', webhooksRoutes);
