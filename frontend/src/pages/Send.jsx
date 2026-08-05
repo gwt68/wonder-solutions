@@ -267,7 +267,9 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
         created = await api.messages.create({ type: 'sms', title: title || null, text_content: body });
       } else if (channel === 'call') {
         if (existingAudio) {
-          created = existingAudio;
+          created = body.trim()
+            ? await api.messages.cloneWithCaption(existingAudio.id, body, title || existingAudio.title)
+            : existingAudio;
         } else if (audioFile) {
           created = await api.messages.uploadAudio(audioFile, title || audioFile.name);
           if (body.trim()) created = await api.messages.editText(created.id, created.title, body);
@@ -277,7 +279,9 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
       } else if (channel === 'voice_note') {
         if (mediaKind === 'audio') {
           if (existingAudio) {
-            created = existingAudio;
+            created = body.trim()
+              ? await api.messages.cloneWithCaption(existingAudio.id, body, title || existingAudio.title)
+              : existingAudio;
           } else {
             created = await api.messages.uploadAudio(audioFile, title || audioFile.name);
           }
@@ -327,11 +331,7 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
               onExistingChosen={handleExistingAudioChosen}
               existingId={existingAudio?.id}
             />
-            {existingAudio && (
-              <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: -8, marginBottom: 14 }}>
-                Using saved recording "{existingAudio.title || 'Untitled'}" — any text above won't be added to it.
-              </p>
-            )}
+            
           </>
         )}
 
@@ -351,11 +351,7 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
                   onExistingChosen={handleExistingAudioChosen}
                   existingId={existingAudio?.id}
                 />
-                {existingAudio && (
-                  <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: -8, marginBottom: 14 }}>
-                    Using saved recording "{existingAudio.title || 'Untitled'}" — any caption below won't be added to it.
-                  </p>
-                )}
+                
               </>
             ) : (
               <div className="field">

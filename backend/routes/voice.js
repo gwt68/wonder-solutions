@@ -953,12 +953,24 @@ router.post('/sms-incoming', async (req, res) => {
       );
       const isTrusted = rows.length > 0;
 
-      if (isTrusted && body && body.trim()) {
-        await pool.query(
-          `INSERT INTO messages (title, type, text_content, user_id) VALUES ($1, 'sms', $2, $3)`,
-          [`Texted in`, body.trim(), user.id]
-        );
-        twiml.message('Saved to Wonder Solutions as a new text message.');
+      if (body && body.trim()) {
+        if (isTrusted) {
+          await pool.query(
+            `INSERT INTO messages (title, type, text_content, user_id) VALUES ($1, 'sms', $2, $3)`,
+            [`Texted in`, body.trim(), user.id]
+          );
+          twiml.message('Saved to Wonder Solutions as a new text message.');
+        } else {
+          const { rows: contactRows } = await pool.query(
+            'SELECT id FROM contacts WHERE phone_number = $1 AND user_id = $2', [from, user.id]
+          );
+          const contactId = contactRows[0]?.id || null;
+          await pool.query(
+            `INSERT INTO messages (title, type, text_content, user_id, is_reply, from_phone_number, reply_contact_id)
+             VALUES ($1, 'sms', $2, $3, TRUE, $4, $5)`,
+            [`Reply`, body.trim(), user.id, from, contactId]
+          );
+        }
       }
     }
   } catch (err) {

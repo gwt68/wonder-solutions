@@ -162,10 +162,16 @@ router.get('/', async (req, res) => {
              m.title AS message_title, m.type AS message_type,
              m.text_content AS message_text, m.audio_url AS message_audio_url,
              (m.audio_data IS NOT NULL) AS message_has_uploaded_audio,
-             (m.image_data IS NOT NULL) AS message_has_image
+             (m.image_data IS NOT NULL) AS message_has_image,
+             r.text_content AS reply_text, r.created_at AS reply_at
       FROM sends s
       JOIN contacts c ON c.id = s.contact_id
       JOIN messages m ON m.id = s.message_id
+      LEFT JOIN LATERAL (
+        SELECT text_content, created_at FROM messages
+        WHERE is_reply = TRUE AND reply_contact_id = c.id AND created_at > s.sent_at
+        ORDER BY created_at ASC LIMIT 1
+      ) r ON TRUE
       WHERE ($1::int IS NULL OR s.user_id = $1)
     `;
     const { rows } = contact_id

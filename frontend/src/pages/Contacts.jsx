@@ -142,6 +142,7 @@ export default function Contacts() {
   const [importing, setImporting] = useState(false);
   const [sortField, setSortField] = useState('first_name');
   const [sortDir, setSortDir] = useState('asc');
+  const [searchQuery, setSearchQuery] = useState('');
   const [logContact, setLogContact] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -375,9 +376,16 @@ export default function Contacts() {
   }
 
   const sortedContacts = useMemo(() => {
-    const filtered = groupFilter === 'all'
+    let filtered = groupFilter === 'all'
       ? contacts
       : contacts.filter((c) => c.groups.some((g) => String(g.id) === String(groupFilter)));
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      filtered = filtered.filter((c) => {
+        const name = `${c.first_name || ''} ${c.last_name || ''} ${c.name || ''}`.toLowerCase();
+        return name.includes(q) || (c.phone_number || '').includes(q) || (c.email || '').toLowerCase().includes(q);
+      });
+    }
     const copy = [...filtered];
     copy.sort((a, b) => {
       let av, bv;
@@ -391,7 +399,7 @@ export default function Contacts() {
       return 0;
     });
     return copy;
-  }, [contacts, sortField, sortDir, groupFilter]);
+  }, [contacts, sortField, sortDir, groupFilter, searchQuery]);
 
   function sortArrow(field) {
     if (sortField !== field) return null;
@@ -462,6 +470,16 @@ export default function Contacts() {
                 </ul>
               </>
             )}
+          </div>
+        )}
+
+        {contacts.length > 0 && (
+          <div className="field" style={{ maxWidth: 320, marginBottom: 12 }}>
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search by name, phone, or email"
+            />
           </div>
         )}
 

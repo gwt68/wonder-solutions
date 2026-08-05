@@ -20,6 +20,7 @@ export default function SendForm({ message, onSent }) {
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
   const [groupLoading, setGroupLoading] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const messageHasAudio = !!(message.audio_url || message.has_uploaded_audio);
   const messageHasImage = !!message.has_image;
@@ -34,6 +35,21 @@ export default function SendForm({ message, onSent }) {
   function contactMethods(c) {
     return c.methods && c.methods.length ? c.methods : [c.preferred_method];
   }
+
+  function contactSortName(c) {
+    return (contactDisplayName(c) || '').toLowerCase();
+  }
+
+  const visibleContacts = React.useMemo(() => {
+    let list = contacts;
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      list = list.filter((c) =>
+        contactSortName(c).includes(q) || (c.phone_number || '').includes(q)
+      );
+    }
+    return [...list].sort((a, b) => contactSortName(a).localeCompare(contactSortName(b)));
+  }, [contacts, searchQuery]);
 
   function toggleContact(c) {
     setSelected((prev) => {
@@ -248,11 +264,20 @@ export default function SendForm({ message, onSent }) {
           <div><strong style={{ color: 'var(--ink)' }}>Voice note</strong> — sends a text message with the audio or photo attached, no call</div>
           <div><strong style={{ color: 'var(--ink)' }}>Text</strong> — sends a plain text message</div>
         </div>
+        <div className="field" style={{ marginBottom: 8 }}>
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by name or phone"
+          />
+        </div>
         <div style={{ maxHeight: 300, overflowY: 'auto', overflowX: 'hidden', border: '1px solid var(--line)', borderRadius: 7 }}>
           {contacts.length === 0 ? (
             <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No contacts yet.</p>
+          ) : visibleContacts.length === 0 ? (
+            <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No contacts match your search.</p>
           ) : (
-            contacts.map((c) => {
+            visibleContacts.map((c) => {
               const isSelected = selected.has(c.id);
               const activeMethods = selected.get(c.id) || new Set();
               const methods = contactMethods(c);

@@ -119,11 +119,15 @@ export const api = {
   },
   messages: {
     list: () => request('/messages'),
+    replies: () => request('/messages/replies'),
+    unreadReplyCount: () => request('/messages/replies/unread-count'),
+    markReplyRead: (id) => request(`/messages/${id}/mark-read`, { method: 'PUT' }),
     create: (data) => request('/messages', { method: 'POST', body: JSON.stringify(data) }),
     remove: (id) => request(`/messages/${id}`, { method: 'DELETE' }),
     bulkDelete: (ids) => request('/messages/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
     rename: (id, title) => request(`/messages/${id}`, { method: 'PUT', body: JSON.stringify({ title }) }),
     editText: (id, title, text_content) => request(`/messages/${id}`, { method: 'PUT', body: JSON.stringify({ title, text_content }) }),
+    cloneWithCaption: (id, text_content, title) => request(`/messages/${id}/clone-with-caption`, { method: 'POST', body: JSON.stringify({ text_content, title }) }),
     uploadAudio: (file, title) => {
       const formData = new FormData();
       formData.append('audio', file);

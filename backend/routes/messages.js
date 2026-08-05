@@ -45,6 +45,50 @@ router.post('/', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/replies', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT m.id, m.text_content, m.from_phone_number, m.created_at, m.read_at,
+              COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name) AS contact_name
+       FROM messages m
+       LEFT JOIN contacts c ON c.id = m.reply_contact_id
+       WHERE m.is_reply = TRUE AND ($1::int IS NULL OR m.user_id = $1)
+       ORDER BY m.created_at DESC`,
+      [scopeParam(req)]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch replies' });
+  }
+});
+
+router.get('/replies/unread-count', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) FROM messages WHERE is_reply = TRUE AND read_at IS NULL AND ($1::int IS NULL OR user_id = $1)`,
+      [scopeParam(req)]
+    );
+    res.json({ count: parseInt(rows[0].count, 10) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch unread count' });
+  }
+});
+
+router.put('/:id/mark-read', requireAuth, async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE messages SET read_at = NOW() WHERE id = $1 AND is_reply = TRUE AND ($2::int IS NULL OR user_id = $2)`,
+      [req.params.id, scopeParam(req)]
+    );
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to mark as read' });
+  }
+});
+
 router.post('/upload', requireAuth, upload.single('audio'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No audio file was uploaded' });
   const title = req.body.title || req.file.originalname;
@@ -80,6 +124,29 @@ router.post('/upload-image', requireAuth, upload.single('image'), async (req, re
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to save uploaded image' });
+  }
+});
+
+// Creates a new message that reuses another message's audio/image data,
+// but with its own separate caption — used when sending a saved recording
+// with a one-off caption, without altering the original saved recording.
+router.post('/:id/clone-with-caption', requireAuth, async (req, res) => {
+  const { text_content, title } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO messages (title, type, text_content, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, user_id)
+       SELECT $1, type, $2, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, $3
+       FROM messages WHERE id = $4 AND ($5::int IS NULL OR user_id = $5)
+       RETURNING id, title, type, text_content, audio_url,
+                 (audio_data IS NOT NULL) AS has_uploaded_audio,
+                 (image_data IS NOT NULL) AS has_image, created_at`,
+      [title || null, text_content || null, req.userId, req.params.id, scopeParam(req)]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Source message not found' });
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to clone message' });
   }
 });
 

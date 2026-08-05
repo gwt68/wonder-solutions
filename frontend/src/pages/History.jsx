@@ -151,6 +151,11 @@ export default function History() {
                                 {s.cost && ` · $${parseFloat(s.cost).toFixed(4)}`}
                               </span>
                               {s.error_message && <span className="row-sub" style={{ color: 'var(--danger)' }}>{s.error_message}</span>}
+                              {s.reply_text && (
+                                <p style={{ fontSize: 12.5, background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 6, padding: '6px 9px', margin: '6px 0 0' }}>
+                                  <strong>{s.contact_name || s.phone_number} replied:</strong> {s.reply_text}
+                                </p>
+                              )}
                             </div>
                             <div className="row-actions">
                               <span className="pill" style={s.status === 'failed' ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>

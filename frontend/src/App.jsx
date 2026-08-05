@@ -3,18 +3,20 @@ import Dashboard from './pages/Dashboard.jsx';
 import Contacts from './pages/Contacts.jsx';
 import Groups from './pages/Groups.jsx';
 import Messages from './pages/Messages.jsx';
+import Replies from './pages/Replies.jsx';
 import Send from './pages/Send.jsx';
 import History from './pages/History.jsx';
 import Settings from './pages/Settings.jsx';
 import Users from './pages/Users.jsx';
 import Login from './pages/Login.jsx';
-import { setToken } from './api.js';
+import { setToken, api } from './api.js';
 
 const PAGES = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'contacts', label: 'Contacts' },
   { key: 'groups', label: 'Groups' },
   { key: 'messages', label: 'Messages' },
+  { key: 'replies', label: 'Replies' },
   { key: 'send', label: 'Send' },
   { key: 'history', label: 'History' },
   { key: 'users', label: 'Users' },
@@ -23,6 +25,7 @@ const PAGES = [
 
 export default function App() {
   const [page, setPage] = useState('dashboard');
+  const [unreadReplies, setUnreadReplies] = useState(0);
   const [loggedIn, setLoggedIn] = useState(!!localStorage.getItem('wonder_token'));
 
   useEffect(() => {
@@ -30,6 +33,16 @@ export default function App() {
     window.addEventListener('wonder-logout', handleLogout);
     return () => window.removeEventListener('wonder-logout', handleLogout);
   }, []);
+
+  useEffect(() => {
+    if (!loggedIn) return;
+    function refreshUnread() {
+      api.messages.unreadReplyCount().then((r) => setUnreadReplies(r.count)).catch(() => {});
+    }
+    refreshUnread();
+    const interval = setInterval(refreshUnread, 30000);
+    return () => clearInterval(interval);
+  }, [loggedIn]);
 
   function handleLogoutClick() {
     setToken(null);
@@ -58,8 +71,9 @@ export default function App() {
               key={p.key}
               className={`nav-item ${page === p.key ? 'active' : ''}`}
               onClick={() => setPage(p.key)}
+              style={p.key === 'replies' && unreadReplies > 0 ? { color: '#fff', background: 'var(--danger)' } : undefined}
             >
-              {p.label}
+              {p.label}{p.key === 'replies' && unreadReplies > 0 ? ` (${unreadReplies})` : ''}
             </button>
           ))}
         </nav>
@@ -76,6 +90,7 @@ export default function App() {
         {page === 'contacts' && <Contacts />}
         {page === 'groups' && <Groups />}
         {page === 'messages' && <Messages />}
+        {page === 'replies' && <Replies onRead={() => setUnreadReplies(0)} />}
         {page === 'send' && <Send />}
         {page === 'history' && <History />}
         {page === 'users' && <Users />}
