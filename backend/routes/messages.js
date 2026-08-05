@@ -76,6 +76,28 @@ router.get('/replies/unread-count', requireAuth, async (req, res) => {
   }
 });
 
+router.get('/conversation/:contactId', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT 'in' AS direction, id, text_content AS text, created_at
+       FROM messages
+       WHERE is_reply = TRUE AND reply_contact_id = $1 AND ($2::int IS NULL OR user_id = $2)
+       UNION ALL
+       SELECT 'out' AS direction, s.id, m.text_content AS text, COALESCE(s.sent_at, s.created_at) AS created_at
+       FROM sends s
+       JOIN messages m ON m.id = s.message_id
+       WHERE s.contact_id = $1 AND ($2::int IS NULL OR s.user_id = $2)
+         AND m.type IN ('sms', 'voice_note') AND m.text_content IS NOT NULL AND m.text_content != ''
+       ORDER BY created_at ASC`,
+      [req.params.contactId, scopeParam(req)]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch conversation' });
+  }
+});
+
 router.post('/:id/reply', requireAuth, async (req, res) => {
   const { body } = req.body;
   if (!body || !body.trim()) return res.status(400).json({ error: 'body is required' });
