@@ -88,8 +88,8 @@ export default function Replies({ onRead, openContactId: navContactId, onOpened 
       <div style={{ width: 320, flexShrink: 0, overflowY: 'auto' }}>
         <div className="page-header">
           <div>
-            <h1>Replies</h1>
-            <p>Conversations with contacts</p>
+            <h1>Conversations</h1>
+            <p>Two-way texts with your contacts</p>
           </div>
         </div>
 
@@ -99,32 +99,52 @@ export default function Replies({ onRead, openContactId: navContactId, onOpened 
           <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
         ) : contactList.length === 0 ? (
           <div className="card empty-state">
-            <h3>No replies yet</h3>
+            <h3>No conversations yet</h3>
             <p>When a contact texts back, it'll show up here.</p>
           </div>
         ) : (
-          <div className="list">
-            {contactList.map((r) => (
-              <div
-                className="row"
-                key={r.reply_contact_id || r.from_phone_number}
-                style={{ cursor: 'pointer', background: openContactId === r.reply_contact_id ? 'var(--accent-soft)' : undefined }}
-                onClick={() => openThread(r)}
-              >
-                <div className="row-main">
-                  <span className="row-title">{r.contact_name || r.from_phone_number}</span>
-                  <span className="row-sub">{new Date(r.created_at).toLocaleString()}</span>
-                  <p style={{ fontSize: 13, marginTop: 4, color: 'var(--ink-soft)' }}>{r.text_content}</p>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {contactList.map((r) => {
+              const isActive = openContactId === r.reply_contact_id;
+              return (
+                <div
+                  key={r.reply_contact_id || r.from_phone_number}
+                  onClick={() => openThread(r)}
+                  style={{
+                    cursor: 'pointer',
+                    padding: '12px 14px',
+                    borderRadius: 10,
+                    background: isActive ? 'var(--accent-soft)' : 'transparent',
+                    border: '1px solid transparent',
+                    transition: 'background 0.12s ease',
+                  }}
+                  onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = 'var(--bg)'; }}
+                  onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ fontWeight: 600, fontSize: 14, color: isActive ? 'var(--accent)' : 'var(--ink)' }}>
+                      {r.contact_name || r.from_phone_number}
+                    </span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-faint)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      {new Date(r.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                  <p style={{
+                    fontSize: 12.5, color: 'var(--ink-soft)', margin: '3px 0 0',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  }}>
+                    {r.text_content}
+                  </p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
       {openContactId && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 4px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
+          <div style={{ flex: 1, overflowY: 'auto', padding: '8px 4px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             {convoLoading ? (
               <p style={{ color: 'var(--ink-soft)' }}>Loading conversation...</p>
             ) : (

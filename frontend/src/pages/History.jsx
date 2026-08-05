@@ -124,7 +124,7 @@ export default function History({ onNavigateToConversation }) {
                 </div>
 
                 {isOpen && (
-                  <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px' }}>
+                  <div style={{ borderTop: '1px solid var(--line)', padding: '14px 18px', maxHeight: 420, overflowY: 'auto' }}>
                     {b.messageText && (
                       <p style={{ fontSize: 13.5, background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 12, whiteSpace: 'pre-wrap' }}>
                         {b.messageText}

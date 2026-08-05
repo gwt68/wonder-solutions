@@ -28,6 +28,7 @@ export default function App() {
   const [unreadReplies, setUnreadReplies] = useState(0);
   const [openConversationContactId, setOpenConversationContactId] = useState(null);
   const [loggedIn, setLoggedIn] = useState(!!localStorage.getItem('wonder_token'));
+  const [isAdmin, setIsAdmin] = useState(localStorage.getItem('wonder_is_admin') === 'true');
 
   useEffect(() => {
     function handleLogout() { setLoggedIn(false); }
@@ -51,7 +52,7 @@ export default function App() {
   }
 
   if (!loggedIn) {
-    return <Login onLogin={() => setLoggedIn(true)} />;
+    return <Login onLogin={() => { setLoggedIn(true); setIsAdmin(localStorage.getItem('wonder_is_admin') === 'true'); }} />;
   }
 
   return (
@@ -67,7 +68,7 @@ export default function App() {
           </div>
         </div>
         <nav className="nav">
-          {PAGES.map((p) => (
+          {PAGES.filter((p) => p.key !== 'users' || isAdmin).map((p) => (
             <button
               key={p.key}
               className={`nav-item ${page === p.key ? 'active' : ''}`}
