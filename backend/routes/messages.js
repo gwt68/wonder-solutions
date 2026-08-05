@@ -48,7 +48,7 @@ router.post('/', requireAuth, async (req, res) => {
 router.get('/replies', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT m.id, m.text_content, m.from_phone_number, m.created_at, m.read_at,
+      `SELECT m.id, m.text_content, m.from_phone_number, m.created_at, m.read_at, m.reply_contact_id,
               COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name) AS contact_name
        FROM messages m
        LEFT JOIN contacts c ON c.id = m.reply_contact_id
