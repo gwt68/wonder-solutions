@@ -76,6 +76,34 @@ router.get('/replies/unread-count', requireAuth, async (req, res) => {
   }
 });
 
+router.post('/:id/reply', requireAuth, async (req, res) => {
+  const { body } = req.body;
+  if (!body || !body.trim()) return res.status(400).json({ error: 'body is required' });
+  try {
+    const { rows } = await pool.query(
+      `SELECT reply_contact_id FROM messages WHERE id = $1 AND is_reply = TRUE AND ($2::int IS NULL OR user_id = $2)`,
+      [req.params.id, scopeParam(req)]
+    );
+    if (!rows.length || !rows[0].reply_contact_id) {
+      return res.status(400).json({ error: 'No linked contact to reply to' });
+    }
+    const { createSendBatch } = require('./sends');
+    const message = await pool.query(
+      `INSERT INTO messages (title, type, text_content, user_id) VALUES ('Reply', 'sms', $1, $2) RETURNING id`,
+      [body.trim(), req.userId]
+    );
+    const result = await createSendBatch({
+      message_id: message.rows[0].id,
+      recipients: [{ contact_id: rows[0].reply_contact_id, methods: ['sms'] }],
+      userId: req.userId,
+    });
+    res.status(201).json(result);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Failed to send reply' });
+  }
+});
+
 router.put('/:id/mark-read', requireAuth, async (req, res) => {
   try {
     await pool.query(

@@ -962,7 +962,8 @@ router.post('/sms-incoming', async (req, res) => {
           twiml.message('Saved to Wonder Solutions as a new text message.');
         } else {
           const { rows: contactRows } = await pool.query(
-            'SELECT id FROM contacts WHERE phone_number = $1 AND user_id = $2', [from, user.id]
+            `SELECT id FROM contacts WHERE user_id = $2 AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
+            [from, user.id]
           );
           const contactId = contactRows[0]?.id || null;
           await pool.query(

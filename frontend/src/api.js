@@ -122,6 +122,7 @@ export const api = {
     replies: () => request('/messages/replies'),
     unreadReplyCount: () => request('/messages/replies/unread-count'),
     markReplyRead: (id) => request(`/messages/${id}/mark-read`, { method: 'PUT' }),
+    sendReply: (id, body) => request(`/messages/${id}/reply`, { method: 'POST', body: JSON.stringify({ body }) }),
     create: (data) => request('/messages', { method: 'POST', body: JSON.stringify(data) }),
     remove: (id) => request(`/messages/${id}`, { method: 'DELETE' }),
     bulkDelete: (ids) => request('/messages/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
