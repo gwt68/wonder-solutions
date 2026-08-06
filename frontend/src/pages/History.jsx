@@ -1,26 +1,34 @@
 import React, { useEffect, useState } from 'react';
 import { api, audioUrl, imageUrl } from '../api.js';
 import { groupSendsIntoBroadcasts } from '../broadcastUtils.js';
+import { t, tf } from '../i18n.js';
 
-const DELIVERY_LABELS = {
-  queued: 'Queued', sending: 'Sending', sent: 'Sent', delivered: 'Delivered', undelivered: 'Undelivered', failed: 'Failed',
-  initiated: 'Calling', ringing: 'Ringing', 'in-progress': 'In progress', answered: 'Answered',
-  completed: 'Completed', busy: 'Busy', 'no-answer': 'No answer', canceled: 'Canceled',
-};
+function getDeliveryLabels() {
+  return {
+    queued: t('delivery_queued'), sending: t('delivery_sending'), sent: t('delivery_sent'),
+    delivered: t('delivery_delivered'), undelivered: t('delivery_undelivered'), failed: t('delivery_failed'),
+    initiated: t('delivery_initiated'), ringing: t('delivery_ringing'), 'in-progress': t('delivery_in_progress'),
+    answered: t('delivery_answered'), completed: t('delivery_completed'), busy: t('delivery_busy'),
+    'no-answer': t('delivery_no_answer'), canceled: t('delivery_canceled'),
+  };
+}
 
-const ANSWERED_BY_LABELS = {
-  human: 'Person answered',
-  machine_start: 'Voicemail',
-  machine_end_beep: 'Voicemail',
-  machine_end_silence: 'Voicemail',
-  machine_end_other: 'Voicemail',
-  fax: 'Fax machine',
-  unknown: 'Unknown',
-};
+function getAnsweredByLabels() {
+  return {
+    human: t('answered_human'),
+    machine_start: t('answered_machine'),
+    machine_end_beep: t('answered_machine'),
+    machine_end_silence: t('answered_machine'),
+    machine_end_other: t('answered_machine'),
+    fax: t('answered_fax'),
+    unknown: t('answered_unknown'),
+  };
+}
 
-const METHOD_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
+function getMethodLabels() {
+  return { sms: t('type_sms'), call: t('type_call'), voice_note: t('type_voice_note') };
+}
 const METHOD_ICONS = { sms: 'ti-message', call: 'ti-phone', voice_note: 'ti-microphone' };
-
 
 function formatDuration(seconds) {
   if (!seconds && seconds !== 0) return null;
@@ -30,6 +38,9 @@ function formatDuration(seconds) {
 }
 
 export default function History({ onNavigateToConversation }) {
+  const DELIVERY_LABELS = getDeliveryLabels();
+  const ANSWERED_BY_LABELS = getAnsweredByLabels();
+  const METHOD_LABELS = getMethodLabels();
   const [sends, setSends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -54,7 +65,7 @@ export default function History({ onNavigateToConversation }) {
   useEffect(() => { load(); }, []);
 
   async function handleDeleteRecipient(id) {
-    if (!confirm('Remove this recipient from the record?')) return;
+    if (!confirm(t('history_confirm_remove_recipient'))) return;
     try {
       await api.sends.remove(id);
       await load();
@@ -77,10 +88,10 @@ export default function History({ onNavigateToConversation }) {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div className="page-header" style={{ flexShrink: 0 }}>
         <div>
-          <h1>History</h1>
-          <p>What's been sent and scheduled, grouped by broadcast</p>
+          <h1>{t('history_title')}</h1>
+          <p>{t('history_subtitle')}</p>
         </div>
-        <button className="btn secondary" onClick={load}><i className="ti ti-refresh" /> Refresh</button>
+        <button className="btn secondary" onClick={load}><i className="ti ti-refresh" /> {t('history_refresh')}</button>
       </div>
 
       <div style={{ flexShrink: 0 }}>
@@ -90,11 +101,11 @@ export default function History({ onNavigateToConversation }) {
       <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
 
       {loading ? (
-        <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
+        <p style={{ color: 'var(--ink-soft)' }}>{t('send_loading')}</p>
       ) : broadcasts.length === 0 ? (
         <div className="card empty-state">
-          <h3>Nothing sent yet</h3>
-          <p>Once you send or schedule a message, it'll show up here.</p>
+          <h3>{t('history_empty_title')}</h3>
+          <p>{t('history_empty_body')}</p>
         </div>
       ) : (
         <div className="list">
@@ -109,20 +120,20 @@ export default function History({ onNavigateToConversation }) {
                 >
                   <div>
                     <div style={{ fontWeight: 500, fontSize: 14.5 }}>
-                      {b.messageTitle || 'Untitled message'}
-                      <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}> · {b.singleMethod ? (METHOD_LABELS[b.singleMethod] || b.singleMethod) : 'Mixed methods'}</span>
+                      {b.messageTitle || t('label_untitled_message')}
+                      <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}> · {b.singleMethod ? (METHOD_LABELS[b.singleMethod] || b.singleMethod) : t('history_mixed_methods')}</span>
                     </div>
                     <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginTop: 2 }}>
-                      To {b.total} recipient{b.total !== 1 ? 's' : ''}
-                      {isScheduled && b.scheduledAt && ` · scheduled for ${new Date(b.scheduledAt).toLocaleString()}`}
+                      {tf('history_to_n_recipients', { n: b.total, s: b.total !== 1 ? 's' : '' })}
+                      {isScheduled && b.scheduledAt && ` · ${t('history_scheduled_for')} ${new Date(b.scheduledAt).toLocaleString()}`}
                       {!isScheduled && b.latestSentAt && ` · ${new Date(b.latestSentAt).toLocaleString()}`}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                     {b.totalCost > 0 && <span className="pill signal">${b.totalCost.toFixed(4)}</span>}
-                    {b.counts.sent > 0 && <span className="pill">{b.counts.sent} sent</span>}
-                    {b.counts.failed > 0 && <span className="pill" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}>{b.counts.failed} failed</span>}
-                    {b.counts.scheduled > 0 && <span className="pill signal">{b.counts.scheduled} scheduled</span>}
+                    {b.counts.sent > 0 && <span className="pill">{b.counts.sent} {t('label_sent')}</span>}
+                    {b.counts.failed > 0 && <span className="pill" style={{ background: 'var(--danger-soft)', color: 'var(--danger)' }}>{b.counts.failed} {t('label_failed')}</span>}
+                    {b.counts.scheduled > 0 && <span className="pill signal">{b.counts.scheduled} {t('label_scheduled_pill')}</span>}
                     <i className={`ti ${isOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ color: 'var(--ink-faint)' }} />
                   </div>
                 </div>
@@ -138,7 +149,7 @@ export default function History({ onNavigateToConversation }) {
                       <audio controls src={audioUrl(b.messageId)} style={{ width: '100%', marginBottom: 12 }} />
                     )}
                     {b.messageHasImage && (
-                      <img src={imageUrl(b.messageId)} alt={b.messageTitle || 'Photo'} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 12, display: 'block' }} />
+                      <img src={imageUrl(b.messageId)} alt={b.messageTitle || t('type_image')} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 12, display: 'block' }} />
                     )}
 
                     <div className="list">
@@ -157,7 +168,7 @@ export default function History({ onNavigateToConversation }) {
                                   <i className={`ti ${METHOD_ICONS[s.effective_method] || 'ti-send'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
                                   {s.contact_name || s.phone_number}
                                   <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}> · {METHOD_LABELS[s.effective_method] || s.effective_method}</span>
-                                  {s.reply_text && <span className="pill signal" style={{ marginLeft: 8 }}>Replied</span>}
+                                  {s.reply_text && <span className="pill signal" style={{ marginLeft: 8 }}>{t('history_replied_pill')}</span>}
                                 </span>
                                 <span className="row-sub">
                                   {s.phone_number}
@@ -170,9 +181,9 @@ export default function History({ onNavigateToConversation }) {
                               </div>
                               <div className="row-actions">
                                 <span className="pill" style={s.status === 'failed' ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
-                                  {s.status === 'sent' ? 'Sent' : s.status}
+                                  {s.status === 'sent' ? t('status_sent') : s.status}
                                 </span>
-                                <button className="icon-btn danger" onClick={() => handleDeleteRecipient(s.id)} aria-label="Delete record"><i className="ti ti-trash" /></button>
+                                <button className="icon-btn danger" onClick={() => handleDeleteRecipient(s.id)} aria-label={t('aria_delete_record')}><i className="ti ti-trash" /></button>
                               </div>
                             </div>
                             {isReplyOpen && (
@@ -180,8 +191,8 @@ export default function History({ onNavigateToConversation }) {
                                 style={{ fontSize: 12.5, background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 6, padding: '8px 10px', margin: '8px 0 0', cursor: 'pointer' }}
                                 onClick={() => onOpenConversation(s.contact_id)}
                               >
-                                <strong>{s.contact_name || s.phone_number} replied:</strong> {s.reply_text.split(' ').slice(0, 12).join(' ')}{s.reply_text.split(' ').length > 12 ? '…' : ''}
-                                <span style={{ display: 'block', marginTop: 4, textDecoration: 'underline' }}>Continue this conversation →</span>
+                                <strong>{s.contact_name || s.phone_number} {t('history_replied_pill').toLowerCase()}:</strong> {s.reply_text.split(' ').slice(0, 12).join(' ')}{s.reply_text.split(' ').length > 12 ? '…' : ''}
+                                <span style={{ display: 'block', marginTop: 4, textDecoration: 'underline' }}>{t('history_continue_conversation')}</span>
                               </div>
                             )}
                           </div>

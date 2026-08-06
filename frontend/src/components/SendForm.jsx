@@ -1,14 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import { api, audioUrl, imageUrl, contactDisplayName } from '../api.js';
+import { t, tf } from '../i18n.js';
 
-const METHOD_LABELS = { sms: 'text', call: 'phone call', voice_note: 'voice note' };
-const METHOD_OPTIONS = [
-  { value: 'sms', label: 'Text' },
-  { value: 'call', label: 'Phone call' },
-  { value: 'voice_note', label: 'Voice note' },
-];
+function getMethodLabels() {
+  return { sms: t('method_sms').split(' ')[0], call: t('method_call'), voice_note: t('method_voice_note') };
+}
+function getMethodOptions() {
+  return [
+    { value: 'sms', label: t('type_sms') },
+    { value: 'call', label: t('channel_call_label') },
+    { value: 'voice_note', label: t('type_voice_note') },
+  ];
+}
 
 export default function SendForm({ message, onSent }) {
+  const METHOD_LABELS = getMethodLabels();
+  const METHOD_OPTIONS = getMethodOptions();
   const [contacts, setContacts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [selected, setSelected] = useState(new Map()); // contactId -> Set of methods
@@ -104,8 +111,8 @@ export default function SendForm({ message, onSent }) {
   }
 
   function goToPreview() {
-    if (!selected.size) { setError('Select at least one contact'); return; }
-    if (scheduleEnabled && !scheduledAt) { setError('Choose a date and time to schedule for'); return; }
+    if (!selected.size) { setError(t('sf_select_at_least_one')); return; }
+    if (scheduleEnabled && !scheduledAt) { setError(t('sf_choose_schedule_date')); return; }
     setError('');
     setStep('preview');
   }
@@ -132,13 +139,13 @@ export default function SendForm({ message, onSent }) {
     }
   }
 
-  if (loading) return <p style={{ color: 'var(--ink-soft)' }}>Loading contacts...</p>;
+  if (loading) return <p style={{ color: 'var(--ink-soft)' }}>{t('send_loading')}</p>;
 
   if (result) {
     if (result.scheduled) {
       return (
         <div className="banner ok">
-          Scheduled for {result.count} recipient{result.count !== 1 ? 's' : ''}.
+          {tf('sf_scheduled_for_n', { n: result.count, s: result.count !== 1 ? 's' : '' })}
         </div>
       );
     }
@@ -150,16 +157,16 @@ export default function SendForm({ message, onSent }) {
       <div>
         {succeeded > 0 && (
           <div className="banner ok">
-            Sent to {succeeded} recipient{succeeded !== 1 ? 's' : ''}.
+            {tf('sf_sent_to_n', { n: succeeded, s: succeeded !== 1 ? 's' : '' })}
           </div>
         )}
         {failed.length > 0 && (
           <div className="banner error">
-            <strong>{failed.length} failed to send:</strong>
+            <strong>{tf('sf_failed_n', { n: failed.length })}</strong>
             <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
               {failed.map((s) => (
                 <li key={s.id} style={{ fontSize: 13 }}>
-                  {s.error_message || 'Unknown error'}
+                  {s.error_message || t('sf_unknown_error')}
                 </li>
               ))}
             </ul>
@@ -180,8 +187,8 @@ export default function SendForm({ message, onSent }) {
       <div>
         {error && <div className="banner error">{error}</div>}
         <div className="card" style={{ padding: 16, marginBottom: 16, background: 'var(--bg)' }}>
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>Sending</p>
-          <p style={{ fontWeight: 600, marginBottom: 8 }}>{message.title || 'Untitled message'}</p>
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>{t('send_sending_label')}</p>
+          <p style={{ fontWeight: 600, marginBottom: 8 }}>{message.title || t('label_untitled_message')}</p>
 
           {message.text_content && (
             <p style={{ fontSize: 14, background: 'var(--surface)', border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 12, whiteSpace: 'pre-wrap' }}>
@@ -192,13 +199,13 @@ export default function SendForm({ message, onSent }) {
             <audio controls src={audioUrl(message.id)} style={{ width: '100%', marginBottom: 12 }} />
           )}
           {messageHasImage && (
-            <img src={imageUrl(message.id)} alt={message.title || 'Photo'} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 12, display: 'block' }} />
+            <img src={imageUrl(message.id)} alt={message.title || t('type_image')} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 12, display: 'block' }} />
           )}
 
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>To {selectedContacts.length} recipient{selectedContacts.length !== 1 ? 's' : ''}</p>
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>{tf('sf_to_n_recipients', { n: selectedContacts.length, s: selectedContacts.length !== 1 ? 's' : '' })}</p>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
             {Object.entries(methodCounts).map(([method, count]) => (
-              <span className="pill" key={method}>{count} by {METHOD_LABELS[method] || method}</span>
+              <span className="pill" key={method}>{count} {METHOD_LABELS[method] || method}</span>
             ))}
           </div>
 
@@ -212,15 +219,15 @@ export default function SendForm({ message, onSent }) {
 
           <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
             {scheduleEnabled
-              ? `Scheduled for ${new Date(scheduledAt).toLocaleString()}`
-              : 'Sending immediately'}
+              ? tf('sf_scheduled_for_date', { date: new Date(scheduledAt).toLocaleString() })
+              : t('sf_sending_immediately')}
           </p>
         </div>
 
         <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
-          <button type="button" className="btn secondary" onClick={() => setStep('select')} disabled={sending}>Back</button>
+          <button type="button" className="btn secondary" onClick={() => setStep('select')} disabled={sending}>{t('send_back')}</button>
           <button type="button" className="btn" onClick={handleConfirmSend} disabled={sending}>
-            {sending ? 'Working...' : scheduleEnabled ? 'Confirm & schedule' : 'Confirm & send'}
+            {sending ? t('sf_working') : scheduleEnabled ? t('sf_confirm_schedule') : t('sf_confirm_send')}
           </button>
         </div>
       </div>
@@ -233,7 +240,7 @@ export default function SendForm({ message, onSent }) {
 
       {groups.length > 0 && (
         <div className="field">
-          <label>Add a whole group</label>
+          <label>{t('sf_add_whole_group')}</label>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
             {groups.map((g) => (
               <button
@@ -244,7 +251,7 @@ export default function SendForm({ message, onSent }) {
                 onClick={() => handleAddGroup(g)}
                 disabled={groupLoading === g.id}
               >
-                {groupLoading === g.id ? 'Adding...' : `+ ${g.name} (${g.member_count})`}
+                {groupLoading === g.id ? t('sf_adding') : `+ ${g.name} (${g.member_count})`}
               </button>
             ))}
           </div>
@@ -253,29 +260,29 @@ export default function SendForm({ message, onSent }) {
 
       <div className="field">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-          <label style={{ margin: 0 }}>Contacts ({selected.size} selected)</label>
+          <label style={{ margin: 0 }}>{tf('sf_contacts_n_selected', { n: selected.size })}</label>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button type="button" onClick={selectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>Select all</button>
-            <button type="button" onClick={unselectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>Unselect all</button>
+            <button type="button" onClick={selectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>{t('contacts_select_all')}</button>
+            <button type="button" onClick={unselectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>{t('contacts_unselect_all')}</button>
           </div>
         </div>
         <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 10, fontSize: 12.5, color: 'var(--ink-soft)' }}>
-          <div><strong style={{ color: 'var(--ink)' }}>Phone call</strong> — rings their phone and plays or speaks the message out loud</div>
-          <div><strong style={{ color: 'var(--ink)' }}>Voice note</strong> — sends a text message with the audio or photo attached, no call</div>
-          <div><strong style={{ color: 'var(--ink)' }}>Text</strong> — sends a plain text message</div>
+          <div><strong style={{ color: 'var(--ink)' }}>{t('channel_call_label')}</strong> — {t('sf_call_desc')}</div>
+          <div><strong style={{ color: 'var(--ink)' }}>{t('type_voice_note')}</strong> — {t('sf_voice_note_desc')}</div>
+          <div><strong style={{ color: 'var(--ink)' }}>{t('type_sms')}</strong> — {t('sf_text_desc')}</div>
         </div>
         <div className="field" style={{ marginBottom: 8 }}>
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by name or phone"
+            placeholder={t('sf_search_placeholder')}
           />
         </div>
         <div style={{ maxHeight: 300, overflowY: 'auto', overflowX: 'hidden', border: '1px solid var(--line)', borderRadius: 7 }}>
           {contacts.length === 0 ? (
-            <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No contacts yet.</p>
+            <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>{t('sf_no_contacts')}</p>
           ) : visibleContacts.length === 0 ? (
-            <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>No contacts match your search.</p>
+            <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>{t('sf_no_match')}</p>
           ) : (
             visibleContacts.map((c) => {
               const isSelected = selected.has(c.id);
@@ -291,7 +298,7 @@ export default function SendForm({ message, onSent }) {
                 >
                   <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} />
                   <div style={{ overflow: 'hidden' }}>
-                    <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{contactDisplayName(c) || 'Unnamed contact'}</div>
+                    <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{contactDisplayName(c) || t('sf_unnamed_contact')}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.phone_number}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -302,13 +309,13 @@ export default function SendForm({ message, onSent }) {
                         (m === 'sms' && !message.text_content) ||
                         (m === 'call' && !messageHasAudio && !message.text_content);
                       const disabledReason =
-                        m === 'voice_note' ? 'This message has no audio or photo to send as an MMS'
-                        : m === 'sms' ? 'This message has no text to send'
-                        : 'This message has nothing to play or say on a call';
+                        m === 'voice_note' ? t('sf_disabled_voice_note')
+                        : m === 'sms' ? t('sf_disabled_sms')
+                        : t('sf_disabled_call');
                       const methodExplanation =
-                        m === 'call' ? 'Rings their phone and plays/speaks the message'
-                        : m === 'voice_note' ? 'Sends a text with the audio/photo attached, no call'
-                        : 'Sends a plain text message';
+                        m === 'call' ? t('sf_method_call_short')
+                        : m === 'voice_note' ? t('sf_method_voice_note_short')
+                        : t('sf_method_sms_short');
                       return (
                         <button
                           key={m}
@@ -333,18 +340,18 @@ export default function SendForm({ message, onSent }) {
 
       <div className="checkbox-row" style={{ margin: '14px 0' }}>
         <input type="checkbox" checked={scheduleEnabled} onChange={(e) => setScheduleEnabled(e.target.checked)} />
-        Schedule for later instead of sending now
+        {t('sf_schedule_checkbox')}
       </div>
 
       {scheduleEnabled && (
         <div className="field">
-          <label>Send at</label>
+          <label>{t('sf_send_at')}</label>
           <input type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
         </div>
       )}
 
       <button type="button" className="btn" onClick={goToPreview} style={{ width: '100%' }}>
-        Review & continue
+        {t('sf_review_continue')}
       </button>
     </div>
   );

@@ -1,14 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api, audioUrl, imageUrl } from '../api.js';
 import SendForm from '../components/SendForm.jsx';
+import { t } from '../i18n.js';
 
-const CHANNELS = [
-  { key: 'sms', label: 'Text message', icon: 'ti-message', desc: 'A plain text message' },
-  { key: 'call', label: 'Phone call', icon: 'ti-phone', desc: 'Something read aloud, or an audio recording played on a call' },
-  { key: 'voice_note', label: 'Voice note (MMS)', icon: 'ti-microphone', desc: 'An audio clip or photo sent as a picture/voice message' },
-];
+function getChannels() {
+  return [
+    { key: 'sms', label: t('channel_sms_label'), icon: 'ti-message', desc: t('channel_sms_desc') },
+    { key: 'call', label: t('channel_call_label'), icon: 'ti-phone', desc: t('channel_call_desc') },
+    { key: 'voice_note', label: t('channel_voice_note_label'), icon: 'ti-microphone', desc: t('channel_voice_note_desc') },
+  ];
+}
 
 export default function Send() {
+  const CHANNELS = getChannels();
   const [step, setStep] = useState('channel'); // 'channel' | 'compose' | 'recipients'
   const [channel, setChannel] = useState(null);
   const [message, setMessage] = useState(null);
@@ -35,8 +39,8 @@ export default function Send() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Send</h1>
-          <p>Choose what you want to send, write it, then pick who gets it</p>
+          <h1>{t('send_title')}</h1>
+          <p>{t('send_subtitle')}</p>
         </div>
       </div>
 
@@ -78,11 +82,11 @@ export default function Send() {
         <div className="card" style={{ padding: 22, maxWidth: 660 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14 }}>
             <div>
-              <p style={{ fontSize: 12.5, color: 'var(--ink-soft)', margin: '0 0 2px' }}>Sending</p>
-              <p style={{ fontWeight: 600, fontSize: 15.5 }}>{message.title || 'Untitled message'}</p>
+              <p style={{ fontSize: 12.5, color: 'var(--ink-soft)', margin: '0 0 2px' }}>{t('send_sending_label')}</p>
+              <p style={{ fontWeight: 600, fontSize: 15.5 }}>{message.title || t('label_untitled_message')}</p>
             </div>
             <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={backToChannels}>
-              Start over
+              {t('send_start_over')}
             </button>
           </div>
 
@@ -95,7 +99,7 @@ export default function Send() {
             <audio controls src={audioUrl(message.id)} style={{ width: '100%', marginBottom: 14 }} />
           )}
           {message.has_image && (
-            <img src={imageUrl(message.id)} alt={message.title || 'Photo'} style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, marginBottom: 14, display: 'block' }} />
+            <img src={imageUrl(message.id)} alt={message.title || t('type_image')} style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8, marginBottom: 14, display: 'block' }} />
           )}
 
           <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
@@ -149,7 +153,7 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
       mr.start();
       setRecording(true);
     } catch (err) {
-      setMicError('Could not access your microphone. Check your browser permissions.');
+      setMicError(t('send_mic_error'));
     }
   }
 
@@ -165,11 +169,11 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
 
   return (
     <div className="field">
-      <label>Audio</label>
+      <label>{t('send_audio')}</label>
       <div className="chip-select" style={{ marginBottom: 10 }}>
-        <button type="button" className={`chip-toggle ${mode === 'upload' ? 'active' : ''}`} onClick={() => setMode('upload')}>Upload file</button>
-        <button type="button" className={`chip-toggle ${mode === 'library' ? 'active' : ''}`} onClick={() => setMode('library')}>Saved recordings</button>
-        <button type="button" className={`chip-toggle ${mode === 'record' ? 'active' : ''}`} onClick={() => setMode('record')}>Record now</button>
+        <button type="button" className={`chip-toggle ${mode === 'upload' ? 'active' : ''}`} onClick={() => setMode('upload')}>{t('send_upload_file')}</button>
+        <button type="button" className={`chip-toggle ${mode === 'library' ? 'active' : ''}`} onClick={() => setMode('library')}>{t('send_saved_recordings')}</button>
+        <button type="button" className={`chip-toggle ${mode === 'record' ? 'active' : ''}`} onClick={() => setMode('record')}>{t('send_record_now')}</button>
       </div>
 
       {mode === 'upload' && (
@@ -178,9 +182,9 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
 
       {mode === 'library' && (
         libraryLoading ? (
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>Loading...</p>
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{t('send_loading')}</p>
         ) : library.length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>No saved recordings yet — upload or record one instead.</p>
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>{t('send_no_saved_recordings')}</p>
         ) : (
           <select
             value={existingId || ''}
@@ -189,10 +193,10 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
               onExistingChosen(found || null);
             }}
           >
-            <option value="">Choose a saved recording...</option>
+            <option value="">{t('send_choose_saved_recording')}</option>
             {library.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.title || 'Untitled'} — {new Date(m.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })} (ID {m.id})
+                {m.title || t('label_untitled')} — {new Date(m.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit' })} (ID {m.id})
               </option>
             ))}
           </select>
@@ -204,18 +208,18 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
           {micError && <div className="banner error" style={{ marginBottom: 8 }}>{micError}</div>}
           {!recording && !recordedUrl && (
             <button type="button" className="btn secondary" onClick={startRecording}>
-              <i className="ti ti-microphone" /> Start recording
+              <i className="ti ti-microphone" /> {t('send_start_recording')}
             </button>
           )}
           {recording && (
             <button type="button" className="btn" style={{ background: 'var(--danger)' }} onClick={stopRecording}>
-              <i className="ti ti-player-stop" /> Stop recording
+              <i className="ti ti-player-stop" /> {t('send_stop_recording')}
             </button>
           )}
           {recordedUrl && !recording && (
             <div>
               <audio controls src={recordedUrl} style={{ width: '100%', marginBottom: 8 }} />
-              <button type="button" className="btn secondary" onClick={reRecord}>Re-record</button>
+              <button type="button" className="btn secondary" onClick={reRecord}>{t('send_rerecord')}</button>
             </div>
           )}
         </div>
@@ -225,6 +229,7 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
 }
 
 function ComposeForm({ channel, onBack, onComposed, setError }) {
+  const CHANNELS = getChannels();
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
   const [audioFile, setAudioFile] = useState(null);
@@ -248,16 +253,16 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
     setError('');
 
     if (channel === 'sms' && !body.trim()) {
-      setError('Enter a message to send');
+      setError(t('send_error_sms_empty'));
       return;
     }
     if (channel === 'call' && !body.trim() && !audioFile && !existingAudio) {
-      setError('Enter something to read aloud, choose a recording, or record one');
+      setError(t('send_error_call_empty'));
       return;
     }
     if (channel === 'voice_note') {
-      if (mediaKind === 'audio' && !audioFile && !existingAudio) { setError('Choose, upload, or record an audio clip'); return; }
-      if (mediaKind === 'image' && !imageFile) { setError('Choose a photo to upload'); return; }
+      if (mediaKind === 'audio' && !audioFile && !existingAudio) { setError(t('send_error_voice_note_audio')); return; }
+      if (mediaKind === 'image' && !imageFile) { setError(t('send_error_voice_note_image')); return; }
     }
 
     setSaving(true);
@@ -304,70 +309,66 @@ function ComposeForm({ channel, onBack, onComposed, setError }) {
     <div className="card" style={{ padding: 22, maxWidth: 520 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ fontSize: 15 }}>{channelInfo.label}</h3>
-        <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={onBack}>Back</button>
+        <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={onBack}>{t('send_back')}</button>
       </div>
 
       <form onSubmit={handleSubmit}>
         <div className="field">
-          <label>Title (for your reference only)</label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Optional" />
+          <label>{t('field_title_ref_only')}</label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('field_optional')} />
         </div>
 
         {channel === 'sms' && (
           <div className="field">
-            <label>Message</label>
-            <textarea required rows={5} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What should this text say?" />
+            <label>{t('field_message')}</label>
+            <textarea required rows={5} value={body} onChange={(e) => setBody(e.target.value)} placeholder={t('send_message_placeholder')} />
           </div>
         )}
 
         {channel === 'call' && (
           <>
             <div className="field">
-              <label>Message to read aloud (leave blank if using a recording instead)</label>
-              <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="What should be said on the call?" />
+              <label>{t('send_message_read_aloud')}</label>
+              <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder={t('send_message_read_aloud_placeholder')} />
             </div>
             <AudioSourcePicker
               onFileChosen={handleAudioFileChosen}
               onExistingChosen={handleExistingAudioChosen}
               existingId={existingAudio?.id}
             />
-            
           </>
         )}
 
         {channel === 'voice_note' && (
           <>
             <div className="field">
-              <label>What are you sending?</label>
+              <label>{t('send_what_sending')}</label>
               <div className="chip-select">
-                <button type="button" className={`chip-toggle ${mediaKind === 'audio' ? 'active' : ''}`} onClick={() => setMediaKind('audio')}>Audio</button>
-                <button type="button" className={`chip-toggle ${mediaKind === 'image' ? 'active' : ''}`} onClick={() => setMediaKind('image')}>Photo</button>
+                <button type="button" className={`chip-toggle ${mediaKind === 'audio' ? 'active' : ''}`} onClick={() => setMediaKind('audio')}>{t('send_audio')}</button>
+                <button type="button" className={`chip-toggle ${mediaKind === 'image' ? 'active' : ''}`} onClick={() => setMediaKind('image')}>{t('send_photo')}</button>
               </div>
             </div>
             {mediaKind === 'audio' ? (
-              <>
-                <AudioSourcePicker
-                  onFileChosen={handleAudioFileChosen}
-                  onExistingChosen={handleExistingAudioChosen}
-                  existingId={existingAudio?.id}
-                />
-                
-              </>
+              <AudioSourcePicker
+                onFileChosen={handleAudioFileChosen}
+                onExistingChosen={handleExistingAudioChosen}
+                existingId={existingAudio?.id}
+              />
             ) : (
               <div className="field">
-                <label>Photo</label>
+                <label>{t('send_photo')}</label>
                 <input type="file" accept="image/*" onChange={(e) => setImageFile(e.target.files?.[0] || null)} />
               </div>
             )}
             <div className="field">
-              <label>Caption (optional — sent as text alongside it)</label>
+              <label>{t('field_caption')}</label>
               <textarea rows={3} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Add a message to go with it" />
             </div>
           </>
         )}
 
         <button type="submit" className="btn" disabled={saving} style={{ width: '100%' }}>
-          {saving ? 'Saving...' : 'Continue to recipients'}
+          {saving ? t('btn_saving') : t('send_continue')}
         </button>
       </form>
     </div>

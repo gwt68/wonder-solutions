@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import PasswordInput from '../components/PasswordInput.jsx';
+import { t } from '../i18n.js';
 
 function SettingCard({ icon, title, description, error, success, children }) {
   return (
@@ -82,7 +83,7 @@ export default function Settings() {
       await api.trustedPhones.add(newTpNumber, newTpLabel || null);
       setNewTpNumber('');
       setNewTpLabel('');
-      setTpSuccess('Number added.');
+      setTpSuccess(t('settings_number_added'));
       await loadTrustedPhones();
     } catch (err) {
       setTpError(err.message);
@@ -92,7 +93,7 @@ export default function Settings() {
   }
 
   async function handleRemoveTrustedPhone(id) {
-    if (!confirm('Remove this number? Texts sent from it will no longer be saved automatically.')) return;
+    if (!confirm(t('settings_confirm_remove_number'))) return;
     setTpError('');
     try {
       await api.trustedPhones.remove(id);
@@ -109,7 +110,7 @@ export default function Settings() {
       await api.settings.setPin(newPin);
       setCurrentPin(newPin);
       setNewPin('');
-      setPinSuccess('PIN updated.');
+      setPinSuccess(t('settings_pin_updated'));
     } catch (err) { setPinError(err.message); } finally { setPinSaving(false); }
   }
 
@@ -120,7 +121,7 @@ export default function Settings() {
       await api.settings.setPortalUsername(newUsername);
       setCurrentUsername(newUsername);
       setNewUsername('');
-      setUserSuccess('Username updated.');
+      setUserSuccess(t('settings_username_updated'));
     } catch (err) { setUserError(err.message); } finally { setUserSaving(false); }
   }
 
@@ -130,7 +131,7 @@ export default function Settings() {
     try {
       await api.settings.setPortalPassword(newPassword);
       setNewPassword('');
-      setPwSuccess('Password updated.');
+      setPwSuccess(t('settings_password_updated'));
     } catch (err) { setPwError(err.message); } finally { setPwSaving(false); }
   }
 
@@ -140,7 +141,7 @@ export default function Settings() {
     try {
       await api.settings.setRecoveryKey(recoveryKey);
       setRecoveryKey('');
-      setRkSuccess('Recovery key set.');
+      setRkSuccess(t('settings_recovery_key_set'));
     } catch (err) { setRkError(err.message); } finally { setRkSaving(false); }
   }
 
@@ -148,8 +149,8 @@ export default function Settings() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Settings</h1>
-          <p>Manage access to your call-in line and the web portal</p>
+          <h1>{t('settings_title')}</h1>
+          <p>{t('settings_subtitle')}</p>
         </div>
       </div>
 
@@ -162,98 +163,98 @@ export default function Settings() {
             <i className="ti ti-phone-outgoing" />
           </div>
           <div>
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Sending number</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{t('settings_sending_number')}</div>
             <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 500 }}>{twilioNumber}</div>
           </div>
         </div>
       )}
 
       <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginBottom: 12 }}>
-        Phone line
+        {t('settings_phone_line')}
       </h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 28 }}>
         <SettingCard
           icon="ti-lock"
-          title="Call-in PIN"
-          description="Required to access the phone menu when you call in."
+          title={t('settings_call_in_pin')}
+          description={t('settings_call_in_pin_desc')}
           error={pinError}
           success={pinSuccess}
         >
           {!pinLoading && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 18, marginBottom: 12 }}>Current: {currentPin}</p>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 18, marginBottom: 12 }}>{t('settings_current')} {currentPin}</p>
           )}
           <form onSubmit={handleSavePin}>
             <div className="field">
-              <label>New PIN (4-8 digits)</label>
-              <input required inputMode="numeric" pattern="\d{4,8}" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder="e.g. 4471" />
+              <label>{t('settings_new_pin')}</label>
+              <input required inputMode="numeric" pattern="\d{4,8}" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder={t('settings_new_pin_placeholder')} />
             </div>
-            <button type="submit" className="btn" disabled={pinSaving}>{pinSaving ? 'Saving...' : 'Update PIN'}</button>
+            <button type="submit" className="btn" disabled={pinSaving}>{pinSaving ? t('btn_saving') : t('settings_update_pin')}</button>
           </form>
         </SettingCard>
       </div>
 
       <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginBottom: 12 }}>
-        Web portal access
+        {t('settings_web_portal_access')}
       </h3>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
         <SettingCard
           icon="ti-user"
-          title="Username"
-          description="Used together with your password to log in."
+          title={t('settings_username_title')}
+          description={t('settings_username_desc')}
           error={userError}
           success={userSuccess}
         >
           {!userLoading && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 18, marginBottom: 12 }}>Current: {currentUsername}</p>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 18, marginBottom: 12 }}>{t('settings_current')} {currentUsername}</p>
           )}
           <form onSubmit={handleSaveUsername}>
             <div className="field">
-              <label>New username</label>
-              <input required minLength={2} value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder="e.g. moishe" />
+              <label>{t('settings_new_username')}</label>
+              <input required minLength={2} value={newUsername} onChange={(e) => setNewUsername(e.target.value)} placeholder={t('settings_new_username_placeholder')} />
             </div>
-            <button type="submit" className="btn" disabled={userSaving}>{userSaving ? 'Saving...' : 'Update username'}</button>
+            <button type="submit" className="btn" disabled={userSaving}>{userSaving ? t('btn_saving') : t('settings_update_username')}</button>
           </form>
         </SettingCard>
 
         <SettingCard
           icon="ti-key"
-          title="Password"
-          description="For security, the current password isn't shown."
+          title={t('settings_password_title')}
+          description={t('settings_password_desc')}
           error={pwError}
           success={pwSuccess}
         >
           <form onSubmit={handleSavePassword}>
             <div className="field">
-              <label>New password (at least 4 characters)</label>
+              <label>{t('settings_new_password')}</label>
               <PasswordInput required minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
             </div>
-            <button type="submit" className="btn" disabled={pwSaving}>{pwSaving ? 'Saving...' : 'Update password'}</button>
+            <button type="submit" className="btn" disabled={pwSaving}>{pwSaving ? t('btn_saving') : t('settings_update_password')}</button>
           </form>
         </SettingCard>
 
         <SettingCard
           icon="ti-shield-check"
-          title="Recovery key"
-          description="Lets you reset your login from the 'Forgot username or password?' link if you're ever locked out."
+          title={t('settings_recovery_key_title')}
+          description={t('settings_recovery_key_desc')}
           error={rkError}
           success={rkSuccess}
         >
           <form onSubmit={handleSaveRecoveryKey}>
             <div className="field">
-              <label>New recovery key (at least 4 characters)</label>
-              <input required minLength={4} value={recoveryKey} onChange={(e) => setRecoveryKey(e.target.value)} placeholder="A phrase only you know" />
+              <label>{t('settings_new_recovery_key')}</label>
+              <input required minLength={4} value={recoveryKey} onChange={(e) => setRecoveryKey(e.target.value)} placeholder={t('settings_new_recovery_key_placeholder')} />
             </div>
-            <button type="submit" className="btn" disabled={rkSaving}>{rkSaving ? 'Saving...' : 'Set recovery key'}</button>
+            <button type="submit" className="btn" disabled={rkSaving}>{rkSaving ? t('btn_saving') : t('settings_set_recovery_key')}</button>
           </form>
         </SettingCard>
       </div>
 
       <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
-        Text-to-save
+        {t('settings_text_to_save')}
       </h3>
       <div className="card" style={{ padding: 20, maxWidth: 420 }}>
         <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>
-          Texts sent from any of these numbers to your Wonder Solutions number are automatically saved as a new text message here — no need to open the portal.
+          {t('settings_text_to_save_desc')}
         </p>
         {tpError && <div className="banner error">{tpError}</div>}
         {tpSuccess && <div className="banner ok">{tpSuccess}</div>}
@@ -266,7 +267,7 @@ export default function Settings() {
                   <span className="row-title">{tp.phone_number}</span>
                   {tp.label && <span className="row-sub">{tp.label}</span>}
                 </div>
-                <button className="icon-btn danger" onClick={() => handleRemoveTrustedPhone(tp.id)} aria-label="Remove number"><i className="ti ti-trash" /></button>
+                <button className="icon-btn danger" onClick={() => handleRemoveTrustedPhone(tp.id)} aria-label={t('aria_remove_number')}><i className="ti ti-trash" /></button>
               </div>
             ))}
           </div>
@@ -274,14 +275,14 @@ export default function Settings() {
 
         <form onSubmit={handleAddTrustedPhone}>
           <div className="field">
-            <label>Phone number</label>
+            <label>{t('settings_phone_number')}</label>
             <input required value={newTpNumber} onChange={(e) => setNewTpNumber(e.target.value)} placeholder="+19145551234" />
           </div>
           <div className="field">
-            <label>Label (optional)</label>
-            <input value={newTpLabel} onChange={(e) => setNewTpLabel(e.target.value)} placeholder="e.g. my cell" />
+            <label>{t('settings_label_optional')}</label>
+            <input value={newTpLabel} onChange={(e) => setNewTpLabel(e.target.value)} placeholder={t('settings_label_optional_placeholder')} />
           </div>
-          <button type="submit" className="btn" disabled={addingTp}>{addingTp ? 'Adding...' : 'Add number'}</button>
+          <button type="submit" className="btn" disabled={addingTp}>{addingTp ? t('settings_adding') : t('settings_add_number')}</button>
         </form>
       </div>
     </div>

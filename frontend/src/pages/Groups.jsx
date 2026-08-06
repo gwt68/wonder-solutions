@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api, groupAudioLabelUrl, contactDisplayName } from '../api.js';
+import { t, tf } from '../i18n.js';
 
 export default function Groups() {
   const [groups, setGroups] = useState([]);
@@ -58,7 +59,7 @@ export default function Groups() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('Delete this group? Contacts will not be deleted, just removed from the group.')) return;
+    if (!confirm(t('groups_confirm_delete'))) return;
     try {
       await api.groups.remove(id);
       await load();
@@ -84,7 +85,7 @@ export default function Groups() {
 
   async function handleBulkDelete() {
     if (!selected.size) return;
-    if (!confirm(`Delete ${selected.size} selected group${selected.size !== 1 ? 's' : ''}? Contacts won't be deleted, just removed from these groups.`)) return;
+    if (!confirm(tf('groups_confirm_bulk_delete', { n: selected.size, s: selected.size !== 1 ? 's' : '' }))) return;
     setBulkDeleting(true);
     setError('');
     try {
@@ -102,10 +103,10 @@ export default function Groups() {
     <div>
       <div className="page-header">
         <div>
-          <h1>Groups</h1>
-          <p>Organize contacts to send to a whole set at once</p>
+          <h1>{t('groups_title')}</h1>
+          <p>{t('groups_subtitle')}</p>
         </div>
-        <button className="btn" onClick={openAdd}><i className="ti ti-plus" /> New group</button>
+        <button className="btn" onClick={openAdd}><i className="ti ti-plus" /> {t('groups_new')}</button>
       </div>
 
       {error && <div className="banner error">{error}</div>}
@@ -114,24 +115,24 @@ export default function Groups() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
-              {groups.every((g) => selected.has(g.id)) ? 'Unselect all' : 'Select all'}
+              {groups.every((g) => selected.has(g.id)) ? t('contacts_unselect_all') : t('contacts_select_all')}
             </button>
-            {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} selected</span>}
+            {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} {t('contacts_selected')}</span>}
           </div>
           {selected.size > 0 && (
             <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
-              <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+              <i className="ti ti-trash" /> {bulkDeleting ? t('contacts_deleting') : `${t('contacts_delete')} ${selected.size}`}
             </button>
           )}
         </div>
       )}
 
       {loading ? (
-        <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
+        <p style={{ color: 'var(--ink-soft)' }}>{t('send_loading')}</p>
       ) : groups.length === 0 ? (
         <div className="card empty-state">
-          <h3>No groups yet</h3>
-          <p>Create a group here, or create one by phone during the contact-adding flow.</p>
+          <h3>{t('groups_empty_title')}</h3>
+          <p>{t('groups_empty_body')}</p>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
@@ -154,13 +155,13 @@ export default function Groups() {
                   <div className="row-title" style={{ wordBreak: 'break-word' }}>
                     {g.name}
                     {g.source === 'phone_placeholder' && (
-                      <span className="pill signal" style={{ marginLeft: 8 }}>Needs a name</span>
+                      <span className="pill signal" style={{ marginLeft: 8 }}>{t('groups_needs_name')}</span>
                     )}
                   </div>
                   <div className="row-sub" style={{ marginTop: 2 }}>
-                    {g.member_count} member{g.member_count !== 1 ? 's' : ''}
+                    {g.member_count} {g.member_count === 1 ? t('groups_member_one') : t('groups_member_other')}
                     {g.source === 'phone_placeholder' && (
-                      <><br />created {new Date(g.created_at).toLocaleString()}</>
+                      <><br />{t('groups_created')} {new Date(g.created_at).toLocaleString()}</>
                     )}
                   </div>
                 </div>
@@ -173,8 +174,8 @@ export default function Groups() {
                   <audio controls src={groupAudioLabelUrl(g.id)} style={{ height: 28, maxWidth: 140 }} />
                 ) : <span />}
                 <div style={{ display: 'flex', gap: 4 }}>
-                  <button className="icon-btn" onClick={() => openEdit(g)} aria-label="Rename group"><i className="ti ti-edit" /></button>
-                  <button className="icon-btn danger" onClick={() => handleDelete(g.id)} aria-label="Delete group"><i className="ti ti-trash" /></button>
+                  <button className="icon-btn" onClick={() => openEdit(g)} aria-label={t('aria_rename_group')}><i className="ti ti-edit" /></button>
+                  <button className="icon-btn danger" onClick={() => handleDelete(g.id)} aria-label={t('aria_delete_group')}><i className="ti ti-trash" /></button>
                 </div>
               </div>
             </div>
@@ -185,21 +186,21 @@ export default function Groups() {
       {modalOpen && (
         <div className="modal-overlay" onClick={() => setModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{editing ? 'Rename group' : 'New group'}</h2>
+            <h2>{editing ? t('group_modal_rename') : t('group_modal_new')}</h2>
             {editing && editing.source === 'phone_placeholder' && editing.audio_label_url && (
               <div className="field">
-                <label>Recorded name (from phone)</label>
+                <label>{t('group_recorded_name')}</label>
                 <audio controls src={groupAudioLabelUrl(editing.id)} style={{ width: '100%' }} />
               </div>
             )}
             <form onSubmit={handleSave}>
               <div className="field">
-                <label>Group name</label>
-                <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Drivers" />
+                <label>{t('field_group_name')}</label>
+                <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder={t('field_group_name_placeholder')} />
               </div>
               <div className="modal-actions">
-                <button type="button" className="btn secondary" onClick={() => setModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving...' : 'Save group'}</button>
+                <button type="button" className="btn secondary" onClick={() => setModalOpen(false)}>{t('btn_cancel')}</button>
+                <button type="submit" className="btn" disabled={saving}>{saving ? t('btn_saving') : t('btn_save_group')}</button>
               </div>
             </form>
           </div>
@@ -289,7 +290,7 @@ function GroupDetailModal({ group, onClose, onChanged }) {
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>
-                {members.length} member{members.length !== 1 ? 's' : ''}
+                {members.length} {members.length === 1 ? t('groups_member_one') : t('groups_member_other')}
               </p>
               <button
                 type="button"
@@ -297,14 +298,14 @@ function GroupDetailModal({ group, onClose, onChanged }) {
                 style={{ padding: '6px 12px', fontSize: 13 }}
                 onClick={() => setPickerOpen(true)}
               >
-                <i className="ti ti-plus" /> Add contacts
+                <i className="ti ti-plus" /> {t('group_detail_add_contacts')}
               </button>
             </div>
 
             {loading ? (
-              <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
+              <p style={{ color: 'var(--ink-soft)' }}>{t('send_loading')}</p>
             ) : members.length === 0 ? (
-              <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>No members yet — add some below.</p>
+              <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>{t('group_detail_no_members')}</p>
             ) : (
               <div className="list" style={{ maxHeight: 320, overflowY: 'auto' }}>
                 {members.map((c) => (
@@ -313,7 +314,7 @@ function GroupDetailModal({ group, onClose, onChanged }) {
                       <span className="row-title">{contactDisplayName(c) || c.phone_number}</span>
                       <span className="row-sub">{c.phone_number}</span>
                     </div>
-                    <button className="icon-btn danger" onClick={() => handleRemoveMember(c.id)} aria-label="Remove from group">
+                    <button className="icon-btn danger" onClick={() => handleRemoveMember(c.id)} aria-label={t('aria_remove_from_group')}>
                       <i className="ti ti-x" />
                     </button>
                   </div>
@@ -324,11 +325,11 @@ function GroupDetailModal({ group, onClose, onChanged }) {
         ) : (
           <>
             <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 10 }}>
-              Select contacts to add to this group.
+              {t('group_detail_select_contacts')}
             </p>
             <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 14 }}>
               {availableContacts.length === 0 ? (
-                <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>Every contact is already in this group.</p>
+                <p style={{ padding: 12, fontSize: 13, color: 'var(--ink-soft)' }}>{t('group_detail_all_in_group')}</p>
               ) : (
                 availableContacts.map((c) => (
                   <label key={c.id} className="checkbox-row" style={{ padding: '9px 12px', borderBottom: '1px solid var(--line)', fontSize: 13.5 }}>
@@ -339,9 +340,9 @@ function GroupDetailModal({ group, onClose, onChanged }) {
               )}
             </div>
             <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
-              <button type="button" className="btn secondary" onClick={() => { setPickerOpen(false); setPicked(new Set()); }}>Back</button>
+              <button type="button" className="btn secondary" onClick={() => { setPickerOpen(false); setPicked(new Set()); }}>{t('group_detail_back')}</button>
               <button type="button" className="btn" onClick={handleAddSelected} disabled={adding || !picked.size}>
-                {adding ? 'Adding...' : `Add ${picked.size || ''}`.trim()}
+                {adding ? t('settings_adding') : picked.size ? tf('group_detail_add_n', { n: picked.size }) : t('group_detail_add')}
               </button>
             </div>
           </>
@@ -349,7 +350,7 @@ function GroupDetailModal({ group, onClose, onChanged }) {
 
         {!pickerOpen && (
           <div className="modal-actions">
-            <button type="button" className="btn secondary" onClick={onClose}>Close</button>
+            <button type="button" className="btn secondary" onClick={onClose}>{t('btn_close')}</button>
           </div>
         )}
       </div>

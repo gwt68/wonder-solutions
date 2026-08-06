@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { t } from '../i18n.js';
 
 export default function Replies({ onRead, openContactId: navContactId, onOpened }) {
   const [replies, setReplies] = useState([]);
@@ -88,19 +89,19 @@ export default function Replies({ onRead, openContactId: navContactId, onOpened 
       <div style={{ width: 320, flexShrink: 0, overflowY: 'auto' }}>
         <div className="page-header">
           <div>
-            <h1>Conversations</h1>
-            <p>Two-way texts with your contacts</p>
+            <h1>{t('conv_title')}</h1>
+            <p>{t('conv_subtitle')}</p>
           </div>
         </div>
 
         {error && <div className="banner error">{error}</div>}
 
         {loading ? (
-          <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
+          <p style={{ color: 'var(--ink-soft)' }}>{t('send_loading')}</p>
         ) : contactList.length === 0 ? (
           <div className="card empty-state">
-            <h3>No conversations yet</h3>
-            <p>When a contact texts back, it'll show up here.</p>
+            <h3>{t('conv_empty_title')}</h3>
+            <p>{t('conv_empty_body')}</p>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
@@ -146,7 +147,7 @@ export default function Replies({ onRead, openContactId: navContactId, onOpened 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, borderLeft: '1px solid var(--line)', paddingLeft: 20 }}>
           <div style={{ flex: 1, overflowY: 'auto', padding: '8px 4px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
             {convoLoading ? (
-              <p style={{ color: 'var(--ink-soft)' }}>Loading conversation...</p>
+              <p style={{ color: 'var(--ink-soft)' }}>{t('conv_loading_conversation')}</p>
             ) : (
               conversation.map((m) => (
                 <div
@@ -171,7 +172,7 @@ export default function Replies({ onRead, openContactId: navContactId, onOpened 
             <input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              placeholder="Type a reply..."
+              placeholder={t('conv_type_reply_placeholder')}
               style={{ flex: 1 }}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSend(contactList.find((r) => r.reply_contact_id === openContactId)?.id); }}
             />
@@ -181,7 +182,7 @@ export default function Replies({ onRead, openContactId: navContactId, onOpened 
               onClick={() => handleSend(contactList.find((r) => r.reply_contact_id === openContactId)?.id)}
               disabled={sending || !draft.trim()}
             >
-              {sending ? 'Sending...' : 'Send'}
+              {sending ? t('conv_sending') : t('conv_send_btn')}
             </button>
           </div>
         </div>
