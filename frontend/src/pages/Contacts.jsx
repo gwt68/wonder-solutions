@@ -1,7 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { api, audioUrl, imageUrl, contactDisplayName } from '../api.js';
+import { t } from '../i18n.js';
 
+function METHOD_LABELS_MAP() {
+  return { sms: t('method_sms').split(' ')[0], call: t('method_call'), voice_note: t('method_voice_note') };
+}
 const METHOD_LABELS = { sms: 'Text', call: 'Phone call', voice_note: 'Voice note' };
 
 // For the First name column: shows the legacy full name when a contact
@@ -12,23 +16,39 @@ function firstNameCell(c) {
   return '';
 }
 
-const ALL_METHODS = [
-  { value: 'sms', label: 'Text message' },
-  { value: 'call', label: 'Phone call' },
-  { value: 'voice_note', label: 'Voice note (MMS)' },
-];
+function getAllMethods() {
+  return [
+    { value: 'sms', label: t('method_sms') },
+    { value: 'call', label: t('method_call') },
+    { value: 'voice_note', label: t('method_voice_note') },
+  ];
+}
 
+function getAllColumns() {
+  return [
+    { key: 'last_name', label: t('col_last_name'), default: true },
+    { key: 'phone_number', label: t('col_phone'), default: true },
+    { key: 'email', label: t('col_email'), default: false },
+    { key: 'address', label: t('col_address'), default: false },
+    { key: 'city', label: t('col_city'), default: false },
+    { key: 'state', label: t('col_state'), default: false },
+    { key: 'zip', label: t('col_zip'), default: false },
+    { key: 'country', label: t('col_country'), default: false },
+    { key: 'methods', label: t('col_methods'), default: true },
+    { key: 'groups', label: t('col_groups'), default: true },
+  ];
+}
 const ALL_COLUMNS = [
-  { key: 'last_name', label: 'Last name', default: true },
-  { key: 'phone_number', label: 'Phone', default: true },
-  { key: 'email', label: 'Email', default: false },
-  { key: 'address', label: 'Address', default: false },
-  { key: 'city', label: 'City', default: false },
-  { key: 'state', label: 'State', default: false },
-  { key: 'zip', label: 'Zip', default: false },
-  { key: 'country', label: 'Country', default: false },
-  { key: 'methods', label: 'Methods', default: true },
-  { key: 'groups', label: 'Groups', default: true },
+  { key: 'last_name', default: true },
+  { key: 'phone_number', default: true },
+  { key: 'email', default: false },
+  { key: 'address', default: false },
+  { key: 'city', default: false },
+  { key: 'state', default: false },
+  { key: 'zip', default: false },
+  { key: 'country', default: false },
+  { key: 'methods', default: true },
+  { key: 'groups', default: true },
 ];
 const DEFAULT_VISIBLE_COLUMNS = ALL_COLUMNS.filter((c) => c.default).map((c) => c.key);
 
@@ -122,6 +142,9 @@ function extractRow(rowArr, mapping) {
 }
 
 export default function Contacts() {
+  const ALL_METHODS_T = getAllMethods();
+  const ALL_COLUMNS_T = getAllColumns();
+  const ML = METHOD_LABELS_MAP();
   const [contacts, setContacts] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -239,7 +262,7 @@ export default function Contacts() {
   }
 
   async function handleDelete(id) {
-    if (!confirm('Remove this contact?')) return;
+    if (!confirm(t('contacts_confirm_remove'))) return;
     try {
       await api.contacts.remove(id);
       await load();
@@ -410,8 +433,8 @@ export default function Contacts() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div className="page-header" style={{ flexShrink: 0 }}>
         <div>
-          <h1>Contacts</h1>
-          <p>{contacts.length} contact{contacts.length !== 1 ? 's' : ''} in your list</p>
+          <h1>{t('contacts_title')}</h1>
+          <p>{contacts.length} {contacts.length === 1 ? t('contacts_count_one') : t('contacts_count_other')}</p>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <input
@@ -422,18 +445,18 @@ export default function Contacts() {
             onChange={handleFileSelected}
           />
           <button className="btn secondary" onClick={handleImportClick} disabled={importing}>
-            <i className="ti ti-upload" /> {importing ? 'Importing...' : 'Import Excel'}
+            <i className="ti ti-upload" /> {importing ? t('contacts_importing') : t('contacts_import')}
           </button>
           <div style={{ position: 'relative' }}>
             <button className="btn secondary" onClick={() => setColumnsOpen((o) => !o)}>
-              <i className="ti ti-columns" /> Columns
+              <i className="ti ti-columns" /> {t('contacts_columns')}
             </button>
             {columnsOpen && (
               <div
                 className="card"
                 style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, padding: 12, zIndex: 10, minWidth: 180 }}
               >
-                {ALL_COLUMNS.map((col) => (
+                {ALL_COLUMNS_T.map((col) => (
                   <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13.5, padding: '5px 4px', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
@@ -446,7 +469,7 @@ export default function Contacts() {
               </div>
             )}
           </div>
-          <button className="btn" onClick={openAdd}><i className="ti ti-plus" /> Add contact</button>
+          <button className="btn" onClick={openAdd}><i className="ti ti-plus" /> {t('contacts_add')}</button>
         </div>
       </div>
 
@@ -478,7 +501,7 @@ export default function Contacts() {
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by name, phone, or email"
+              placeholder={t('contacts_search_placeholder')}
             />
           </div>
         )}
@@ -487,22 +510,22 @@ export default function Contacts() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
             <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
               <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
-                {sortedContacts.length > 0 && sortedContacts.every((c) => selected.has(c.id)) ? 'Unselect all' : 'Select all'}
+                {sortedContacts.length > 0 && sortedContacts.every((c) => selected.has(c.id)) ? t('contacts_unselect_all') : t('contacts_select_all')}
               </button>
-              {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} selected</span>}
+              {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} {t('contacts_selected')}</span>}
             </div>
             {selected.size > 0 && (
               <div style={{ display: 'flex', gap: 8 }}>
                 <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkMethodOpen(true)}>
-                  <i className="ti ti-adjustments" /> Set method for {selected.size}
+                  <i className="ti ti-adjustments" /> {t('contacts_set_method_for')} {selected.size}
                 </button>
                 {groups.length > 0 && (
                   <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={() => setBulkGroupOpen(true)}>
-                    <i className="ti ti-users-group" /> Add to group ({selected.size})
+                    <i className="ti ti-users-group" /> {t('contacts_add_to_group')} ({selected.size})
                   </button>
                 )}
                 <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
-                  <i className="ti ti-trash" /> {bulkDeleting ? 'Deleting...' : `Delete ${selected.size}`}
+                  <i className="ti ti-trash" /> {bulkDeleting ? t('contacts_deleting') : `${t('contacts_delete')} ${selected.size}`}
                 </button>
               </div>
             )}
@@ -516,7 +539,7 @@ export default function Contacts() {
               className={`chip-toggle ${groupFilter === 'all' ? 'active' : ''}`}
               onClick={() => setGroupFilter('all')}
             >
-              All contacts
+              {t('contacts_all')}
             </button>
             {groups.map((g) => (
               <button
@@ -537,8 +560,8 @@ export default function Contacts() {
           <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
         ) : contacts.length === 0 ? (
           <div className="card empty-state">
-            <h3>No contacts yet</h3>
-            <p>Add your first contact, import a spreadsheet, or call your Wonder Solutions line and press 3.</p>
+            <h3>{t('contacts_empty_title')}</h3>
+            <p>{t('contacts_empty_body')}</p>
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -552,17 +575,17 @@ export default function Contacts() {
                     onChange={toggleSelectAll}
                   />
                 </th>
-                <th onClick={() => handleSort('first_name')}>First name{sortArrow('first_name')}</th>
-                {visibleCols.includes('last_name') && <th onClick={() => handleSort('last_name')}>Last name{sortArrow('last_name')}</th>}
-                {visibleCols.includes('phone_number') && <th onClick={() => handleSort('phone_number')}>Phone{sortArrow('phone_number')}</th>}
-                {visibleCols.includes('email') && <th>Email</th>}
-                {visibleCols.includes('address') && <th>Address</th>}
-                {visibleCols.includes('city') && <th>City</th>}
-                {visibleCols.includes('state') && <th>State</th>}
-                {visibleCols.includes('zip') && <th>Zip</th>}
-                {visibleCols.includes('country') && <th>Country</th>}
-                {visibleCols.includes('methods') && <th>Methods</th>}
-                {visibleCols.includes('groups') && <th onClick={() => handleSort('groups')}>Groups{sortArrow('groups')}</th>}
+                <th onClick={() => handleSort('first_name')}>{t('col_first_name')}{sortArrow('first_name')}</th>
+                {visibleCols.includes('last_name') && <th onClick={() => handleSort('last_name')}>{t('col_last_name')}{sortArrow('last_name')}</th>}
+                {visibleCols.includes('phone_number') && <th onClick={() => handleSort('phone_number')}>{t('col_phone')}{sortArrow('phone_number')}</th>}
+                {visibleCols.includes('email') && <th>{t('col_email')}</th>}
+                {visibleCols.includes('address') && <th>{t('col_address')}</th>}
+                {visibleCols.includes('city') && <th>{t('col_city')}</th>}
+                {visibleCols.includes('state') && <th>{t('col_state')}</th>}
+                {visibleCols.includes('zip') && <th>{t('col_zip')}</th>}
+                {visibleCols.includes('country') && <th>{t('col_country')}</th>}
+                {visibleCols.includes('methods') && <th>{t('col_methods')}</th>}
+                {visibleCols.includes('groups') && <th onClick={() => handleSort('groups')}>{t('col_groups')}{sortArrow('groups')}</th>}
                 <th></th>
               </tr>
             </thead>
@@ -588,7 +611,7 @@ export default function Contacts() {
                       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                         {(c.methods && c.methods.length ? c.methods : [c.preferred_method]).map((m) => (
                           <span className={m === c.preferred_method ? 'pill' : 'pill signal'} key={m}>
-                            {METHOD_LABELS[m]}{m === c.preferred_method ? ' ★' : ''}
+                            {ML[m]}{m === c.preferred_method ? ' ★' : ''}
                           </span>
                         ))}
                       </div>
@@ -619,22 +642,22 @@ export default function Contacts() {
       {modalOpen && (
         <div className="modal-overlay" onClick={() => setModalOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>{editing ? 'Edit contact' : 'Add contact'}</h2>
+            <h2>{editing ? t('contact_modal_edit') : t('contact_modal_add')}</h2>
             <form onSubmit={handleSave}>
               <div className="field">
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                   <div>
-                    <label>First name</label>
-                    <input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} placeholder="Optional" />
+                    <label>{t('field_first_name')}</label>
+                    <input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} placeholder={t('field_optional')} />
                   </div>
                   <div>
-                    <label>Last name</label>
-                    <input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} placeholder="Optional" />
+                    <label>{t('field_last_name')}</label>
+                    <input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} placeholder={t('field_optional')} />
                   </div>
                 </div>
               </div>
               <div className="field">
-                <label>Phone number</label>
+                <label>{t('field_phone_number')}</label>
                 <input
                   required
                   value={form.phone_number}
@@ -643,60 +666,60 @@ export default function Contacts() {
                 />
               </div>
               <div className="field">
-                <label>Email</label>
+                <label>{t('field_email')}</label>
                 <input
                   type="email"
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  placeholder="Optional"
+                  placeholder={t('field_optional')}
                 />
               </div>
               <div className="field">
-                <label>Address</label>
+                <label>{t('field_address')}</label>
                 <input
                   value={form.address}
                   onChange={(e) => setForm({ ...form, address: e.target.value })}
-                  placeholder="Optional"
+                  placeholder={t('field_optional')}
                 />
               </div>
               <div className="field">
                 <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
                   <div>
-                    <label>City</label>
-                    <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder="Optional" />
+                    <label>{t('field_city')}</label>
+                    <input value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} placeholder={t('field_optional')} />
                   </div>
                   <div>
-                    <label>State</label>
-                    <input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder="Optional" />
+                    <label>{t('field_state')}</label>
+                    <input value={form.state} onChange={(e) => setForm({ ...form, state: e.target.value })} placeholder={t('field_optional')} />
                   </div>
                   <div>
-                    <label>Zip</label>
-                    <input value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} placeholder="Optional" />
+                    <label>{t('field_zip')}</label>
+                    <input value={form.zip} onChange={(e) => setForm({ ...form, zip: e.target.value })} placeholder={t('field_optional')} />
                   </div>
                 </div>
               </div>
               <div className="field">
-                <label>Country</label>
+                <label>{t('field_country')}</label>
                 <input
                   value={form.country}
                   onChange={(e) => setForm({ ...form, country: e.target.value })}
-                  placeholder="Optional"
+                  placeholder={t('field_optional')}
                 />
               </div>
               <div className="field">
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <label style={{ margin: 0 }}>How can they receive messages?</label>
+                  <label style={{ margin: 0 }}>{t('field_how_receive')}</label>
                   <button
                     type="button"
-                    onClick={() => setForm((f) => ({ ...f, methods: ALL_METHODS.map((m) => m.value) }))}
+                    onClick={() => setForm((f) => ({ ...f, methods: ALL_METHODS_T.map((m) => m.value) }))}
                     style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}
                   >
-                    Select all
+                    {t('contacts_select_all')}
                   </button>
                 </div>
-                <p className="field-hint">Tap to select one or more.</p>
+                <p className="field-hint">{t('field_tap_select')}</p>
                 <div className="chip-select">
-                  {ALL_METHODS.map((m) => {
+                  {ALL_METHODS_T.map((m) => {
                     const active = form.methods.includes(m.value);
                     return (
                       <button
@@ -715,10 +738,10 @@ export default function Contacts() {
 
               {form.methods.length > 1 && (
                 <div className="field">
-                  <label>Default method</label>
-                  <p className="field-hint">Used automatically when sending, unless you choose a different one for a specific send.</p>
+                  <label>{t('field_default_method')}</label>
+                  <p className="field-hint">{t('field_default_method_hint')}</p>
                   <div className="chip-select">
-                    {ALL_METHODS.filter((m) => form.methods.includes(m.value)).map((m) => {
+                    {ALL_METHODS_T.filter((m) => form.methods.includes(m.value)).map((m) => {
                       const isDefault = form.preferred_method === m.value;
                       return (
                         <button
@@ -737,8 +760,8 @@ export default function Contacts() {
               )}
               {groups.length > 0 && (
                 <div className="field">
-                  <label>Groups</label>
-                  <p className="field-hint">Optional — tap any group to add this contact to it.</p>
+                  <label>{t('col_groups')}</label>
+                  <p className="field-hint">{t('field_groups_hint')}</p>
                   <div className="chip-select">
                     {groups.map((g) => {
                       const active = form.group_ids.includes(g.id);
@@ -758,17 +781,17 @@ export default function Contacts() {
                 </div>
               )}
               <div className="field">
-                <label>Notes</label>
+                <label>{t('field_notes')}</label>
                 <textarea
                   rows={2}
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  placeholder="Optional"
+                  placeholder={t('field_optional')}
                 />
               </div>
               <div className="modal-actions">
-                <button type="button" className="btn secondary" onClick={() => setModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn" disabled={saving}>{saving ? 'Saving...' : 'Save contact'}</button>
+                <button type="button" className="btn secondary" onClick={() => setModalOpen(false)}>{t('btn_cancel')}</button>
+                <button type="submit" className="btn" disabled={saving}>{saving ? t('btn_saving') : t('btn_save_contact')}</button>
               </div>
             </form>
           </div>
@@ -782,24 +805,24 @@ export default function Contacts() {
       {importWorkbook && (
         <div className="modal-overlay" onClick={() => resetImport()}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 620 }}>
-            <h2>Import contacts</h2>
+            <h2>{t('import_title')}</h2>
 
             <details style={{ marginBottom: 14 }}>
               <summary style={{ cursor: 'pointer', color: 'var(--accent)', fontSize: 13 }}>
-                Tips for a smooth import
+                {t('import_tips_summary')}
               </summary>
               <ul style={{ margin: '8px 0 0', paddingLeft: 18, fontSize: 12.5, color: 'var(--ink-soft)' }}>
-                <li>Use one header row at the top, then one contact per row below it.</li>
-                <li>Helpful column names: Name, Phone Number, Email, Address, Notes, Preferred Method.</li>
-                <li>Phone numbers should include the country code, e.g. +19145551234.</li>
-                <li>Preferred method can be sms, call, or voice_note — leave it blank to use the default you pick below.</li>
-                <li>If your workbook has multiple sheets, only one can be imported at a time — pick it below.</li>
+                <li>{t('import_tip1')}</li>
+                <li>{t('import_tip2')}</li>
+                <li>{t('import_tip3')}</li>
+                <li>{t('import_tip4')}</li>
+                <li>{t('import_tip5')}</li>
               </ul>
             </details>
 
             {importSheetNames.length > 1 && (
               <div className="field">
-                <label>Sheet</label>
+                <label>{t('import_sheet')}</label>
                 <select value={importSheetName} onChange={(e) => handleSheetChange(e.target.value)}>
                   {importSheetNames.map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
@@ -807,8 +830,8 @@ export default function Contacts() {
             )}
 
             <div className="field">
-              <label>Match spreadsheet columns</label>
-              <p className="field-hint">We guessed these from your header row — adjust anything that looks wrong.</p>
+              <label>{t('import_match_columns')}</label>
+              <p className="field-hint">{t('import_match_hint')}</p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 {IMPORT_FIELDS.map((f) => (
                   <div key={f.key}>
@@ -822,7 +845,7 @@ export default function Contacts() {
                         setImportMapping((m) => ({ ...m, [f.key]: v === '' ? '' : Number(v) }));
                       }}
                     >
-                      <option value="">— Not in file —</option>
+                      <option value="">{t('import_not_in_file')}</option>
                       {importHeaders.map((h, i) => <option key={i} value={i}>{h}</option>)}
                     </select>
                   </div>
@@ -831,23 +854,23 @@ export default function Contacts() {
             </div>
 
             <p style={{ fontSize: 13.5, color: 'var(--ink-soft)', marginBottom: 4 }}>
-              {importExtracted.valid.length} contact{importExtracted.valid.length !== 1 ? 's' : ''} ready to import.
-              {importExtracted.invalidCount > 0 && ` ${importExtracted.invalidCount} row${importExtracted.invalidCount !== 1 ? 's' : ''} will be skipped (no phone number).`}
+              {importExtracted.valid.length} {importExtracted.valid.length === 1 ? t('import_ready_one') : t('import_ready_other')}
+              {importExtracted.invalidCount > 0 && ` ${importExtracted.invalidCount} ${importExtracted.invalidCount === 1 ? t('import_skipped_one') : t('import_skipped_other')}`}
             </p>
 
             <div className="field">
-              <label>Default method (optional, for rows without one specified)</label>
+              <label>{t('import_default_method')}</label>
               <select value={importDefaultMethod} onChange={(e) => setImportDefaultMethod(e.target.value)}>
-                <option value="">Don't set a default (uses text message automatically)</option>
-                {ALL_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                <option value="">{t('import_no_default')}</option>
+                {ALL_METHODS_T.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
 
             {groups.length > 0 && (
               <div className="field">
-                <label>Add all to a group (optional)</label>
+                <label>{t('import_add_to_group')}</label>
                 <select value={importGroupId} onChange={(e) => setImportGroupId(e.target.value)}>
-                  <option value="">Don't add to a group</option>
+                  <option value="">{t('import_no_group')}</option>
                   {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
                 </select>
               </div>
@@ -856,16 +879,16 @@ export default function Contacts() {
             <div style={{ maxHeight: 240, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 14 }}>
               <table className="data-table" style={{ fontSize: 12.5 }}>
                 <thead>
-                  <tr><th>Name</th><th>Phone</th><th>Method</th></tr>
+                  <tr><th>{t('import_col_name')}</th><th>{t('import_col_phone')}</th><th>{t('import_col_method')}</th></tr>
                 </thead>
                 <tbody>
                   {importExtracted.valid.slice(0, 100).map((r, i) => (
                     <tr key={i}>
                       <td>{[r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
                       <td style={{ fontFamily: 'var(--font-mono)' }}>{r.phone_number}</td>
-                      <td>{METHOD_LABELS[r.preferred_method] || (
+                      <td>{ML[r.preferred_method] || (
                         <span style={{ color: 'var(--ink-faint)' }}>
-                          {importDefaultMethod ? `${METHOD_LABELS[importDefaultMethod]} (default)` : `${METHOD_LABELS.sms} (auto)`}
+                          {importDefaultMethod ? ML[importDefaultMethod] : ML.sms}
                         </span>
                       )}</td>
                     </tr>
@@ -874,20 +897,20 @@ export default function Contacts() {
               </table>
               {importExtracted.valid.length === 0 && (
                 <p style={{ fontSize: 12.5, color: 'var(--ink-faint)', padding: '8px 10px' }}>
-                  No rows yet — check that "Phone number" is mapped to the right column above.
+                  {t('import_no_rows_hint')}
                 </p>
               )}
               {importExtracted.valid.length > 100 && (
                 <p style={{ fontSize: 12, color: 'var(--ink-faint)', padding: '8px 10px' }}>
-                  ...and {importExtracted.valid.length - 100} more
+                  {t('import_and_more').replace('{n}', importExtracted.valid.length - 100)}
                 </p>
               )}
             </div>
 
             <div className="modal-actions">
-              <button type="button" className="btn secondary" onClick={() => resetImport()} disabled={importing}>Cancel</button>
+              <button type="button" className="btn secondary" onClick={() => resetImport()} disabled={importing}>{t('btn_cancel')}</button>
               <button type="button" className="btn" onClick={handleConfirmImport} disabled={importing || !importExtracted.valid.length}>
-                {importing ? 'Importing...' : `Import ${importExtracted.valid.length} contact${importExtracted.valid.length !== 1 ? 's' : ''}`}
+                {importing ? t('contacts_importing') : t('btn_import_n').replace('{n}', importExtracted.valid.length).replace('{s}', importExtracted.valid.length !== 1 ? 's' : '')}
               </button>
             </div>
           </div>
@@ -914,9 +937,13 @@ export default function Contacts() {
   );
 }
 
+function METHOD_LABELS_LOWER_MAP() {
+  return { sms: t('method_sms').toLowerCase(), call: t('method_call').toLowerCase(), voice_note: t('method_voice_note').toLowerCase() };
+}
 const METHOD_LABELS_LOWER = { sms: 'text', call: 'phone call', voice_note: 'voice note' };
 
 function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
+  const ALL_METHODS_T = getAllMethods();
   const [methods, setMethods] = useState(['sms']);
   const [preferred, setPreferred] = useState('sms');
   const [saving, setSaving] = useState(false);
@@ -947,16 +974,16 @@ function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Update {count} contact{count !== 1 ? 's' : ''}</h2>
+        <h2>{t('bulk_update_title').replace('{n}', count)}</h2>
         {error && <div className="banner error">{error}</div>}
         <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>
-          This replaces how these contacts receive messages — their current method settings will be overwritten.
+          {t('bulk_update_warning')}
         </p>
 
         <div className="field">
-          <label>Enabled methods</label>
+          <label>{t('bulk_enabled_methods')}</label>
           <div className="chip-select">
-            {ALL_METHODS.map((m) => {
+            {ALL_METHODS_T.map((m) => {
               const active = methods.includes(m.value);
               return (
                 <button
@@ -975,9 +1002,9 @@ function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
 
         {methods.length > 1 && (
           <div className="field">
-            <label>Default method</label>
+            <label>{t('field_default_method')}</label>
             <div className="chip-select">
-              {ALL_METHODS.filter((m) => methods.includes(m.value)).map((m) => (
+              {ALL_METHODS_T.filter((m) => methods.includes(m.value)).map((m) => (
                 <button
                   type="button"
                   key={m.value}
@@ -993,9 +1020,9 @@ function BulkMethodModal({ count, contactIds, onClose, onSaved }) {
         )}
 
         <div className="modal-actions">
-          <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>{t('btn_cancel')}</button>
           <button type="button" className="btn" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : `Apply to ${count}`}
+            {saving ? t('btn_saving') : t('bulk_apply_to').replace('{n}', count)}
           </button>
         </div>
       </div>
@@ -1029,14 +1056,14 @@ function BulkGroupModal({ count, contactIds, groups, onClose, onSaved }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>Add {count} contact{count !== 1 ? 's' : ''} to group(s)</h2>
+        <h2>{t('bulk_group_title').replace('{n}', count)}</h2>
         {error && <div className="banner error">{error}</div>}
         <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>
-          Adds these contacts to the groups you pick, without removing any existing memberships.
+          {t('bulk_group_body')}
         </p>
 
         <div className="field">
-          <label>Groups</label>
+          <label>{t('col_groups')}</label>
           <div className="chip-select">
             {groups.map((g) => {
               const active = groupIds.includes(g.id);
@@ -1056,9 +1083,9 @@ function BulkGroupModal({ count, contactIds, groups, onClose, onSaved }) {
         </div>
 
         <div className="modal-actions">
-          <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>{t('btn_cancel')}</button>
           <button type="button" className="btn" onClick={handleSave} disabled={saving || !groupIds.length}>
-            {saving ? 'Saving...' : `Apply to ${count}`}
+            {saving ? t('btn_saving') : t('bulk_apply_to').replace('{n}', count)}
           </button>
         </div>
       </div>
@@ -1067,6 +1094,7 @@ function BulkGroupModal({ count, contactIds, groups, onClose, onSaved }) {
 }
 
 function ContactLogModal({ contact, onClose }) {
+  const ML = METHOD_LABELS_LOWER_MAP();
   const [sends, setSends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1081,28 +1109,28 @@ function ContactLogModal({ contact, onClose }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h2>History for {contactDisplayName(contact) || contact.phone_number}</h2>
+        <h2>{t('contact_history_title')} {contactDisplayName(contact) || contact.phone_number}</h2>
         {error && <div className="banner error">{error}</div>}
         {loading ? (
           <p style={{ color: 'var(--ink-soft)' }}>Loading...</p>
         ) : sends.length === 0 ? (
-          <p style={{ color: 'var(--ink-soft)', fontSize: 14 }}>Nothing has been sent to this contact yet.</p>
+          <p style={{ color: 'var(--ink-soft)', fontSize: 14 }}>{t('contact_history_empty')}</p>
         ) : (
           <div className="list" style={{ maxHeight: 360, overflowY: 'auto' }}>
             {sends.map((s) => (
               <div className="row" key={s.id} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
                   <div className="row-main">
-                    <span className="row-title">{s.message_title || 'Untitled'}</span>
+                    <span className="row-title">{s.message_title || t('label_untitled')}</span>
                     <span className="row-sub">
-                      via {METHOD_LABELS_LOWER[s.effective_method] || s.effective_method}
+                      {t('contact_history_via')} {ML[s.effective_method] || s.effective_method}
                       {s.sent_at && ` · ${new Date(s.sent_at).toLocaleString()}`}
-                      {s.status === 'scheduled' && s.scheduled_at && ` · scheduled for ${new Date(s.scheduled_at).toLocaleString()}`}
+                      {s.status === 'scheduled' && s.scheduled_at && ` · ${t('contact_history_scheduled_for')} ${new Date(s.scheduled_at).toLocaleString()}`}
                     </span>
                     {s.error_message && <span className="row-sub" style={{ color: 'var(--danger)' }}>{s.error_message}</span>}
                   </div>
                   <span className="pill" style={s.status === 'failed' ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
-                    {s.status === 'sent' ? 'Sent' : s.status}
+                    {s.status === 'sent' ? t('status_sent') : s.status}
                   </span>
                 </div>
                 {s.message_text && (
@@ -1121,7 +1149,7 @@ function ContactLogModal({ contact, onClose }) {
           </div>
         )}
         <div className="modal-actions">
-          <button type="button" className="btn secondary" onClick={onClose}>Close</button>
+          <button type="button" className="btn secondary" onClick={onClose}>{t('btn_close')}</button>
         </div>
       </div>
     </div>
