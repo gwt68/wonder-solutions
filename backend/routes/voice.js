@@ -933,23 +933,99 @@ async function updateSmsSendSession(userId, fromPhone, step, dataPatch) {
   return merged;
 }
 
+function navFooter(isFirstStep) {
+  return isFirstStep ? '\nReply CANCEL to stop.' : '\nReply BACK to go to the previous step, or CANCEL to stop.';
+}
+
+function targetTypePrompt(retry = false) {
+  const prefix = retry ? "Sorry, reply with 1, 2, or 3.\n" : '';
+  return `${prefix}Who do you want to send this to?\n1. All contacts\n2. Individual\n3. Groups${navFooter(true)}`;
+}
+
+function individualNumberPrompt(retry = false) {
+  const prefix = retry ? "No contact found with that number. Try again, or reply with the full number including area code.\n" : '';
+  return `${prefix}Enter the phone number to send to.${navFooter(false)}`;
+}
+
+function groupPickPrompt(groups, retry = false) {
+  const prefix = retry ? "Sorry, reply with the number of the group.\n" : '';
+  const list = groups.map((g, i) => `${i + 1}. ${g.name}`).join('\n');
+  return `${prefix}Here are your groups, please select which to send this message to:\n${list}${navFooter(false)}`;
+}
+
 function methodPrompt(retry = false) {
   const prefix = retry ? "Sorry, reply with 1, 2, 3, or 4.\n" : '';
-  return `${prefix}How would you like to send?\n1. Each contact's assigned method\n2. Call\n3. Text\n4. Voice note`;
+  return `${prefix}How would you like to send?\n1. Each contact's assigned method\n2. Call\n3. Text\n4. Voice note${navFooter(false)}`;
+}
+
+function schedulePrompt(retry = false) {
+  const prefix = retry ? "Sorry, reply with 1 or 2.\n" : '';
+  return `${prefix}Send now, or schedule for later?\n1. Send now\n2. Schedule${navFooter(false)}`;
+}
+
+function scheduleDatetimePrompt(retry = false) {
+  const prefix = retry ? "Sorry, that date and time wasn't understood, or is in the past.\n" : '';
+  return `${prefix}Reply with the date and time to send, in this format: month/day time, like 8/10 3:00 PM or 8/10 3:00 AM.${navFooter(false)}`;
+}
+
+// "target_detail" isn't a real step name on its own — it's either
+// individual_number or group_pick depending on what was chosen. This maps
+// the actual prior step so "back" from method_select lands in the right place.
+function stepBefore(currentStep, data) {
+  if (currentStep === 'individual_number' || currentStep === 'group_pick') return 'target_type';
+  if (currentStep === 'method_select') return data.prev_before_method || 'target_type';
+  if (currentStep === 'schedule') return 'method_select';
+  if (currentStep === 'schedule_datetime') return 'schedule';
+  return null;
+}
+
+async function promptForStep(step, data, userId) {
+  switch (step) {
+    case 'target_type': return targetTypePrompt();
+    case 'individual_number': return individualNumberPrompt();
+    case 'group_pick': {
+      const { rows: groups } = await pool.query('SELECT id, name FROM groups WHERE user_id = $1 ORDER BY id', [userId]);
+      return groupPickPrompt(groups);
+    }
+    case 'method_select': return methodPrompt();
+    case 'schedule': return schedulePrompt();
+    case 'schedule_datetime': return scheduleDatetimePrompt();
+    default: return targetTypePrompt();
+  }
 }
 
 async function handleSmsSendStep(session, body, userId, fromPhone) {
-  const digits = body.trim();
+  const raw = body.trim();
+  const lower = raw.toLowerCase();
+
+  if (lower === 'cancel') {
+    await clearSmsSendSession(userId, fromPhone);
+    return 'Cancelled.';
+  }
+
+  if (lower === 'back') {
+    const target = stepBefore(session.step, session.data);
+    if (!target) return targetTypePrompt(); // already at the first step
+    // Clear anything selected at or after the step we're returning to,
+    // so re-choosing doesn't leave stale data behind.
+    const clearedFields = {};
+    if (target === 'target_type') Object.assign(clearedFields, { target: null, contact_id: null, group_id: null, method: null });
+    if (target === 'method_select') Object.assign(clearedFields, { method: null });
+    await updateSmsSendSession(userId, fromPhone, target, clearedFields);
+    return await promptForStep(target, session.data, userId);
+  }
+
+  const digits = raw;
 
   switch (session.step) {
     case 'target_type': {
       if (digits === '1') {
-        await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'all' });
+        await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'all', prev_before_method: 'target_type' });
         return methodPrompt();
       }
       if (digits === '2') {
         await updateSmsSendSession(userId, fromPhone, 'individual_number', {});
-        return 'Enter the phone number to send to.';
+        return individualNumberPrompt();
       }
       if (digits === '3') {
         const { rows: groups } = await pool.query('SELECT id, name FROM groups WHERE user_id = $1 ORDER BY id', [userId]);
@@ -958,10 +1034,9 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
           return "You don't have any groups yet.";
         }
         await updateSmsSendSession(userId, fromPhone, 'group_pick', { group_page: groups });
-        const list = groups.map((g, i) => `${i + 1}. ${g.name}`).join('\n');
-        return `Here are your groups, please select which to send this message to:\n${list}`;
+        return groupPickPrompt(groups);
       }
-      return "Sorry, reply with 1, 2, or 3.\n1. All contacts\n2. Individual\n3. Groups";
+      return targetTypePrompt(true);
     }
 
     case 'individual_number': {
@@ -969,17 +1044,17 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
         'SELECT id, first_name, last_name, name FROM contacts WHERE user_id = $1 AND phone_number = $2', [userId, digits]
       );
       if (!contactRows.length) {
-        return "No contact found with that number. Try again, or reply with the full number including area code.";
+        return individualNumberPrompt(true);
       }
-      await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'contact', contact_id: contactRows[0].id });
+      await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'contact', contact_id: contactRows[0].id, prev_before_method: 'individual_number' });
       return methodPrompt();
     }
 
     case 'group_pick': {
       const idx = parseInt(digits, 10) - 1;
       const group = (session.data.group_page || [])[idx];
-      if (!group) return 'Sorry, reply with the number of the group.';
-      await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'group', group_id: group.id });
+      if (!group) return groupPickPrompt(session.data.group_page || [], true);
+      await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'group', group_id: group.id, prev_before_method: 'group_pick' });
       return methodPrompt();
     }
 
@@ -988,7 +1063,7 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
       const method = methodMap[digits];
       if (!method) return methodPrompt(true);
       await updateSmsSendSession(userId, fromPhone, 'schedule', { method });
-      return 'Send now, or schedule for later?\n1. Send now\n2. Schedule';
+      return schedulePrompt();
     }
 
     case 'schedule': {
@@ -997,15 +1072,15 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
       }
       if (digits === '2') {
         await updateSmsSendSession(userId, fromPhone, 'schedule_datetime', {});
-        return 'Reply with when to send, e.g. "8/10 3:00 PM".';
+        return scheduleDatetimePrompt();
       }
-      return 'Reply with 1 to send now, or 2 to schedule.';
+      return schedulePrompt(true);
     }
 
     case 'schedule_datetime': {
       const when = new Date(digits);
       if (isNaN(when.getTime()) || when <= new Date()) {
-        return 'Sorry, that date/time wasn\'t understood, or is in the past. Try again, e.g. "8/10 3:00 PM".';
+        return scheduleDatetimePrompt(true);
       }
       return await executeSmsSend(session, userId, fromPhone, when);
     }
@@ -1087,7 +1162,7 @@ router.post('/sms-incoming', async (req, res) => {
            ON CONFLICT (user_id, from_phone_number) DO UPDATE SET step = $4, data = $5, updated_at = NOW()`,
           [user.id, from, JSON.stringify({ message_id: msgRows[0].id }), 'target_type', JSON.stringify({ message_id: msgRows[0].id })]
         );
-        twiml.message('Saved. Who do you want to send this to?\n1. All contacts\n2. Individual\n3. Groups');
+        twiml.message(targetTypePrompt());
         return res.type('text/xml').send(twiml.toString());
       }
 
