@@ -103,7 +103,7 @@ export default function Send() {
           )}
 
           <div style={{ borderTop: '1px solid var(--line)', paddingTop: 16 }}>
-            <SendForm key={message.id} message={message} />
+            <SendForm key={message.id} message={message} channel={channel} />
           </div>
         </div>
       )}

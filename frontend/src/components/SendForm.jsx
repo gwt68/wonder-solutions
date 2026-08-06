@@ -13,7 +13,7 @@ function getMethodOptions() {
   ];
 }
 
-export default function SendForm({ message, onSent }) {
+export default function SendForm({ message, onSent, channel }) {
   const METHOD_LABELS = getMethodLabels();
   const METHOD_OPTIONS = getMethodOptions();
   const [contacts, setContacts] = useState([]);
@@ -59,10 +59,11 @@ export default function SendForm({ message, onSent }) {
   }, [contacts, searchQuery]);
 
   function toggleContact(c) {
+    if (channel && !contactMethods(c).includes(channel)) return; // can't select a contact who isn't enabled for this channel
     setSelected((prev) => {
       const next = new Map(prev);
       if (next.has(c.id)) next.delete(c.id);
-      else next.set(c.id, new Set([c.preferred_method]));
+      else next.set(c.id, new Set([channel || c.preferred_method]));
       return next;
     });
   }
@@ -86,7 +87,8 @@ export default function SendForm({ message, onSent }) {
   }
 
   function selectAll() {
-    setSelected(new Map(contacts.map((c) => [c.id, new Set([c.preferred_method])])));
+    const eligible = channel ? contacts.filter((c) => contactMethods(c).includes(channel)) : contacts;
+    setSelected(new Map(eligible.map((c) => [c.id, new Set([channel || c.preferred_method])])));
   }
 
   function unselectAll() {
@@ -98,9 +100,10 @@ export default function SendForm({ message, onSent }) {
     setError('');
     try {
       const members = await api.groups.contacts(group.id);
+      const eligible = channel ? members.filter((c) => contactMethods(c).includes(channel)) : members;
       setSelected((prev) => {
         const next = new Map(prev);
-        members.forEach((c) => { if (!next.has(c.id)) next.set(c.id, new Set([c.preferred_method])); });
+        eligible.forEach((c) => { if (!next.has(c.id)) next.set(c.id, new Set([channel || c.preferred_method])); });
         return next;
       });
     } catch (err) {
@@ -296,7 +299,12 @@ export default function SendForm({ message, onSent }) {
                     padding: '9px 12px', borderBottom: '1px solid var(--line)',
                   }}
                 >
-                  <input type="checkbox" checked={isSelected} onChange={() => toggleContact(c)} />
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    disabled={channel && !methods.includes(channel)}
+                    onChange={() => toggleContact(c)}
+                  />
                   <div style={{ overflow: 'hidden' }}>
                     <div style={{ fontSize: 13.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{contactDisplayName(c) || t('sf_unnamed_contact')}</div>
                     <div style={{ fontSize: 11.5, color: 'var(--ink-faint)', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.phone_number}</div>
