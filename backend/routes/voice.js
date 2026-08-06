@@ -938,40 +938,185 @@ router.post('/conference-recording', async (req, res) => {
   res.status(200).end();
 });
 
+// ---------- #send SMS command flow ----------
+
+async function clearSmsSendSession(userId, fromPhone) {
+  await pool.query('DELETE FROM sms_send_sessions WHERE user_id = $1 AND from_phone_number = $2', [userId, fromPhone]);
+}
+
+async function updateSmsSendSession(userId, fromPhone, step, dataPatch) {
+  const { rows } = await pool.query('SELECT data FROM sms_send_sessions WHERE user_id = $1 AND from_phone_number = $2', [userId, fromPhone]);
+  const merged = { ...(rows[0]?.data || {}), ...dataPatch };
+  await pool.query(
+    `UPDATE sms_send_sessions SET step = $1, data = $2, updated_at = NOW() WHERE user_id = $3 AND from_phone_number = $4`,
+    [step, JSON.stringify(merged), userId, fromPhone]
+  );
+  return merged;
+}
+
+async function handleSmsSendStep(session, body, userId, fromPhone) {
+  const digits = body.trim();
+
+  switch (session.step) {
+    case 'target_type': {
+      if (digits === '1') {
+        await updateSmsSendSession(userId, fromPhone, 'schedule', { target: 'all' });
+        return 'Send now, or schedule for later?\n1. Send now\n2. Schedule';
+      }
+      if (digits === '2') {
+        await updateSmsSendSession(userId, fromPhone, 'individual_number', {});
+        return 'Enter the phone number to send to.';
+      }
+      if (digits === '3') {
+        const { rows: groups } = await pool.query('SELECT id, name FROM groups WHERE user_id = $1 ORDER BY id', [userId]);
+        if (!groups.length) {
+          await clearSmsSendSession(userId, fromPhone);
+          return "You don't have any groups yet.";
+        }
+        await updateSmsSendSession(userId, fromPhone, 'group_pick', { group_page: groups });
+        const list = groups.map((g, i) => `${i + 1}. ${g.name}`).join('\n');
+        return `Here are your groups, please select which to send this message to:\n${list}`;
+      }
+      return "Sorry, reply with 1, 2, or 3.\n1. All contacts\n2. Individual\n3. Groups";
+    }
+
+    case 'individual_number': {
+      const { rows: contactRows } = await pool.query(
+        'SELECT id, first_name, last_name, name FROM contacts WHERE user_id = $1 AND phone_number = $2', [userId, digits]
+      );
+      if (!contactRows.length) {
+        return "No contact found with that number. Try again, or reply with the full number including area code.";
+      }
+      await updateSmsSendSession(userId, fromPhone, 'schedule', { target: 'contact', contact_id: contactRows[0].id });
+      return 'Send now, or schedule for later?\n1. Send now\n2. Schedule';
+    }
+
+    case 'group_pick': {
+      const idx = parseInt(digits, 10) - 1;
+      const group = (session.data.group_page || [])[idx];
+      if (!group) return 'Sorry, reply with the number of the group.';
+      await updateSmsSendSession(userId, fromPhone, 'schedule', { target: 'group', group_id: group.id });
+      return 'Send now, or schedule for later?\n1. Send now\n2. Schedule';
+    }
+
+    case 'schedule': {
+      if (digits === '1') {
+        return await executeSmsSend(session, userId, fromPhone, null);
+      }
+      if (digits === '2') {
+        await updateSmsSendSession(userId, fromPhone, 'schedule_datetime', {});
+        return 'Reply with when to send, e.g. "8/10 3:00 PM".';
+      }
+      return 'Reply with 1 to send now, or 2 to schedule.';
+    }
+
+    case 'schedule_datetime': {
+      const when = new Date(digits);
+      if (isNaN(when.getTime()) || when <= new Date()) {
+        return 'Sorry, that date/time wasn\'t understood, or is in the past. Try again, e.g. "8/10 3:00 PM".';
+      }
+      return await executeSmsSend(session, userId, fromPhone, when);
+    }
+
+    default: {
+      await clearSmsSendSession(userId, fromPhone);
+      return "Something went wrong. Text #send to start again.";
+    }
+  }
+}
+
+async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
+  const { message_id, target, contact_id, group_id } = session.data;
+  await clearSmsSendSession(userId, fromPhone);
+
+  let contactIds = [];
+  if (target === 'contact') {
+    contactIds = [contact_id];
+  } else if (target === 'group') {
+    const { rows } = await pool.query('SELECT contact_id FROM contact_groups WHERE group_id = $1', [group_id]);
+    contactIds = rows.map((r) => r.contact_id);
+  } else {
+    const { rows } = await pool.query('SELECT id FROM contacts WHERE user_id = $1', [userId]);
+    contactIds = rows.map((r) => r.id);
+  }
+
+  if (!contactIds.length) return 'No recipients found for that selection.';
+
+  const recipients = contactIds.map((id) => ({ contact_id: id }));
+  try {
+    const result = await createSendBatch({
+      message_id, recipients, userId,
+      scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
+    });
+    if (scheduledAt) {
+      return `Scheduled for ${result.count} contact${result.count === 1 ? '' : 's'} at ${scheduledAt.toLocaleString()}.`;
+    }
+    return `Message sent to ${result.count} contact${result.count === 1 ? '' : 's'}.`;
+  } catch (err) {
+    console.error('executeSmsSend error:', err);
+    return 'Something went wrong sending the message.';
+  }
+}
+
 router.post('/sms-incoming', async (req, res) => {
   const to = req.body.To;
   const from = req.body.From;
-  const body = req.body.Body;
+  const body = (req.body.Body || '').trim();
   const MessagingResponse = twilio.twiml.MessagingResponse;
   const twiml = new MessagingResponse();
 
   try {
     const user = await getUserByCalledNumber(to);
-    if (user) {
-      const { rows } = await pool.query(
+    if (user && body) {
+      const { rows: trustedRows } = await pool.query(
         'SELECT 1 FROM trusted_phones WHERE phone_number = $1 AND user_id = $2', [from, user.id]
       );
-      const isTrusted = rows.length > 0;
+      const isTrusted = trustedRows.length > 0;
 
-      if (body && body.trim()) {
-        if (isTrusted) {
-          await pool.query(
-            `INSERT INTO messages (title, type, text_content, user_id) VALUES ($1, 'sms', $2, $3)`,
-            [`Texted in`, body.trim(), user.id]
-          );
-          twiml.message('Saved to Wonder Solutions as a new text message.');
-        } else {
-          const { rows: contactRows } = await pool.query(
-            `SELECT id FROM contacts WHERE user_id = $2 AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
-            [from, user.id]
-          );
-          const contactId = contactRows[0]?.id || null;
-          await pool.query(
-            `INSERT INTO messages (title, type, text_content, user_id, is_reply, from_phone_number, reply_contact_id)
-             VALUES ($1, 'sms', $2, $3, TRUE, $4, $5)`,
-            [`Reply`, body.trim(), user.id, from, contactId]
-          );
-        }
+      // Continue an in-progress #send flow, if one exists for this number
+      const { rows: sessionRows } = await pool.query(
+        'SELECT * FROM sms_send_sessions WHERE user_id = $1 AND from_phone_number = $2', [user.id, from]
+      );
+      if (isTrusted && sessionRows.length) {
+        const reply = await handleSmsSendStep(sessionRows[0], body, user.id, from);
+        twiml.message(reply);
+        return res.type('text/xml').send(twiml.toString());
+      }
+
+      // Starts a new #send flow (case-insensitive, anywhere in the text)
+      if (isTrusted && /#send\b/i.test(body)) {
+        const cleanBody = body.replace(/#send\b/i, '').trim();
+        const { rows: msgRows } = await pool.query(
+          `INSERT INTO messages (title, type, text_content, user_id) VALUES ($1, 'sms', $2, $3) RETURNING id`,
+          [`Texted in`, cleanBody || '(no text)', user.id]
+        );
+        await pool.query(
+          `INSERT INTO sms_send_sessions (user_id, from_phone_number, step, data)
+           VALUES ($1, $2, 'target_type', $3)
+           ON CONFLICT (user_id, from_phone_number) DO UPDATE SET step = $4, data = $5, updated_at = NOW()`,
+          [user.id, from, JSON.stringify({ message_id: msgRows[0].id }), 'target_type', JSON.stringify({ message_id: msgRows[0].id })]
+        );
+        twiml.message('Saved. Who do you want to send this to?\n1. All contacts\n2. Individual\n3. Groups');
+        return res.type('text/xml').send(twiml.toString());
+      }
+
+      if (isTrusted) {
+        await pool.query(
+          `INSERT INTO messages (title, type, text_content, user_id) VALUES ($1, 'sms', $2, $3)`,
+          [`Texted in`, body, user.id]
+        );
+        twiml.message('Saved to Wonder Solutions as a new text message.');
+      } else {
+        const { rows: contactRows } = await pool.query(
+          `SELECT id FROM contacts WHERE user_id = $2 AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
+          [from, user.id]
+        );
+        const contactId = contactRows[0]?.id || null;
+        await pool.query(
+          `INSERT INTO messages (title, type, text_content, user_id, is_reply, from_phone_number, reply_contact_id)
+           VALUES ($1, 'sms', $2, $3, TRUE, $4, $5)`,
+          [`Reply`, body, user.id, from, contactId]
+        );
       }
     }
   } catch (err) {
