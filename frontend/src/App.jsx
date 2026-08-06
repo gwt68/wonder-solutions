@@ -10,6 +10,7 @@ import Settings from './pages/Settings.jsx';
 import Users from './pages/Users.jsx';
 import Login from './pages/Login.jsx';
 import { setToken, api } from './api.js';
+import { getLang, setLang, t } from './i18n.js';
 
 const PAGES = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -26,6 +27,13 @@ const PAGES = [
 export default function App() {
   const [page, setPage] = useState('dashboard');
   const [unreadReplies, setUnreadReplies] = useState(0);
+  const [lang, setLangState] = useState(getLang());
+
+  function toggleLang() {
+    const next = lang === 'he' ? 'en' : 'he';
+    setLang(next);
+    setLangState(next);
+  }
   const [openConversationContactId, setOpenConversationContactId] = useState(null);
   const [loggedIn, setLoggedIn] = useState(!!localStorage.getItem('wonder_token'));
   const [isAdmin, setIsAdmin] = useState(localStorage.getItem('wonder_is_admin') === 'true');
@@ -34,6 +42,11 @@ export default function App() {
     function handleLogout() { setLoggedIn(false); }
     window.addEventListener('wonder-logout', handleLogout);
     return () => window.removeEventListener('wonder-logout', handleLogout);
+  }, []);
+
+useEffect(() => {
+    document.documentElement.dir = lang === 'he' ? 'rtl' : 'ltr';
+    document.documentElement.lang = lang;
   }, []);
 
   useEffect(() => {
@@ -75,16 +88,23 @@ export default function App() {
               onClick={() => setPage(p.key)}
               style={p.key === 'replies' && unreadReplies > 0 ? { color: '#fff', background: 'var(--danger)' } : undefined}
             >
-              {p.label}{p.key === 'replies' && unreadReplies > 0 ? ` (${unreadReplies})` : ''}
+              {t(`nav_${p.key === 'replies' ? 'conversations' : p.key}`)}{p.key === 'replies' && unreadReplies > 0 ? ` (${unreadReplies})` : ''}
             </button>
           ))}
         </nav>
         <button
+          type="button"
           className="nav-item"
+          onClick={toggleLang}
           style={{ marginTop: 'auto' }}
+        >
+          <i className="ti ti-language" /> {lang === 'he' ? 'English' : 'עברית'}
+        </button>
+        <button
+          className="nav-item"
           onClick={handleLogoutClick}
         >
-          <i className="ti ti-logout" /> Log out
+          <i className="ti ti-logout" /> {t('nav_logout')}
         </button>
       </aside>
       <main className={`main ${page === 'contacts' ? 'main-wide' : ''}`}>

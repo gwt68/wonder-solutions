@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { api, setToken } from '../api.js';
 import PasswordInput from '../components/PasswordInput.jsx';
+import { t } from '../i18n.js';
 
 export default function Login({ onLogin }) {
   const [mode, setMode] = useState('login'); // 'login' | 'recover'
@@ -17,9 +18,9 @@ export default function Login({ onLogin }) {
         <div className="brand-mark" aria-hidden="true" style={{ margin: '0 auto 16px' }}>
           <span></span><span></span><span></span><span></span>
         </div>
-        <h1 style={{ textAlign: 'center', fontSize: 20, marginBottom: 4 }}>Wonder Solutions</h1>
+        <h1 style={{ textAlign: 'center', fontSize: 20, marginBottom: 4 }}>{t('login_title')}</h1>
         <p style={{ textAlign: 'center', color: 'var(--ink-soft)', fontSize: 13.5, margin: '0 0 24px' }}>
-          Message console
+          {t('login_subtitle')}
         </p>
 
         {mode === 'login' ? (
@@ -59,15 +60,15 @@ function LoginForm({ onLogin, onForgot }) {
       {error && <div className="banner error">{error}</div>}
       <form onSubmit={handleSubmit}>
         <div className="field">
-          <label>Username</label>
+          <label>{t('login_username')}</label>
           <input required autoFocus value={username} onChange={(e) => setUsername(e.target.value)} />
         </div>
         <div className="field">
-          <label>Password</label>
+          <label>{t('login_password')}</label>
           <PasswordInput required value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>
         <button type="submit" className="btn" style={{ width: '100%' }} disabled={loading}>
-          {loading ? 'Logging in...' : 'Log in'}
+          {loading ? '...' : t('login_button')}
         </button>
       </form>
       <button
@@ -75,7 +76,7 @@ function LoginForm({ onLogin, onForgot }) {
         onClick={onForgot}
         style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 13, marginTop: 14, cursor: 'pointer', width: '100%', textAlign: 'center' }}
       >
-        Forgot username or password?
+        {t('login_forgot')}
       </button>
     </>
   );
