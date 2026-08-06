@@ -87,6 +87,33 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+router.post('/:id/reassign-number', async (req, res) => {
+  const { area_code } = req.body;
+  if (!area_code) return res.status(400).json({ error: 'area_code is required' });
+  try {
+    const client = twilioClient();
+    const available = await client.availablePhoneNumbers('US').local.list({ areaCode: area_code, limit: 1 });
+    if (!available.length) return res.status(400).json({ error: 'No numbers available for that area code' });
+
+    const purchased = await client.incomingPhoneNumbers.create({
+      phoneNumber: available[0].phoneNumber,
+      smsUrl: `${process.env.BASE_URL}/voice/sms-incoming`,
+      voiceUrl: `${process.env.BASE_URL}/voice/incoming`,
+    });
+
+    const { rows } = await pool.query(
+      `UPDATE users SET twilio_phone_number = $1, twilio_phone_sid = $2 WHERE id = $3
+       RETURNING id, username, twilio_phone_number`,
+      [purchased.phoneNumber, purchased.sid, req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Failed to reassign number' });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
     const { rows: remaining } = await pool.query('SELECT COUNT(*) FROM users');
