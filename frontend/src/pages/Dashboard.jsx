@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 import { groupSendsIntoBroadcasts } from '../broadcastUtils.js';
+import { t, tRecipients } from '../i18n.js';
 
 export default function Dashboard({ onNavigate }) {
   const [contacts, setContacts] = useState([]);
@@ -29,11 +30,11 @@ export default function Dashboard({ onNavigate }) {
   const messageCount = messages.length;
 
   const stats = [
-    { label: 'Contacts', value: contacts.length, page: 'contacts' },
-    { label: 'Groups', value: groups.length, page: 'groups' },
-    { label: 'Messages', value: messageCount, page: 'messages' },
-    { label: 'Broadcasts sent', value: broadcastsSentToday, page: 'history' },
-    { label: 'Scheduled', value: upcomingBroadcasts.length, page: 'history' },
+    { label: t('stat_contacts'), value: contacts.length, page: 'contacts' },
+    { label: t('stat_groups'), value: groups.length, page: 'groups' },
+    { label: t('stat_messages'), value: messageCount, page: 'messages' },
+    { label: t('stat_broadcasts_sent'), value: broadcastsSentToday, page: 'history' },
+    { label: t('stat_scheduled'), value: upcomingBroadcasts.length, page: 'history' },
   ];
 
   return (
@@ -43,8 +44,8 @@ export default function Dashboard({ onNavigate }) {
       <div style={{ flexShrink: 0 }}>
         <div className="page-header" style={{ marginBottom: 20 }}>
           <div>
-            <h1>Dashboard</h1>
-            <p>An overview of your contacts, messages, and sends</p>
+            <h1>{t('dashboard_title')}</h1>
+            <p>{t('dashboard_subtitle')}</p>
           </div>
         </div>
 
@@ -65,15 +66,15 @@ export default function Dashboard({ onNavigate }) {
 
         {upcomingBroadcasts.length > 0 && (
           <div style={{ flexShrink: 0 }}>
-            <h3 style={{ fontSize: 15, marginBottom: 10 }}>Upcoming scheduled broadcasts</h3>
+            <h3 style={{ fontSize: 15, marginBottom: 10 }}>{t('dashboard_upcoming')}</h3>
             <div className="list" style={{ maxHeight: 160, overflowY: 'auto' }}>
               {upcomingBroadcasts.map((b) => (
                 <div className="row" key={b.batchId}>
                   <div className="row-main">
-                    <span className="row-title">{b.messageTitle || 'Untitled'} → {b.total} recipient{b.total !== 1 ? 's' : ''}</span>
+                    <span className="row-title">{b.messageTitle || t('label_untitled')} → {tRecipients(b.total)}</span>
                     <span className="row-sub">{new Date(b.scheduledAt).toLocaleString()}</span>
                   </div>
-                  <span className="pill signal">Scheduled</span>
+                  <span className="pill signal">{t('label_scheduled_pill')}</span>
                 </div>
               ))}
             </div>
@@ -81,25 +82,25 @@ export default function Dashboard({ onNavigate }) {
         )}
 
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-          <h3 style={{ fontSize: 15, marginBottom: 10, flexShrink: 0 }}>Recent activity</h3>
+          <h3 style={{ fontSize: 15, marginBottom: 10, flexShrink: 0 }}>{t('dashboard_recent')}</h3>
           {recentBroadcasts.length === 0 ? (
             <div className="card empty-state">
-              <h3>Nothing sent yet</h3>
-              <p>Send your first message and it'll show up here.</p>
+              <h3>{t('dashboard_empty_title')}</h3>
+              <p>{t('dashboard_empty_body')}</p>
             </div>
           ) : (
             <div className="list" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
               {recentBroadcasts.map((b) => (
                 <div className="row" key={b.batchId}>
                   <div className="row-main">
-                    <span className="row-title">{b.messageTitle || 'Untitled'} → {b.total} recipient{b.total !== 1 ? 's' : ''}</span>
+                    <span className="row-title">{b.messageTitle || t('label_untitled')} → {tRecipients(b.total)}</span>
                     <span className="row-sub">
                       {b.latestSentAt && new Date(b.latestSentAt).toLocaleString()}
-                      {b.counts.failed > 0 && ` · ${b.counts.failed} failed`}
+                      {b.counts.failed > 0 && ` · ${b.counts.failed} ${t('label_failed')}`}
                     </span>
                   </div>
                   <span className="pill" style={b.counts.failed > 0 && !b.counts.sent ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
-                    {b.counts.sent > 0 ? `${b.counts.sent} sent` : `${b.counts.failed} failed`}
+                    {b.counts.sent > 0 ? `${b.counts.sent} ${t('label_sent')}` : `${b.counts.failed} ${t('label_failed')}`}
                   </span>
                 </div>
               ))}
