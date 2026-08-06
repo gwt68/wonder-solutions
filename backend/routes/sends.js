@@ -65,7 +65,7 @@ async function sendToContact(contact, message, method, fromNumber) {
         to: contact.phone_number, from: fromNumber, twiml: twiml.toString(),
         statusCallback: webhookUrl('call-status'),
         statusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed'],
-        statusCallbackMethod: 'POST', machineDetection: 'Enable', machineDetectionTimeout: 8,
+        statusCallbackMethod: 'POST', machineDetection: 'Enable', machineDetectionTimeout: 4,
       });
       return { status: 'sent', twilio_sid: result.sid };
     }
