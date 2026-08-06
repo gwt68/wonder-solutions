@@ -154,7 +154,7 @@ router.post('/', async (req, res) => {
 
 router.get('/', async (req, res) => {
   const { contact_id } = req.query;
-  const scope = req.isAdmin ? null : req.userId;
+  const scope = req.userId;
   try {
     const baseQuery = `
       SELECT s.*, COALESCE(s.method, c.preferred_method) AS effective_method,
@@ -186,7 +186,7 @@ router.get('/', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
-  const scope = req.isAdmin ? null : req.userId;
+  const scope = req.userId;
   try {
     await pool.query('DELETE FROM sends WHERE id = $1 AND ($2::int IS NULL OR user_id = $2)', [req.params.id, scope]);
     res.status(204).end();

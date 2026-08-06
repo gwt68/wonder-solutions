@@ -6,7 +6,7 @@ const { requireAuth } = require('./auth');
 router.use(requireAuth);
 
 function scopeParam(req) {
-  return req.isAdmin ? null : req.userId;
+  return req.userId;
 }
 
 router.get('/', async (req, res) => {

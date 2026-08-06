@@ -7,7 +7,7 @@ const { requireAuth } = require('./auth');
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
 function scopeParam(req) {
-  return req.isAdmin ? null : req.userId;
+  return req.userId;
 }
 
 router.get('/', requireAuth, async (req, res) => {
