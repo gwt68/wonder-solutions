@@ -65,14 +65,50 @@ function gatherDigits(twiml, action, prompt, opts = {}) {
   return twiml;
 }
 
+// Gathers digits with no spoken prompt, optionally playing an audio clip
+// that the caller can interrupt at any moment by pressing digits.
+function silentPinGather(twiml, playUrl) {
+  const gather = twiml.gather({
+    finishOnKey: '#',
+    action: `${BASE_URL}/voice/handle`,
+    method: 'POST',
+    timeout: 30,
+  });
+  if (playUrl) gather.play(playUrl);
+  twiml.redirect(`${BASE_URL}/voice/repeat`);
+  return twiml;
+}
+
 function say(twiml, text) {
   twiml.say(text, SAY_OPTS);
   return twiml;
 }
 
+// Looks up the caller's own contact record and returns the audio URL for
+// their most recent phone-based send, if any. Returns null if there's
+// nothing on file for this caller.
+async function getLastMessageAudioForCaller(userId, callerNumber) {
+  const { rows: contactRows } = await pool.query(
+    'SELECT id FROM contacts WHERE phone_number = $1 AND user_id = $2', [callerNumber, userId]
+  );
+  if (!contactRows.length) return null;
+
+  const { rows } = await pool.query(
+    `SELECT m.id, m.audio_url, (m.audio_data IS NOT NULL) AS has_uploaded_audio
+     FROM sends s JOIN messages m ON m.id = s.message_id
+     WHERE s.contact_id = $1 AND s.method IN ('call', 'voice_note')
+     ORDER BY s.sent_at DESC LIMIT 1`,
+    [contactRows[0].id]
+  );
+
+  if (!rows.length || (!rows[0].audio_url && !rows[0].has_uploaded_audio)) return null;
+  return { messageId: rows[0].id, url: `${BASE_URL}/api/messages/${rows[0].id}/audio` };
+}
+
 router.post('/incoming', async (req, res) => {
   const callSid = req.body.CallSid;
   const calledNumber = req.body.To;
+  const callerNumber = req.body.From;
   const user = await getUserByCalledNumber(calledNumber);
 
   const twiml = livelyVoice(new VoiceResponse());
@@ -84,12 +120,29 @@ router.post('/incoming', async (req, res) => {
   }
 
   await clearSession(callSid);
+
+  const { rows: trustedRows } = await pool.query(
+    'SELECT 1 FROM trusted_phones WHERE phone_number = $1 AND user_id = $2', [callerNumber, user.id]
+  );
+  const isTrusted = trustedRows.length > 0;
+
+  if (isTrusted) {
+    await pool.query(
+      `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, 'main_menu', 0, '{}', $2)`,
+      [callSid, user.id]
+    );
+    mainMenu(twiml);
+    return res.type('text/xml').send(twiml.toString());
+  }
+
   await pool.query(
-    `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, 'entry_menu', 0, '{}', $2)`,
+    `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, 'pin_gate', 0, '{}', $2)`,
     [callSid, user.id]
   );
 
-  entryMenu(twiml);
+  const lastAudio = await getLastMessageAudioForCaller(user.id, callerNumber);
+  silentPinGather(twiml, lastAudio ? lastAudio.url : null);
+
   res.type('text/xml').send(twiml.toString());
 });
 
@@ -108,36 +161,26 @@ router.post('/handle', async (req, res) => {
   const userId = session.user_id;
 
   switch (session.step) {
-    case 'entry_menu': {
-      if (digits === '1') {
-        await updateSession(callSid, 'conference_code_entry');
-        conferenceCodeEntry(twiml);
-      } else if (digits === '2') {
-        await handleReplayLastMessage(twiml, userId, req.body.From);
-      } else if (digits === '9') {
-        await updateSession(callSid, 'pin_entry');
-        gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'Please enter your PIN followed by the pound sign.');
-      } else {
-        entryMenu(twiml, true);
+    case 'pin_gate': {
+      if (!digits) {
+        silentPinGather(twiml, null);
+        break;
       }
-      break;
-    }
-
-    case 'conference_code_entry': {
-      if (digits && digits.length >= 4) {
-        const { rows } = await pool.query(
-          `SELECT * FROM conferences WHERE access_code = $1 AND status != 'ended' AND user_id = $2`,
-          [digits, userId]
-        );
-        if (rows.length) {
-          joinConference(twiml, rows[0].id);
-        } else {
-          say(twiml, "That code wasn't recognized.");
-          conferenceCodeEntry(twiml, true);
-        }
-      } else {
-        conferenceCodeEntry(twiml, true);
+      const correctPin = await getPin(userId);
+      if (digits === correctPin) {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+        break;
       }
+      const { rows: confRows } = await pool.query(
+        `SELECT id FROM conferences WHERE access_code = $1 AND status != 'ended' AND user_id = $2`,
+        [digits, userId]
+      );
+      if (confRows.length) {
+        joinConference(twiml, confRows[0].id);
+        break;
+      }
+      silentPinGather(twiml, null);
       break;
     }
 
@@ -147,25 +190,6 @@ router.post('/handle', async (req, res) => {
       } else {
         await updateSession(callSid, 'main_menu');
         mainMenu(twiml);
-      }
-      break;
-    }
-
-    case 'pin_entry': {
-      const correctPin = await getPin(userId);
-      if (digits === correctPin) {
-        await updateSession(callSid, 'main_menu');
-        mainMenu(twiml);
-      } else {
-        const attempts = session.attempts + 1;
-        if (attempts >= 3) {
-          say(twiml, 'Too many incorrect attempts. Goodbye.');
-          twiml.hangup();
-          await clearSession(callSid);
-        } else {
-          await updateSession(callSid, 'pin_entry', {}, attempts);
-          gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'Incorrect PIN. Please try again, followed by the pound sign.');
-        }
       }
       break;
     }
@@ -813,20 +837,6 @@ function assignGroupPhoneEntry(twiml, retry = false) {
   gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}Enter the contact's phone number followed by the pound sign.`, { finishOnKey: '#' });
 }
 
-// ---------- entry menu (public, unauthenticated callers) ----------
-
-function entryMenu(twiml, retry = false) {
-  const prefix = retry ? "Sorry, I didn't get that. " : '';
-  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `${prefix}Welcome. Press 1 to join a conference call. Press 2 to hear a message that was recently sent to you. ` +
-    `Press 9 if you're an administrator.`, { numDigits: 1 });
-}
-
-function conferenceCodeEntry(twiml, retry = false) {
-  const prefix = retry ? "Sorry, I didn't get that. " : '';
-  gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}Enter the conference code followed by the pound sign.`, { finishOnKey: '#' });
-}
-
 function conferenceRoomName(conferenceId) {
   return `wonder-conf-${conferenceId}`;
 }
@@ -869,41 +879,9 @@ async function startConferenceCreate(callSid, twiml, userId) {
 
   const spaced = code.split('').join(' ');
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `Your conference code is ${spaced}. Share this with participants — they can call this number and press 1, ` +
-    `then enter the code. Press 1 to join the conference now, or press 2 to return to the main menu.`,
+    `Your conference code is ${spaced}. Share this with participants — they can call this number and enter the code. ` +
+    `Press 1 to join the conference now, or press 2 to return to the main menu.`,
     { numDigits: 1 });
-}
-
-// Looks up the caller's own contact record (matched by their caller ID against
-// this account's contacts) and plays back the audio from their most recent
-// phone-based send, if any.
-async function handleReplayLastMessage(twiml, userId, callerNumber) {
-  const { rows: contactRows } = await pool.query(
-    'SELECT id FROM contacts WHERE phone_number = $1 AND user_id = $2', [callerNumber, userId]
-  );
-  if (!contactRows.length) {
-    say(twiml, "We couldn't find a recent message for this number. Goodbye.");
-    twiml.hangup();
-    return;
-  }
-
-  const { rows } = await pool.query(
-    `SELECT m.id, m.audio_url, (m.audio_data IS NOT NULL) AS has_uploaded_audio
-     FROM sends s JOIN messages m ON m.id = s.message_id
-     WHERE s.contact_id = $1 AND s.method IN ('call', 'voice_note')
-     ORDER BY s.sent_at DESC LIMIT 1`,
-    [contactRows[0].id]
-  );
-
-  if (!rows.length || (!rows[0].audio_url && !rows[0].has_uploaded_audio)) {
-    say(twiml, "We couldn't find a recent message for this number. Goodbye.");
-    twiml.hangup();
-    return;
-  }
-
-  say(twiml, "Here's the message you were sent.");
-  twiml.play(`${BASE_URL}/api/messages/${rows[0].id}/audio`);
-  twiml.hangup();
 }
 
 // ---------- conference webhooks (Twilio -> us) ----------
@@ -940,11 +918,6 @@ router.post('/conference-recording', async (req, res) => {
 
 // ---------- #send SMS command flow ----------
 
-function methodPrompt(retry = false) {
-  const prefix = retry ? "Sorry, reply with 1, 2, 3, or 4.\n" : '';
-  return `${prefix}How would you like to send?\n1. Each contact's assigned method\n2. Call\n3. Text\n4. Voice note`;
-}
-
 async function clearSmsSendSession(userId, fromPhone) {
   await pool.query('DELETE FROM sms_send_sessions WHERE user_id = $1 AND from_phone_number = $2', [userId, fromPhone]);
 }
@@ -957,6 +930,11 @@ async function updateSmsSendSession(userId, fromPhone, step, dataPatch) {
     [step, JSON.stringify(merged), userId, fromPhone]
   );
   return merged;
+}
+
+function methodPrompt(retry = false) {
+  const prefix = retry ? "Sorry, reply with 1, 2, 3, or 4.\n" : '';
+  return `${prefix}How would you like to send?\n1. Each contact's assigned method\n2. Call\n3. Text\n4. Voice note`;
 }
 
 async function handleSmsSendStep(session, body, userId, fromPhone) {
@@ -1087,7 +1065,6 @@ router.post('/sms-incoming', async (req, res) => {
       );
       const isTrusted = trustedRows.length > 0;
 
-      // Continue an in-progress #send flow, if one exists for this number
       const { rows: sessionRows } = await pool.query(
         'SELECT * FROM sms_send_sessions WHERE user_id = $1 AND from_phone_number = $2', [user.id, from]
       );
@@ -1097,7 +1074,6 @@ router.post('/sms-incoming', async (req, res) => {
         return res.type('text/xml').send(twiml.toString());
       }
 
-      // Starts a new #send flow (case-insensitive, only when it's the first word)
       if (isTrusted && /^#send\b/i.test(body)) {
         const cleanBody = body.replace(/^#send\b/i, '').trim();
         const { rows: msgRows } = await pool.query(
