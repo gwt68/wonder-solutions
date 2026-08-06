@@ -89,7 +89,8 @@ function say(twiml, text) {
 // nothing on file for this caller.
 async function getLastMessageAudioForCaller(userId, callerNumber) {
   const { rows: contactRows } = await pool.query(
-    'SELECT id FROM contacts WHERE phone_number = $1 AND user_id = $2', [callerNumber, userId]
+    `SELECT id FROM contacts WHERE user_id = $2 AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
+    [callerNumber, userId]
   );
   if (!contactRows.length) return null;
 
