@@ -45,6 +45,16 @@ router.post('/', async (req, res) => {
       voiceUrl: `${process.env.BASE_URL}/voice/incoming`,
     });
 
+    if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
+      try {
+        await client.messaging.v1
+          .services(process.env.TWILIO_MESSAGING_SERVICE_SID)
+          .phoneNumbers.create({ phoneNumberSid: purchased.sid });
+      } catch (msgErr) {
+        console.error('Could not add new number to Messaging Service (needs manual A2P registration):', msgErr.message);
+      }
+    }
+
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
       `INSERT INTO users (username, password_hash, name, phone, email, twilio_phone_number, twilio_phone_sid)
