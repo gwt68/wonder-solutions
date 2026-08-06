@@ -1097,9 +1097,9 @@ router.post('/sms-incoming', async (req, res) => {
         return res.type('text/xml').send(twiml.toString());
       }
 
-      // Starts a new #send flow (case-insensitive, anywhere in the text)
-      if (isTrusted && /#send\b/i.test(body)) {
-        const cleanBody = body.replace(/#send\b/i, '').trim();
+      // Starts a new #send flow (case-insensitive, only when it's the first word)
+      if (isTrusted && /^#send\b/i.test(body)) {
+        const cleanBody = body.replace(/^#send\b/i, '').trim();
         const { rows: msgRows } = await pool.query(
           `INSERT INTO messages (title, type, text_content, user_id) VALUES ($1, 'sms', $2, $3) RETURNING id`,
           [`Texted in`, cleanBody || '(no text)', user.id]
