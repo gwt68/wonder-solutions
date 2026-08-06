@@ -940,6 +940,11 @@ router.post('/conference-recording', async (req, res) => {
 
 // ---------- #send SMS command flow ----------
 
+function methodPrompt(retry = false) {
+  const prefix = retry ? "Sorry, reply with 1, 2, 3, or 4.\n" : '';
+  return `${prefix}How would you like to send?\n1. Each contact's assigned method\n2. Call\n3. Text\n4. Voice note`;
+}
+
 async function clearSmsSendSession(userId, fromPhone) {
   await pool.query('DELETE FROM sms_send_sessions WHERE user_id = $1 AND from_phone_number = $2', [userId, fromPhone]);
 }
@@ -960,8 +965,8 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
   switch (session.step) {
     case 'target_type': {
       if (digits === '1') {
-        await updateSmsSendSession(userId, fromPhone, 'schedule', { target: 'all' });
-        return 'Send now, or schedule for later?\n1. Send now\n2. Schedule';
+        await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'all' });
+        return methodPrompt();
       }
       if (digits === '2') {
         await updateSmsSendSession(userId, fromPhone, 'individual_number', {});
@@ -987,15 +992,23 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
       if (!contactRows.length) {
         return "No contact found with that number. Try again, or reply with the full number including area code.";
       }
-      await updateSmsSendSession(userId, fromPhone, 'schedule', { target: 'contact', contact_id: contactRows[0].id });
-      return 'Send now, or schedule for later?\n1. Send now\n2. Schedule';
+      await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'contact', contact_id: contactRows[0].id });
+      return methodPrompt();
     }
 
     case 'group_pick': {
       const idx = parseInt(digits, 10) - 1;
       const group = (session.data.group_page || [])[idx];
       if (!group) return 'Sorry, reply with the number of the group.';
-      await updateSmsSendSession(userId, fromPhone, 'schedule', { target: 'group', group_id: group.id });
+      await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'group', group_id: group.id });
+      return methodPrompt();
+    }
+
+    case 'method_select': {
+      const methodMap = { '1': 'assigned', '2': 'call', '3': 'sms', '4': 'voice_note' };
+      const method = methodMap[digits];
+      if (!method) return methodPrompt(true);
+      await updateSmsSendSession(userId, fromPhone, 'schedule', { method });
       return 'Send now, or schedule for later?\n1. Send now\n2. Schedule';
     }
 
@@ -1026,7 +1039,7 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
 }
 
 async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
-  const { message_id, target, contact_id, group_id } = session.data;
+  const { message_id, target, contact_id, group_id, method } = session.data;
   await clearSmsSendSession(userId, fromPhone);
 
   let contactIds = [];
@@ -1042,7 +1055,8 @@ async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
 
   if (!contactIds.length) return 'No recipients found for that selection.';
 
-  const recipients = contactIds.map((id) => ({ contact_id: id }));
+  const useSpecificMethod = method && method !== 'assigned';
+  const recipients = contactIds.map((id) => useSpecificMethod ? { contact_id: id, methods: [method] } : { contact_id: id });
   try {
     const result = await createSendBatch({
       message_id, recipients, userId,
