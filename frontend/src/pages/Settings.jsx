@@ -146,13 +146,15 @@ export default function Settings() {
   }
 
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div className="page-header" style={{ flexShrink: 0 }}>
         <div>
           <h1>{t('settings_title')}</h1>
           <p>{t('settings_subtitle')}</p>
         </div>
       </div>
+
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
 
       {twilioNumber && (
         <div className="card" style={{ padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -294,6 +296,8 @@ export default function Settings() {
           </div>
           <button type="submit" className="btn" disabled={addingTp}>{addingTp ? t('settings_adding') : t('settings_add_number')}</button>
         </form>
+      </div>
+
       </div>
     </div>
   );

@@ -13,6 +13,11 @@ export default function Groups() {
   const [detailGroup, setDetailGroup] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const visibleGroups = groups.filter((g) =>
+    !searchQuery.trim() || g.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
+  );
 
   async function load() {
     setLoading(true);
@@ -112,6 +117,16 @@ export default function Groups() {
       {error && <div className="banner error">{error}</div>}
 
       {groups.length > 0 && (
+        <div className="field" style={{ maxWidth: 320, marginBottom: 12 }}>
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search groups by name"
+          />
+        </div>
+      )}
+
+      {groups.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
             <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
@@ -134,9 +149,13 @@ export default function Groups() {
           <h3>{t('groups_empty_title')}</h3>
           <p>{t('groups_empty_body')}</p>
         </div>
+      ) : visibleGroups.length === 0 ? (
+        <div className="card empty-state">
+          <h3>No groups match your search</h3>
+        </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
-          {groups.map((g) => (
+          {visibleGroups.map((g) => (
             <div
               className="card"
               key={g.id}
