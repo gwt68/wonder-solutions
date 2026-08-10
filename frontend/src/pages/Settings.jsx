@@ -5,21 +5,29 @@ import { t } from '../i18n.js';
 
 function SettingCard({ icon, title, description, error, success, children }) {
   return (
-    <div className="card" style={{ padding: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+    <div className="card" style={{ padding: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
         <div style={{
-          width: 30, height: 30, borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--accent)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0,
+          width: 28, height: 28, borderRadius: 7, background: 'var(--accent-soft)', color: 'var(--accent)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0,
         }}>
           <i className={`ti ${icon}`} />
         </div>
-        <h3 style={{ fontSize: 14.5 }}>{title}</h3>
+        <h3 style={{ fontSize: 14 }}>{title}</h3>
       </div>
-      <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>{description}</p>
+      {description && <p style={{ color: 'var(--ink-soft)', fontSize: 12.5, margin: '0 0 12px' }}>{description}</p>}
       {error && <div className="banner error">{error}</div>}
       {success && <div className="banner ok">{success}</div>}
       {children}
     </div>
+  );
+}
+
+function SectionLabel({ children }) {
+  return (
+    <h3 style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 22, marginBottom: 10 }}>
+      {children}
+    </h3>
   );
 }
 
@@ -152,29 +160,18 @@ export default function Settings() {
           <h1>{t('settings_title')}</h1>
           <p>{t('settings_subtitle')}</p>
         </div>
+        {twilioNumber && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-soft)' }}>{t('settings_sending_number')}</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 500 }}>{twilioNumber}</div>
+          </div>
+        )}
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
 
-      {twilioNumber && (
-        <div className="card" style={{ padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 8, background: 'var(--signal-soft)', color: '#8a6015',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0,
-          }}>
-            <i className="ti ti-phone-outgoing" />
-          </div>
-          <div>
-            <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>{t('settings_sending_number')}</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 500 }}>{twilioNumber}</div>
-          </div>
-        </div>
-      )}
-
-      <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginBottom: 12 }}>
-        {t('settings_phone_line')}
-      </h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 28 }}>
+      <SectionLabel>{t('settings_phone_line')}</SectionLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
         <SettingCard
           icon="ti-lock"
           title={t('settings_call_in_pin')}
@@ -183,7 +180,7 @@ export default function Settings() {
           success={pinSuccess}
         >
           {!pinLoading && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 18, marginBottom: 12 }}>{t('settings_current')} {currentPin}</p>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginBottom: 10 }}>{t('settings_current')} {currentPin}</p>
           )}
           <form onSubmit={handleSavePin}>
             <div className="field">
@@ -193,12 +190,18 @@ export default function Settings() {
             <button type="submit" className="btn" disabled={pinSaving}>{pinSaving ? t('btn_saving') : t('settings_update_pin')}</button>
           </form>
         </SettingCard>
+
+        <SettingCard icon="ti-users-group" title="Group message prefix" description="When sending to a whole group, start the message with the group's name?">
+          <GroupPrefixInline />
+        </SettingCard>
+
+        <SettingCard icon="ti-clock" title="Your time zone" description="Used when scheduling messages for later.">
+          <TimezoneInline />
+        </SettingCard>
       </div>
 
-      <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginBottom: 12 }}>
-        {t('settings_web_portal_access')}
-      </h3>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14 }}>
+      <SectionLabel>{t('settings_web_portal_access')}</SectionLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
         <SettingCard
           icon="ti-user"
           title={t('settings_username_title')}
@@ -207,7 +210,7 @@ export default function Settings() {
           success={userSuccess}
         >
           {!userLoading && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 18, marginBottom: 12 }}>{t('settings_current')} {currentUsername}</p>
+            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginBottom: 10 }}>{t('settings_current')} {currentUsername}</p>
           )}
           <form onSubmit={handleSaveUsername}>
             <div className="field">
@@ -251,28 +254,16 @@ export default function Settings() {
         </SettingCard>
       </div>
 
-<h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
-        Group sends
-      </h3>
-      <GroupPrefixCard />
-
-      <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
-        Time zone
-      </h3>
-      <TimezoneCard />      
-
-	<h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
-        {t('settings_text_to_save')}
-      </h3>
-      <div className="card" style={{ padding: 20, maxWidth: 420 }}>
-        <p style={{ color: 'var(--ink-soft)', fontSize: 13, margin: '0 0 14px' }}>
+      <SectionLabel>{t('settings_text_to_save')}</SectionLabel>
+      <div className="card" style={{ padding: 18, maxWidth: 420 }}>
+        <p style={{ color: 'var(--ink-soft)', fontSize: 12.5, margin: '0 0 12px' }}>
           {t('settings_text_to_save_desc')}
         </p>
         {tpError && <div className="banner error">{tpError}</div>}
         {tpSuccess && <div className="banner ok">{tpSuccess}</div>}
 
         {!tpLoading && trustedPhones.length > 0 && (
-          <div className="list" style={{ marginBottom: 16 }}>
+          <div className="list" style={{ marginBottom: 14 }}>
             {trustedPhones.map((tp) => (
               <div className="row" key={tp.id}>
                 <div className="row-main">
@@ -303,7 +294,7 @@ export default function Settings() {
   );
 }
 
-function GroupPrefixCard() {
+function GroupPrefixInline() {
   const [mode, setMode] = useState('never');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -329,33 +320,28 @@ function GroupPrefixCard() {
     }
   }
 
+  if (loading) return null;
   return (
-    <SettingCard
-      icon="ti-users-group"
-      title="Group message prefix"
-      description="When sending to a whole group, should the message start with the group's name?"
-      error={error}
-    >
-      {!loading && (
-        <div className="chip-select">
-          {[
-            { value: 'always', label: 'Always include' },
-            { value: 'never', label: 'Never include' },
-            { value: 'ask', label: 'Ask me each time' },
-          ].map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              className={`chip-toggle ${mode === opt.value ? 'active' : ''}`}
-              onClick={() => handleChange(opt.value)}
-              disabled={saving}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-    </SettingCard>
+    <>
+      {error && <div className="banner error">{error}</div>}
+      <div className="chip-select">
+        {[
+          { value: 'always', label: 'Always' },
+          { value: 'never', label: 'Never' },
+          { value: 'ask', label: 'Ask each time' },
+        ].map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            className={`chip-toggle ${mode === opt.value ? 'active' : ''}`}
+            onClick={() => handleChange(opt.value)}
+            disabled={saving}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -368,7 +354,7 @@ const COMMON_TIMEZONES = [
   { value: 'Pacific/Honolulu', label: 'Hawaii' },
 ];
 
-function TimezoneCard() {
+function TimezoneInline() {
   const [timezone, setTimezone] = useState('America/New_York');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -390,7 +376,7 @@ function TimezoneCard() {
     try {
       await api.settings.setTimezone(newTz);
       setTimezone(newTz);
-      setSuccess('Time zone updated.');
+      setSuccess('Updated.');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -398,23 +384,18 @@ function TimezoneCard() {
     }
   }
 
+  if (loading) return null;
   return (
-    <SettingCard
-      icon="ti-clock"
-      title="Your time zone"
-      description="Used when you schedule a message for later — by phone (#send) or in the app."
-      error={error}
-      success={success}
-    >
-      {!loading && (
-        <div className="field">
-          <select value={timezone} onChange={handleChange} disabled={saving}>
-            {COMMON_TIMEZONES.map((tz) => (
-              <option key={tz.value} value={tz.value}>{tz.label}</option>
-            ))}
-          </select>
-        </div>
-      )}
-    </SettingCard>
+    <>
+      {error && <div className="banner error">{error}</div>}
+      {success && <div className="banner ok">{success}</div>}
+      <div className="field">
+        <select value={timezone} onChange={handleChange} disabled={saving}>
+          {COMMON_TIMEZONES.map((tz) => (
+            <option key={tz.value} value={tz.value}>{tz.label}</option>
+          ))}
+        </select>
+      </div>
+    </>
   );
 }
