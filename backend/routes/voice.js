@@ -1221,6 +1221,7 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
 async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
   const { message_id, target, contact_id, group_id, group_name, include_group_prefix, method } = session.data;
   await clearSmsSendSession(userId, fromPhone);
+  const zone = await getUserTimezone(userId);
 
   let contactIds = [];
   if (target === 'contact') {
@@ -1248,7 +1249,8 @@ async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
       scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
     });
     if (scheduledAt) {
-      return `Scheduled for ${result.count} contact${result.count === 1 ? '' : 's'} at ${scheduledAt.toLocaleString()}.`;
+      const formatted = DateTime.fromJSDate(scheduledAt, { zone: 'utc' }).setZone(zone).toFormat('M/d/yyyy h:mm a');
+      return `Scheduled for ${result.count} contact${result.count === 1 ? '' : 's'} at ${formatted}.`;
     }
     return `Message sent to ${result.count} contact${result.count === 1 ? '' : 's'}.`;
   } catch (err) {
