@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const twilio = require('twilio');
+const { DateTime } = require('luxon');
 const pool = require('../db/pool');
 const { createSendBatch } = require('./sends');
 
@@ -476,6 +477,17 @@ router.post('/handle', async (req, res) => {
       break;
     }
 
+    case 'broadcast_prefix_ask': {
+      if (digits === '1' || digits === '2') {
+        await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: digits === '1' });
+        await broadcastConfirmPromptFinal(callSid, twiml, userId);
+      } else {
+        twiml.say(`Should this message start with "${session.data.broadcast_group_name}"? Press 1 for yes, press 2 for no.`, SAY_OPTS);
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`, '', { numDigits: 1 });
+      }
+      break;
+    }
+
     case 'broadcast_confirm': {
       if (digits === '1') await executeBroadcast(callSid, twiml, userId);
       else {
@@ -791,6 +803,40 @@ async function broadcastConfirmPrompt(callSid, twiml, userId) {
     const { rows } = await pool.query('SELECT COUNT(*) FROM contact_groups WHERE group_id = $1', [session.data.broadcast_group_id]);
     const count = parseInt(rows[0].count, 10);
     targetDesc = `the group ${session.data.broadcast_group_name}, ${count} contact${count === 1 ? '' : 's'}`;
+
+    const prefixMode = await getGroupPrefixMode(userId);
+    if (prefixMode === 'always') {
+      await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: true });
+    } else if (prefixMode === 'ask') {
+      twiml.say(`Should this message start with "${session.data.broadcast_group_name}"?`, SAY_OPTS);
+      gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'Press 1 for yes, press 2 for no.', { numDigits: 1 });
+      await updateSession(callSid, 'broadcast_prefix_ask');
+      return;
+    }
+  } else {
+    const { rows } = await pool.query('SELECT COUNT(*) FROM contacts WHERE user_id = $1', [userId]);
+    const count = parseInt(rows[0].count, 10);
+    targetDesc = `everyone, ${count} contact${count === 1 ? '' : 's'}`;
+  }
+
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `You are about to send ${session.data.broadcast_message_title || 'this message'} to ${targetDesc}. Press 1 to send now, press 2 to cancel.`,
+    { numDigits: 1 });
+}
+
+// Re-renders the "you're about to send X to Y" confirmation without the
+// prefix-mode branching, used after the prefix-ask step has already run.
+async function broadcastConfirmPromptFinal(callSid, twiml, userId) {
+  const session = await getSession(callSid);
+  const target = session.data.broadcast_target;
+  let targetDesc = '';
+
+  if (target === 'contact') {
+    targetDesc = session.data.broadcast_contact_name || 'that contact';
+  } else if (target === 'group') {
+    const { rows } = await pool.query('SELECT COUNT(*) FROM contact_groups WHERE group_id = $1', [session.data.broadcast_group_id]);
+    const count = parseInt(rows[0].count, 10);
+    targetDesc = `the group ${session.data.broadcast_group_name}, ${count} contact${count === 1 ? '' : 's'}`;
   } else {
     const { rows } = await pool.query('SELECT COUNT(*) FROM contacts WHERE user_id = $1', [userId]);
     const count = parseInt(rows[0].count, 10);
@@ -804,7 +850,7 @@ async function broadcastConfirmPrompt(callSid, twiml, userId) {
 
 async function executeBroadcast(callSid, twiml, userId) {
   const session = await getSession(callSid);
-  const { broadcast_message_id, broadcast_target, broadcast_contact_id, broadcast_group_id } = session.data;
+  const { broadcast_message_id, broadcast_target, broadcast_contact_id, broadcast_group_id, broadcast_group_name, broadcast_include_prefix } = session.data;
 
   let contactIds = [];
   if (broadcast_target === 'contact') {
@@ -820,9 +866,13 @@ async function executeBroadcast(callSid, twiml, userId) {
   if (!contactIds.length) {
     twiml.say('No recipients found.', SAY_OPTS);
   } else {
+    let effectiveMessageId = broadcast_message_id;
+    if (broadcast_target === 'group' && broadcast_include_prefix && broadcast_group_name) {
+      effectiveMessageId = await cloneMessageWithGroupPrefix(broadcast_message_id, broadcast_group_name, userId);
+    }
     const recipients = contactIds.map((id) => ({ contact_id: id }));
     try {
-      const result = await createSendBatch({ message_id: broadcast_message_id, recipients, userId });
+      const result = await createSendBatch({ message_id: effectiveMessageId, recipients, userId });
       twiml.say(`Sent to ${result.count} recipient${result.count === 1 ? '' : 's'}.`, SAY_OPTS);
     } catch (err) {
       console.error('IVR broadcast error:', err);
@@ -917,6 +967,51 @@ router.post('/conference-recording', async (req, res) => {
   res.status(200).end();
 });
 
+async function getUserTimezone(userId) {
+  const { rows } = await pool.query('SELECT timezone FROM users WHERE id = $1', [userId]);
+  return rows[0]?.timezone || 'America/New_York';
+}
+
+async function getGroupPrefixMode(userId) {
+  const { rows } = await pool.query('SELECT group_prefix_mode FROM users WHERE id = $1', [userId]);
+  return rows[0]?.group_prefix_mode || 'never';
+}
+
+// Parses "M/d h:mm AM/PM" (e.g. "8/10 3:00 PM") in the given IANA timezone,
+// assuming the current year, rolling to next year if that date already passed.
+function parseScheduleDateTime(input, zone) {
+  const match = /^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(input.trim());
+  if (!match) return null;
+  const [, month, day, hour12raw, minute, ampm] = match;
+  let hour = parseInt(hour12raw, 10) % 12;
+  if (/pm/i.test(ampm)) hour += 12;
+
+  const now = DateTime.now().setZone(zone);
+  let dt = DateTime.fromObject(
+    { year: now.year, month: parseInt(month, 10), day: parseInt(day, 10), hour, minute: parseInt(minute, 10) },
+    { zone }
+  );
+  if (!dt.isValid) return null;
+  if (dt < now) dt = dt.plus({ years: 1 });
+  return dt;
+}
+
+// Creates a new message that reuses another message's audio/image, but with
+// a group-name prefix added to its text — without altering the original.
+async function cloneMessageWithGroupPrefix(messageId, groupName, userId) {
+  const { rows } = await pool.query('SELECT title, text_content FROM messages WHERE id = $1', [messageId]);
+  if (!rows.length) return messageId;
+  const prefixed = `${groupName}: ${rows[0].text_content || ''}`.trim();
+  const { rows: created } = await pool.query(
+    `INSERT INTO messages (title, type, text_content, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, user_id)
+     SELECT title, type, $1, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, $2
+     FROM messages WHERE id = $3
+     RETURNING id`,
+    [prefixed, userId, messageId]
+  );
+  return created[0]?.id || messageId;
+}
+
 // ---------- #send SMS command flow ----------
 
 async function clearSmsSendSession(userId, fromPhone) {
@@ -973,6 +1068,7 @@ function scheduleDatetimePrompt(retry = false) {
 // the actual prior step so "back" from method_select lands in the right place.
 function stepBefore(currentStep, data) {
   if (currentStep === 'individual_number' || currentStep === 'group_pick') return 'target_type';
+  if (currentStep === 'group_prefix_confirm') return 'group_pick';
   if (currentStep === 'method_select') return data.prev_before_method || 'target_type';
   if (currentStep === 'schedule') return 'method_select';
   if (currentStep === 'schedule_datetime') return 'schedule';
@@ -987,6 +1083,7 @@ async function promptForStep(step, data, userId) {
       const { rows: groups } = await pool.query('SELECT id, name FROM groups WHERE user_id = $1 ORDER BY id', [userId]);
       return groupPickPrompt(groups);
     }
+    case 'group_prefix_confirm': return `Include "${data.group_name}:" at the start of the message?\n1. Yes\n2. No${navFooter(false)}`;
     case 'method_select': return methodPrompt();
     case 'schedule': return schedulePrompt();
     case 'schedule_datetime': return scheduleDatetimePrompt();
@@ -1054,8 +1151,36 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
       const idx = parseInt(digits, 10) - 1;
       const group = (session.data.group_page || [])[idx];
       if (!group) return groupPickPrompt(session.data.group_page || [], true);
-      await updateSmsSendSession(userId, fromPhone, 'method_select', { target: 'group', group_id: group.id, prev_before_method: 'group_pick' });
-      return methodPrompt();
+
+      const prefixMode = await getGroupPrefixMode(userId);
+      if (prefixMode === 'always') {
+        await updateSmsSendSession(userId, fromPhone, 'method_select', {
+          target: 'group', group_id: group.id, group_name: group.name,
+          include_group_prefix: true, prev_before_method: 'group_pick',
+        });
+        return methodPrompt();
+      }
+      if (prefixMode === 'never') {
+        await updateSmsSendSession(userId, fromPhone, 'method_select', {
+          target: 'group', group_id: group.id, group_name: group.name,
+          include_group_prefix: false, prev_before_method: 'group_pick',
+        });
+        return methodPrompt();
+      }
+      await updateSmsSendSession(userId, fromPhone, 'group_prefix_confirm', {
+        target: 'group', group_id: group.id, group_name: group.name,
+      });
+      return `Include "${group.name}:" at the start of the message?\n1. Yes\n2. No${navFooter(false)}`;
+    }
+
+    case 'group_prefix_confirm': {
+      if (digits === '1' || digits === '2') {
+        await updateSmsSendSession(userId, fromPhone, 'method_select', {
+          include_group_prefix: digits === '1', prev_before_method: 'group_pick',
+        });
+        return methodPrompt();
+      }
+      return `Sorry, reply with 1 or 2.\nInclude "${session.data.group_name}:" at the start of the message?\n1. Yes\n2. No${navFooter(false)}`;
     }
 
     case 'method_select': {
@@ -1078,11 +1203,12 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
     }
 
     case 'schedule_datetime': {
-      const when = new Date(digits);
-      if (isNaN(when.getTime()) || when <= new Date()) {
+      const zone = await getUserTimezone(userId);
+      const dt = parseScheduleDateTime(digits, zone);
+      if (!dt) {
         return scheduleDatetimePrompt(true);
       }
-      return await executeSmsSend(session, userId, fromPhone, when);
+      return await executeSmsSend(session, userId, fromPhone, dt.toJSDate());
     }
 
     default: {
@@ -1093,7 +1219,7 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
 }
 
 async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
-  const { message_id, target, contact_id, group_id, method } = session.data;
+  const { message_id, target, contact_id, group_id, group_name, include_group_prefix, method } = session.data;
   await clearSmsSendSession(userId, fromPhone);
 
   let contactIds = [];
@@ -1109,11 +1235,16 @@ async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
 
   if (!contactIds.length) return 'No recipients found for that selection.';
 
+  let effectiveMessageId = message_id;
+  if (target === 'group' && include_group_prefix && group_name) {
+    effectiveMessageId = await cloneMessageWithGroupPrefix(message_id, group_name, userId);
+  }
+
   const useSpecificMethod = method && method !== 'assigned';
   const recipients = contactIds.map((id) => useSpecificMethod ? { contact_id: id, methods: [method] } : { contact_id: id });
   try {
     const result = await createSendBatch({
-      message_id, recipients, userId,
+      message_id: effectiveMessageId, recipients, userId,
       scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
     });
     if (scheduledAt) {

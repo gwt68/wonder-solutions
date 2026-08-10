@@ -97,6 +97,56 @@ router.put('/recovery-key', async (req, res) => {
   }
 });
 
+// GET my group-message-prefix preference
+router.get('/group-prefix-mode', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT group_prefix_mode FROM users WHERE id = $1', [req.userId]);
+    res.json({ mode: rows[0]?.group_prefix_mode || 'never' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch group prefix setting' });
+  }
+});
+
+// PUT update my group-message-prefix preference
+router.put('/group-prefix-mode', async (req, res) => {
+  const { mode } = req.body;
+  if (!['always', 'never', 'ask'].includes(mode)) {
+    return res.status(400).json({ error: 'mode must be always, never, or ask' });
+  }
+  try {
+    await pool.query('UPDATE users SET group_prefix_mode = $1 WHERE id = $2', [mode, req.userId]);
+    res.json({ mode });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update group prefix setting' });
+  }
+});
+
+// GET my timezone preference
+router.get('/timezone', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT timezone FROM users WHERE id = $1', [req.userId]);
+    res.json({ timezone: rows[0]?.timezone || 'America/New_York' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch timezone' });
+  }
+});
+
+// PUT update my timezone preference
+router.put('/timezone', async (req, res) => {
+  const { timezone } = req.body;
+  if (!timezone) return res.status(400).json({ error: 'timezone is required' });
+  try {
+    await pool.query('UPDATE users SET timezone = $1 WHERE id = $2', [timezone, req.userId]);
+    res.json({ timezone });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update timezone' });
+  }
+});
+
 // GET my own Twilio sending number (read-only, for display)
 router.get('/twilio-number', async (req, res) => {
   try {
