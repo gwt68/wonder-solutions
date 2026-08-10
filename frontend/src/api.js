@@ -173,6 +173,10 @@ export const api = {
   settings: {
     getPin: () => request('/settings/pin'),
     setPin: (pin) => request('/settings/pin', { method: 'PUT', body: JSON.stringify({ pin }) }),
+    getGroupPrefixMode: () => request('/settings/group-prefix-mode'),
+    setGroupPrefixMode: (mode) => request('/settings/group-prefix-mode', { method: 'PUT', body: JSON.stringify({ mode }) }),
+    getTimezone: () => request('/settings/timezone'),
+    setTimezone: (timezone) => request('/settings/timezone', { method: 'PUT', body: JSON.stringify({ timezone }) }),
     setPortalPassword: (password) => request('/settings/portal-password', { method: 'PUT', body: JSON.stringify({ password }) }),
     getPortalUsername: () => request('/settings/portal-username'),
     setPortalUsername: (username) => request('/settings/portal-username', { method: 'PUT', body: JSON.stringify({ username }) }),

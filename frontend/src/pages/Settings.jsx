@@ -249,7 +249,17 @@ export default function Settings() {
         </SettingCard>
       </div>
 
+<h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
+        Group sends
+      </h3>
+      <GroupPrefixCard />
+
       <h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
+        Time zone
+      </h3>
+      <TimezoneCard />      
+
+	<h3 style={{ fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.04em', color: 'var(--ink-faint)', marginTop: 28, marginBottom: 12 }}>
         {t('settings_text_to_save')}
       </h3>
       <div className="card" style={{ padding: 20, maxWidth: 420 }}>
@@ -286,5 +296,121 @@ export default function Settings() {
         </form>
       </div>
     </div>
+  );
+}
+
+function GroupPrefixCard() {
+  const [mode, setMode] = useState('never');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.settings.getGroupPrefixMode()
+      .then((r) => setMode(r.mode))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleChange(newMode) {
+    setSaving(true);
+    setError('');
+    try {
+      await api.settings.setGroupPrefixMode(newMode);
+      setMode(newMode);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <SettingCard
+      icon="ti-users-group"
+      title="Group message prefix"
+      description="When sending to a whole group, should the message start with the group's name?"
+      error={error}
+    >
+      {!loading && (
+        <div className="chip-select">
+          {[
+            { value: 'always', label: 'Always include' },
+            { value: 'never', label: 'Never include' },
+            { value: 'ask', label: 'Ask me each time' },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={`chip-toggle ${mode === opt.value ? 'active' : ''}`}
+              onClick={() => handleChange(opt.value)}
+              disabled={saving}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </SettingCard>
+  );
+}
+
+const COMMON_TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern' },
+  { value: 'America/Chicago', label: 'Central' },
+  { value: 'America/Denver', label: 'Mountain' },
+  { value: 'America/Los_Angeles', label: 'Pacific' },
+  { value: 'America/Anchorage', label: 'Alaska' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii' },
+];
+
+function TimezoneCard() {
+  const [timezone, setTimezone] = useState('America/New_York');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    api.settings.getTimezone()
+      .then((r) => setTimezone(r.timezone))
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleChange(e) {
+    const newTz = e.target.value;
+    setSaving(true);
+    setError('');
+    setSuccess('');
+    try {
+      await api.settings.setTimezone(newTz);
+      setTimezone(newTz);
+      setSuccess('Time zone updated.');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <SettingCard
+      icon="ti-clock"
+      title="Your time zone"
+      description="Used when you schedule a message for later — by phone (#send) or in the app."
+      error={error}
+      success={success}
+    >
+      {!loading && (
+        <div className="field">
+          <select value={timezone} onChange={handleChange} disabled={saving}>
+            {COMMON_TIMEZONES.map((tz) => (
+              <option key={tz.value} value={tz.value}>{tz.label}</option>
+            ))}
+          </select>
+        </div>
+      )}
+    </SettingCard>
   );
 }

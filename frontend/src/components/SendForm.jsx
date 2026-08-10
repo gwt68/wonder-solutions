@@ -14,6 +14,9 @@ function getMethodOptions() {
 }
 
 export default function SendForm({ message, onSent, channel }) {
+  const [groupPrefixMode, setGroupPrefixMode] = useState('never');
+  const [activeGroupContext, setActiveGroupContext] = useState(null);
+  const [includePrefixChoice, setIncludePrefixChoice] = useState(false);
   const METHOD_LABELS = getMethodLabels();
   const METHOD_OPTIONS = getMethodOptions();
   const [contacts, setContacts] = useState([]);
@@ -33,8 +36,8 @@ export default function SendForm({ message, onSent, channel }) {
   const messageHasImage = !!message.has_image;
 
   useEffect(() => {
-    Promise.all([api.contacts.list(), api.groups.list()])
-      .then(([c, g]) => { setContacts(c); setGroups(g); })
+    Promise.all([api.contacts.list(), api.groups.list(), api.settings.getGroupPrefixMode()])
+      .then(([c, g, gp]) => { setContacts(c); setGroups(g); setGroupPrefixMode(gp.mode); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -60,6 +63,7 @@ export default function SendForm({ message, onSent, channel }) {
 
   function toggleContact(c) {
     if (channel && !contactMethods(c).includes(channel)) return; // can't select a contact who isn't enabled for this channel
+    setActiveGroupContext(null); // manual change breaks the "this is a clean group send" assumption
     setSelected((prev) => {
       const next = new Map(prev);
       if (next.has(c.id)) next.delete(c.id);
@@ -87,11 +91,13 @@ export default function SendForm({ message, onSent, channel }) {
   }
 
   function selectAll() {
+    setActiveGroupContext(null);
     const eligible = channel ? contacts.filter((c) => contactMethods(c).includes(channel)) : contacts;
     setSelected(new Map(eligible.map((c) => [c.id, new Set([channel || c.preferred_method])])));
   }
 
   function unselectAll() {
+    setActiveGroupContext(null);
     setSelected(new Map());
   }
 
@@ -101,11 +107,16 @@ export default function SendForm({ message, onSent, channel }) {
     try {
       const members = await api.groups.contacts(group.id);
       const eligible = channel ? members.filter((c) => contactMethods(c).includes(channel)) : members;
+      // Only treat this as a clean "group send" if the selection was empty
+      // before — mixing in an existing selection makes the prefix ambiguous.
+      const isCleanGroupSend = selected.size === 0;
       setSelected((prev) => {
         const next = new Map(prev);
         eligible.forEach((c) => { if (!next.has(c.id)) next.set(c.id, new Set([channel || c.preferred_method])); });
         return next;
       });
+      setActiveGroupContext(isCleanGroupSend ? group : null);
+      setIncludePrefixChoice(groupPrefixMode === 'always');
     } catch (err) {
       setError(err.message);
     } finally {
@@ -124,12 +135,22 @@ export default function SendForm({ message, onSent, channel }) {
     setSending(true);
     setError('');
     try {
+      let effectiveMessageId = message.id;
+      const shouldPrefix = activeGroupContext && message.text_content && (
+        groupPrefixMode === 'always' || (groupPrefixMode === 'ask' && includePrefixChoice)
+      );
+      if (shouldPrefix) {
+        const prefixed = `${activeGroupContext.name}: ${message.text_content}`;
+        const cloned = await api.messages.cloneWithCaption(message.id, prefixed, message.title);
+        effectiveMessageId = cloned.id;
+      }
+
       const recipients = [...selected.entries()].map(([contact_id, methods]) => ({
         contact_id,
         methods: [...methods],
       }));
       const res = await api.sends.create({
-        message_id: message.id,
+        message_id: effectiveMessageId,
         recipients,
         scheduled_at: scheduleEnabled ? new Date(scheduledAt).toISOString() : null,
       });
@@ -225,6 +246,13 @@ export default function SendForm({ message, onSent, channel }) {
               ? tf('sf_scheduled_for_date', { date: new Date(scheduledAt).toLocaleString() })
               : t('sf_sending_immediately')}
           </p>
+
+          {activeGroupContext && message.text_content && groupPrefixMode === 'ask' && (
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 10 }}>
+              <input type="checkbox" checked={includePrefixChoice} onChange={(e) => setIncludePrefixChoice(e.target.checked)} />
+              Start the message with "{activeGroupContext.name}:"
+            </label>
+          )}
         </div>
 
         <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
