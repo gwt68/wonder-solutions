@@ -425,7 +425,7 @@ const viewToggle = (
           {viewToggle}
           {isAdmin && (
             <div className="field" style={{ maxWidth: 180, marginBottom: 12 }}>
-              <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+              <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} style={{ background: 'var(--surface, #fff)' }}>
                 <option value="me">My own</option>
                 <option value="all">All users</option>
                 {users.map((u) => (
@@ -513,6 +513,7 @@ const viewToggle = (
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search by message or recipient"
+                  style={{ background: 'var(--surface, #fff)' }}
                 />
               </div>
             )}
@@ -542,7 +543,7 @@ const viewToggle = (
 
 		{isAdmin && (
               <div className="field" style={{ maxWidth: 180, marginBottom: 0 }}>
-              <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+              <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} style={{ background: 'var(--surface, #fff)' }}>
                 <option value="me">My own</option>
                 <option value="all">All users</option>
                 {users.map((u) => (
@@ -681,7 +682,7 @@ const viewToggle = (
 
                       {isOpen && (
                         <tr>
-                          <td colSpan={colCount} style={{ background: 'var(--bg)', padding: 0 }}>
+                          <td colSpan={colCount} style={{ background: 'var(--surface, #fff)', padding: 0, borderLeft: '3px solid var(--accent)' }}>
                             <div style={{ padding: '14px 18px', maxHeight: 420, overflowY: 'auto' }}>
                               {b.messageText && (
                                 <p style={{ fontSize: 13.5, background: 'var(--surface, #fff)', border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 12, whiteSpace: 'pre-wrap' }}>

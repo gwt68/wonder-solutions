@@ -70,6 +70,7 @@ export default function CalledIn({ userFilter = 'me', isAdmin = false }) {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search by caller or message"
+              style={{ background: 'var(--surface, #fff)' }}
             />
           </div>
           <DateRangeFilter
