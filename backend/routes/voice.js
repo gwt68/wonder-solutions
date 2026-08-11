@@ -85,6 +85,19 @@ function say(twiml, text) {
   return twiml;
 }
 
+async function getMatchingContactId(userId, callerNumber) {
+  const { rows } = await pool.query(
+    `SELECT id FROM contacts WHERE user_id = $2 AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
+    [callerNumber, userId]
+  );
+  return rows[0]?.id || null;
+}
+
+// Looks up the caller's own contact record and returns the audio URL for
+// their most recent phone-based send, if any. Returns null if there's
+// nothing on file for this caller.
+async function getLastMessageAudioForCaller(userId, callerNumber) {
+
 // Looks up the caller's own contact record and returns the audio URL for
 // their most recent phone-based send, if any. Returns null if there's
 // nothing on file for this caller.
@@ -128,7 +141,14 @@ router.post('/incoming', async (req, res) => {
   );
   const isTrusted = trustedRows.length > 0;
 
+  const matchedContactId = await getMatchingContactId(user.id, callerNumber);
+
   if (isTrusted) {
+    await pool.query(
+      `INSERT INTO call_ins (user_id, call_sid, from_phone_number, contact_id, is_trusted, reached)
+       VALUES ($1, $2, $3, $4, TRUE, 'admin_menu')`,
+      [user.id, callSid, callerNumber, matchedContactId]
+    );
     await pool.query(
       `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, 'main_menu', 0, '{}', $2)`,
       [callSid, user.id]
@@ -137,12 +157,19 @@ router.post('/incoming', async (req, res) => {
     return res.type('text/xml').send(twiml.toString());
   }
 
+  const lastAudio = await getLastMessageAudioForCaller(user.id, callerNumber);
+
+  await pool.query(
+    `INSERT INTO call_ins (user_id, call_sid, from_phone_number, contact_id, is_trusted, played_message_id)
+     VALUES ($1, $2, $3, $4, FALSE, $5)`,
+    [user.id, callSid, callerNumber, matchedContactId, lastAudio ? lastAudio.messageId : null]
+  );
+
   await pool.query(
     `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, 'pin_gate', 0, '{}', $2)`,
     [callSid, user.id]
   );
 
-  const lastAudio = await getLastMessageAudioForCaller(user.id, callerNumber);
   silentPinGather(twiml, lastAudio ? lastAudio.url : null);
 
   res.type('text/xml').send(twiml.toString());
@@ -170,6 +197,10 @@ router.post('/handle', async (req, res) => {
       }
       const correctPin = await getPin(userId);
       if (digits === correctPin) {
+        await pool.query(
+          `UPDATE call_ins SET interrupted_with = 'pin', reached = 'admin_menu' WHERE call_sid = $1`,
+          [callSid]
+        );
         await updateSession(callSid, 'main_menu');
         mainMenu(twiml);
         break;
@@ -179,6 +210,10 @@ router.post('/handle', async (req, res) => {
         [digits, userId]
       );
       if (confRows.length) {
+        await pool.query(
+          `UPDATE call_ins SET interrupted_with = 'conference_code', reached = 'conference' WHERE call_sid = $1`,
+          [callSid]
+        );
         joinConference(twiml, confRows[0].id);
         break;
       }
@@ -1323,6 +1358,32 @@ router.post('/sms-incoming', async (req, res) => {
   }
 
   res.type('text/xml').send(twiml.toString());
+});
+
+router.post('/incoming-status', async (req, res) => {
+  const { CallSid, CallStatus, CallDuration } = req.body;
+  try {
+    let cost = null;
+    if (CallStatus === 'completed') {
+      const { rows: callInRows } = await pool.query('SELECT user_id FROM call_ins WHERE call_sid = $1', [CallSid]);
+      if (callInRows.length) {
+        try {
+          const client = twilio((process.env.TWILIO_ACCOUNT_SID || '').trim(), (process.env.TWILIO_AUTH_TOKEN || '').trim());
+          const callResource = await client.calls(CallSid).fetch();
+          cost = callResource.price ? Math.abs(parseFloat(callResource.price)) : null;
+        } catch (fetchErr) {
+          console.error('Could not fetch call-in price:', fetchErr.message);
+        }
+      }
+    }
+    await pool.query(
+      `UPDATE call_ins SET status = $1, duration_seconds = $2, cost = COALESCE($3, cost), ended_at = NOW() WHERE call_sid = $4`,
+      [CallStatus, CallDuration ? parseInt(CallDuration, 10) : null, cost, CallSid]
+    );
+  } catch (err) {
+    console.error('incoming-status webhook error:', err);
+  }
+  res.status(200).end();
 });
 
 module.exports = router;

@@ -186,6 +186,10 @@ export const api = {
     getOwnerPhone: () => request('/settings/owner-phone'),
     setOwnerPhone: (phone) => request('/settings/owner-phone', { method: 'PUT', body: JSON.stringify({ phone }) }),
   },
+callIns: {
+    list: (userId) => request(userId ? `/call-ins?userId=${userId}` : '/call-ins'),
+  },
+
   trustedPhones: {
     list: () => request('/trusted-phones'),
     add: (phone_number, label) => request('/trusted-phones', { method: 'POST', body: JSON.stringify({ phone_number, label }) }),

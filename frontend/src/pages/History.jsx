@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { api, audioUrl, imageUrl } from '../api.js';
 import { groupSendsIntoBroadcasts } from '../broadcastUtils.js';
+import CalledIn from './CalledIn.jsx';
 import { t, tf } from '../i18n.js';
 
 function getDeliveryLabels() {
@@ -87,6 +88,7 @@ function costSummary(b) {
 }
 
 export default function History({ onNavigateToConversation, isAdmin = false }) {
+  const [view, setView] = useState('outgoing');
   const DELIVERY_LABELS = getDeliveryLabels();
   const ANSWERED_BY_LABELS = getAnsweredByLabels();
   const METHOD_LABELS = getMethodLabels();
@@ -356,6 +358,39 @@ function exportSingleBroadcast(b) {
 
   const colCount = shownCols.length + 1; // + chevron column
 
+const viewToggle = (
+    <div className="chip-select" style={{ marginBottom: 12 }}>
+      {[
+        { value: 'outgoing', label: 'Outgoing' },
+        { value: 'callins', label: 'Called in' },
+      ].map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          className={`chip-toggle ${view === opt.value ? 'active' : ''}`}
+          onClick={() => setView(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (view === 'callins') {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+        <div className="page-header" style={{ flexShrink: 0 }}>
+          <div>
+            <h1>{t('history_title')}</h1>
+            <p>Calls people made in to your number</p>
+          </div>
+        </div>
+        <div style={{ flexShrink: 0 }}>{viewToggle}</div>
+        <CalledIn isAdmin={isAdmin} userFilter={userFilter} />
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div className="page-header" style={{ flexShrink: 0 }}>
@@ -417,37 +452,42 @@ function exportSingleBroadcast(b) {
       </div>
 
       <div style={{ flexShrink: 0 }}>
+        {viewToggle}
         {error && <div className="banner error">{error}</div>}
 
-        {allBroadcasts.length > 0 && (
+        {(allBroadcasts.length > 0 || isAdmin) && (
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', flex: '1 1 auto' }}>
-            <div className="field" style={{ maxWidth: 280, marginBottom: 0 }}>
-              <input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by message or recipient"
-              />
-            </div>
+            {allBroadcasts.length > 0 && (
+              <div className="field" style={{ maxWidth: 280, marginBottom: 0 }}>
+                <input
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search by message or recipient"
+                />
+              </div>
+            )}
 
-            <div className="chip-select" style={{ marginBottom: 0 }}>
-              {[
-                { value: 'all', label: 'All' },
-                { value: 'active', label: 'Active' },
-                { value: 'scheduled', label: 'Scheduled' },
-                { value: 'completed', label: 'Completed' },
-                { value: 'canceled', label: 'Canceled' },
-              ].map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  className={`chip-toggle ${statusFilter === opt.value ? 'active' : ''}`}
-                  onClick={() => setStatusFilter(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+            {allBroadcasts.length > 0 && (
+              <div className="chip-select" style={{ marginBottom: 0 }}>
+                {[
+                  { value: 'all', label: 'All' },
+                  { value: 'active', label: 'Active' },
+                  { value: 'scheduled', label: 'Scheduled' },
+                  { value: 'completed', label: 'Completed' },
+                  { value: 'canceled', label: 'Canceled' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    className={`chip-toggle ${statusFilter === opt.value ? 'active' : ''}`}
+                    onClick={() => setStatusFilter(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {isAdmin && (
               <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} style={{ maxWidth: 180 }}>

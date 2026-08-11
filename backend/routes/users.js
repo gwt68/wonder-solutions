@@ -43,6 +43,8 @@ router.post('/', async (req, res) => {
       phoneNumber: available[0].phoneNumber,
       smsUrl: `${process.env.BASE_URL}/voice/sms-incoming`,
       voiceUrl: `${process.env.BASE_URL}/voice/incoming`,
+      statusCallback: `${process.env.BASE_URL}/voice/incoming-status`,
+      statusCallbackMethod: 'POST',
     });
 
     if (process.env.TWILIO_MESSAGING_SERVICE_SID) {

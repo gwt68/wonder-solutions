@@ -33,6 +33,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/trusted-phones', trustedPhonesRoutes);
 app.use('/api/signup', signupRoutes);
 app.use('/webhooks', webhooksRoutes);
+app.use('/api/call-ins', require('./routes/callins'));
 
 app.get('/', (req, res) => res.send('Wonder Solutions backend is running.'));
 
