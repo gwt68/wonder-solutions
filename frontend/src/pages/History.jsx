@@ -286,6 +286,34 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
     setExportOpen(false);
   }
 
+function exportSingleBroadcast(b) {
+    const d = broadcastDate(b);
+    const rows = b.recipients.map((r) => {
+      const row = {
+        Date: d ? d.toLocaleString() : '',
+        Message: b.messageTitle || t('label_untitled_message'),
+        Contact: r.contact_name || '',
+        Phone: r.phone_number,
+        Type: METHOD_LABELS[r.effective_method] || r.effective_method || '',
+        Status: r.status || '',
+        Delivery: r.delivery_status ? (DELIVERY_LABELS[r.delivery_status] || r.delivery_status) : '',
+        Duration: formatDuration(r.call_duration) || '',
+        'Answered by': r.answered_by ? (ANSWERED_BY_LABELS[r.answered_by] || r.answered_by) : '',
+        Reply: r.reply_text || '',
+        Error: r.error_message || '',
+      };
+      if (isAdmin) {
+        const n = r.cost === null || r.cost === undefined || r.cost === '' ? '' : Math.abs(parseFloat(r.cost));
+        row.Cost = Number.isNaN(n) ? '' : n;
+      }
+      return row;
+    });
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Recipients');
+    const safeTitle = (b.messageTitle || 'broadcast').replace(/[\\/*?[\]:]/g, '').slice(0, 40);
+    XLSX.writeFile(wb, `${safeTitle}-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
   function exportEverything() {
     const cols = ALL_COLUMNS; // every column, admin-filtered
     const summary = allBroadcasts.map((b) => {
@@ -532,9 +560,17 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
                             {cs.pending > 0 && <span style={{ color: 'var(--ink-faint)' }} title={`${cs.pending} still pricing`}> *</span>}
                           </td>
                         )}
-                        <td style={{ textAlign: 'right' }}>
-                          <i className={`ti ${isOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ color: 'var(--ink-faint)' }} />
-                        </td>
+                        <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <button
+                    className="icon-btn"
+                    onClick={(e) => { e.stopPropagation(); exportSingleBroadcast(b); }}
+                    aria-label="Export this broadcast"
+                    title="Export this broadcast"
+                  >
+                    <i className="ti ti-file-spreadsheet" />
+                  </button>
+                  <i className={`ti ${isOpen ? 'ti-chevron-up' : 'ti-chevron-down'}`} style={{ color: 'var(--ink-faint)', marginLeft: 6 }} />
+                </td>
                       </tr>
 
                       {isOpen && (
