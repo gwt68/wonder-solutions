@@ -394,7 +394,20 @@ const viewToggle = (
             <p>Calls people made in to your number</p>
           </div>
         </div>
-        <div style={{ flexShrink: 0 }}>{viewToggle}</div>
+        <div style={{ flexShrink: 0, display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {viewToggle}
+          {isAdmin && (
+            <div className="field" style={{ maxWidth: 180, marginBottom: 12 }}>
+              <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
+                <option value="me">My own</option>
+                <option value="all">All users</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.username}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
         <CalledIn isAdmin={isAdmin} userFilter={userFilter} />
       </div>
     );
@@ -498,25 +511,18 @@ const viewToggle = (
               </div>
             )}
 
-            {allBroadcasts.length > 0 && (
-              <DateRangeFilter
-                preset={datePreset}
-                setPreset={setDatePreset}
-                customFrom={customFrom}
-                setCustomFrom={setCustomFrom}
-                customTo={customTo}
-                setCustomTo={setCustomTo}
-              />
-            )}
+            
 
 		{isAdmin && (
-              <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} style={{ maxWidth: 180 }}>
+              <div className="field" style={{ maxWidth: 180, marginBottom: 0 }}>
+              <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)}>
                 <option value="me">My own</option>
                 <option value="all">All users</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>{u.username}</option>
                 ))}
               </select>
+              </div>
             )}
           </div>
 
@@ -526,6 +532,19 @@ const viewToggle = (
               <strong style={{ color: 'var(--ink)' }}>${grandTotal.toFixed(4)}</strong> total
             </span>
           )}
+        </div>
+      )}
+
+      {allBroadcasts.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <DateRangeFilter
+            preset={datePreset}
+            setPreset={setDatePreset}
+            customFrom={customFrom}
+            setCustomFrom={setCustomFrom}
+            customTo={customTo}
+            setCustomTo={setCustomTo}
+          />
         </div>
       )}
       </div>
