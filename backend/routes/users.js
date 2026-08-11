@@ -111,7 +111,19 @@ router.post('/:id/reassign-number', async (req, res) => {
       phoneNumber: available[0].phoneNumber,
       smsUrl: `${process.env.BASE_URL}/voice/sms-incoming`,
       voiceUrl: `${process.env.BASE_URL}/voice/incoming`,
+      statusCallback: `${process.env.BASE_URL}/voice/incoming-status`,
+      statusCallbackMethod: 'POST',
     });
+
+    if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
+      try {
+        await client.messaging.v1
+          .services(process.env.TWILIO_MESSAGING_SERVICE_SID)
+          .phoneNumbers.create({ phoneNumberSid: purchased.sid });
+      } catch (msgErr) {
+        console.error('Could not add reassigned number to Messaging Service:', msgErr.message);
+      }
+    }
 
     const { rows } = await pool.query(
       `UPDATE users SET twilio_phone_number = $1, twilio_phone_sid = $2 WHERE id = $3
