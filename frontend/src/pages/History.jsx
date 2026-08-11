@@ -63,6 +63,31 @@ function broadcastDate(b) {
   return raw ? new Date(raw) : null;
 }
 
+// Sorts the recipients inside an expanded broadcast.
+function sortRecipients(list, field, dir) {
+  const mult = dir === 'asc' ? 1 : -1;
+  return [...list].sort((a, b) => {
+    let av;
+    let bv;
+    switch (field) {
+      case 'phone': av = a.phone_number || ''; bv = b.phone_number || ''; break;
+      case 'type': av = a.effective_method || ''; bv = b.effective_method || ''; break;
+      case 'status': av = a.status || ''; bv = b.status || ''; break;
+      case 'delivery': av = a.delivery_status || ''; bv = b.delivery_status || ''; break;
+      case 'duration': av = a.call_duration || 0; bv = b.call_duration || 0; break;
+      case 'answered': av = a.answered_by || ''; bv = b.answered_by || ''; break;
+      case 'cost': av = Math.abs(parseFloat(a.cost) || 0); bv = Math.abs(parseFloat(b.cost) || 0); break;
+      case 'contact':
+      default:
+        av = (a.contact_name || a.phone_number || '').toLowerCase();
+        bv = (b.contact_name || b.phone_number || '').toLowerCase();
+    }
+    if (av < bv) return -1 * mult;
+    if (av > bv) return 1 * mult;
+    return 0;
+  });
+}
+
 function replyCount(b) {
   return b.recipients.filter((r) => r.reply_text).length;
 }
@@ -107,6 +132,8 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [recipSortField, setRecipSortField] = useState('contact');
+  const [recipSortDir, setRecipSortDir] = useState('asc');  
   const [datePreset, setDatePreset] = useState('all');
   const [customFrom, setCustomFrom] = useState('');
   const [customTo, setCustomTo] = useState('');
@@ -688,52 +715,97 @@ const viewToggle = (
                             </button>
                           )}
 
-                              <div className="list">
-                                {b.recipients.map((s) => {
-                                  const duration = formatDuration(s.call_duration);
-                                  const isReplyOpen = expandedReplyId === s.id;
-                                  return (
-                                    <div className="row" key={s.id} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', width: '100%' }}>
-                                        <div
-                                          className="row-main"
-                                          style={s.reply_text ? { cursor: 'pointer' } : undefined}
-                                          onClick={() => s.reply_text && setExpandedReplyId(isReplyOpen ? null : s.id)}
+                              <div style={{ overflowX: 'auto' }}>
+                                <table className="data-table" style={{ fontSize: 13 }}>
+                                  <thead>
+                                    <tr>
+                                      {[
+                                        { key: 'contact', label: 'Contact' },
+                                        { key: 'phone', label: 'Phone' },
+                                        { key: 'type', label: 'Type' },
+                                        { key: 'delivery', label: 'Delivery' },
+                                        { key: 'duration', label: 'Duration' },
+                                        { key: 'answered', label: 'Answered by' },
+                                        ...(isAdmin ? [{ key: 'cost', label: 'Cost' }] : []),
+                                        { key: 'status', label: 'Status' },
+                                      ].map((col) => (
+                                        <th
+                                          key={col.key}
+                                          onClick={() => {
+                                            if (recipSortField === col.key) setRecipSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+                                            else { setRecipSortField(col.key); setRecipSortDir('asc'); }
+                                          }}
+                                          style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}
                                         >
-                                          <span className="row-title">
-                                            <i className={`ti ${METHOD_ICONS[s.effective_method] || 'ti-send'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
-                                            {s.contact_name || s.phone_number}
-                                            <span style={{ color: 'var(--ink-soft)', fontWeight: 400 }}> · {METHOD_LABELS[s.effective_method] || s.effective_method}</span>
-                                            {s.reply_text && <span className="pill signal" style={{ marginLeft: 8 }}>{t('history_replied_pill')}</span>}
-                                          </span>
-                                          <span className="row-sub">
-                                            {s.phone_number}
-                                            {s.delivery_status && ` · ${DELIVERY_LABELS[s.delivery_status] || s.delivery_status}`}
-                                            {duration && ` · ${duration}`}
-                                            {s.answered_by && ` · ${ANSWERED_BY_LABELS[s.answered_by] || s.answered_by}`}
-                                            {isAdmin && s.cost && ` · $${Math.abs(parseFloat(s.cost)).toFixed(4)}`}
-                                          </span>
-                                          {s.error_message && <span className="row-sub" style={{ color: 'var(--danger)' }}>{s.error_message}</span>}
-                                        </div>
-                                        <div className="row-actions">
-                                          <span className="pill" style={s.status === 'failed' ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
-                                            {s.status === 'sent' ? t('status_sent') : s.status}
-                                          </span>
-                                          <button className="icon-btn danger" onClick={() => handleDeleteRecipient(s.id)} aria-label={t('aria_delete_record')}><i className="ti ti-trash" /></button>
-                                        </div>
-                                      </div>
-                                      {isReplyOpen && (
-                                        <div
-                                          style={{ fontSize: 12.5, background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 6, padding: '8px 10px', margin: '8px 0 0', cursor: 'pointer' }}
-                                          onClick={() => onOpenConversation(s.contact_id)}
-                                        >
-                                          <strong>{s.contact_name || s.phone_number} {t('history_replied_pill').toLowerCase()}:</strong> {s.reply_text.split(' ').slice(0, 12).join(' ')}{s.reply_text.split(' ').length > 12 ? '…' : ''}
-                                          <span style={{ display: 'block', marginTop: 4, textDecoration: 'underline' }}>{t('history_continue_conversation')}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                                          {col.label}
+                                          {recipSortField === col.key && (
+                                            <span className="sort-arrow">{recipSortDir === 'asc' ? '▲' : '▼'}</span>
+                                          )}
+                                        </th>
+                                      ))}
+                                      <th></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {sortRecipients(b.recipients, recipSortField, recipSortDir).map((s) => {
+                                      const duration = formatDuration(s.call_duration);
+                                      const isReplyOpen = expandedReplyId === s.id;
+                                      const recipCols = isAdmin ? 9 : 8;
+                                      return (
+                                        <React.Fragment key={s.id}>
+                                          <tr>
+                                            <td>
+                                              <span
+                                                style={s.reply_text ? { cursor: 'pointer', fontWeight: 500 } : { fontWeight: 500 }}
+                                                onClick={() => s.reply_text && setExpandedReplyId(isReplyOpen ? null : s.id)}
+                                              >
+                                                <i className={`ti ${METHOD_ICONS[s.effective_method] || 'ti-send'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
+                                                {s.contact_name || s.phone_number}
+                                              </span>
+                                              {s.reply_text && <span className="pill signal" style={{ marginLeft: 8 }}>{t('history_replied_pill')}</span>}
+                                              {s.error_message && (
+                                                <div className="row-sub" style={{ color: 'var(--danger)' }}>{s.error_message}</div>
+                                              )}
+                                            </td>
+                                            <td style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{s.phone_number}</td>
+                                            <td style={{ whiteSpace: 'nowrap' }}>{METHOD_LABELS[s.effective_method] || s.effective_method}</td>
+                                            <td style={{ whiteSpace: 'nowrap' }}>{s.delivery_status ? (DELIVERY_LABELS[s.delivery_status] || s.delivery_status) : ''}</td>
+                                            <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{duration || ''}</td>
+                                            <td style={{ whiteSpace: 'nowrap' }}>{s.answered_by ? (ANSWERED_BY_LABELS[s.answered_by] || s.answered_by) : ''}</td>
+                                            {isAdmin && (
+                                              <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
+                                                {s.cost ? `$${Math.abs(parseFloat(s.cost)).toFixed(4)}` : '—'}
+                                              </td>
+                                            )}
+                                            <td>
+                                              <span className="pill" style={s.status === 'failed' ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
+                                                {s.status === 'sent' ? t('status_sent') : s.status}
+                                              </span>
+                                            </td>
+                                            <td style={{ textAlign: 'right' }}>
+                                              <button className="icon-btn danger" onClick={() => handleDeleteRecipient(s.id)} aria-label={t('aria_delete_record')}>
+                                                <i className="ti ti-trash" />
+                                              </button>
+                                            </td>
+                                          </tr>
+                                          {isReplyOpen && (
+                                            <tr>
+                                              <td colSpan={recipCols} style={{ padding: '0 8px 8px' }}>
+                                                <div
+                                                  style={{ fontSize: 12.5, background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 6, padding: '8px 10px', cursor: 'pointer' }}
+                                                  onClick={() => onOpenConversation(s.contact_id)}
+                                                >
+                                                  <strong>{s.contact_name || s.phone_number} {t('history_replied_pill').toLowerCase()}:</strong> {s.reply_text.split(' ').slice(0, 12).join(' ')}{s.reply_text.split(' ').length > 12 ? '…' : ''}
+                                                  <span style={{ display: 'block', marginTop: 4, textDecoration: 'underline' }}>{t('history_continue_conversation')}</span>
+                                                </div>
+                                              </td>
+                                            </tr>
+                                          )}
+                                        </React.Fragment>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
                               </div>
                             </div>
                           </td>
