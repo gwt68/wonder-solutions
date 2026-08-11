@@ -20,7 +20,6 @@ function computeOverallStatus(b) {
   return allResolved ? 'completed' : 'active';
 }
 
-export function groupSendsIntoBroadcasts(sends) {
 
 export function groupSendsIntoBroadcasts(sends) {
   const map = new Map();
