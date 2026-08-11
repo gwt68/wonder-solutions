@@ -8,11 +8,11 @@ router.use(requireAuth);
 // GET /api/call-ins?userId=all|<id>
 router.get('/', async (req, res) => {
   try {
-    const isAdmin = !!req.user.is_admin;
+    const isAdmin = !!req.isAdmin;
     const requested = req.query.userId;
 
     let scope = 'ci.user_id = $1';
-    let params = [req.user.id];
+    let params = [req.userId];
 
     if (isAdmin && requested === 'all') {
       scope = 'TRUE';
