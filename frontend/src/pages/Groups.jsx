@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api, groupAudioLabelUrl, contactDisplayName } from '../api.js';
 import { t, tf } from '../i18n.js';
 
+const VIEW_KEY = 'wonder_groups_view';
+
 export default function Groups() {
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -14,10 +16,49 @@ export default function Groups() {
   const [selected, setSelected] = useState(new Set());
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortField, setSortField] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem(VIEW_KEY) || 'list'; } catch { return 'list'; }
+  });
 
-  const visibleGroups = groups.filter((g) =>
-    !searchQuery.trim() || g.name.toLowerCase().includes(searchQuery.trim().toLowerCase())
-  );
+  function chooseView(next) {
+    setView(next);
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* ignore */ }
+  }
+
+  function handleSort(field) {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  }
+
+  function sortArrow(field) {
+    if (sortField !== field) return null;
+    return <span className="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>;
+  }
+
+  const visibleGroups = groups
+    .filter((g) => !searchQuery.trim() || g.name.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    .sort((a, b) => {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      let av;
+      let bv;
+      if (sortField === 'member_count') {
+        av = a.member_count; bv = b.member_count;
+      } else if (sortField === 'created_at') {
+        av = a.created_at ? new Date(a.created_at).getTime() : 0;
+        bv = b.created_at ? new Date(b.created_at).getTime() : 0;
+      } else {
+        av = (a.name || '').toLowerCase(); bv = (b.name || '').toLowerCase();
+      }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return 1 * dir;
+      return 0;
+    });
 
   async function load() {
     setLoading(true);
@@ -83,8 +124,8 @@ export default function Groups() {
 
   function toggleSelectAll() {
     setSelected((prev) => {
-      const allSelected = groups.length > 0 && groups.every((g) => prev.has(g.id));
-      return allSelected ? new Set() : new Set(groups.map((g) => g.id));
+      const allSelected = visibleGroups.length > 0 && visibleGroups.every((g) => prev.has(g.id));
+      return allSelected ? new Set() : new Set(visibleGroups.map((g) => g.id));
     });
   }
 
@@ -104,103 +145,175 @@ export default function Groups() {
     }
   }
 
+  const allVisibleSelected = visibleGroups.length > 0 && visibleGroups.every((g) => selected.has(g.id));
+
   return (
-    <div>
-      <div className="page-header">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <div className="page-header" style={{ flexShrink: 0 }}>
         <div>
           <h1>{t('groups_title')}</h1>
           <p>{t('groups_subtitle')}</p>
         </div>
-        <button className="btn" onClick={openAdd}><i className="ti ti-plus" /> {t('groups_new')}</button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="chip-select" style={{ marginBottom: 0 }}>
+            <button
+              type="button"
+              className={`chip-toggle ${view === 'list' ? 'active' : ''}`}
+              onClick={() => chooseView('list')}
+              aria-label="List view"
+            >
+              <i className="ti ti-list" /> List
+            </button>
+            <button
+              type="button"
+              className={`chip-toggle ${view === 'grid' ? 'active' : ''}`}
+              onClick={() => chooseView('grid')}
+              aria-label="Grid view"
+            >
+              <i className="ti ti-layout-grid" /> Grid
+            </button>
+          </div>
+          <button className="btn" onClick={openAdd}><i className="ti ti-plus" /> {t('groups_new')}</button>
+        </div>
       </div>
 
-      {error && <div className="banner error">{error}</div>}
+      <div style={{ flexShrink: 0 }}>
+        {error && <div className="banner error">{error}</div>}
 
-      {groups.length > 0 && (
-        <div className="field" style={{ maxWidth: 320, marginBottom: 12 }}>
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search groups by name"
-          />
-        </div>
-      )}
-
-      {groups.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-            <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
-              {groups.every((g) => selected.has(g.id)) ? t('contacts_unselect_all') : t('contacts_select_all')}
-            </button>
-            {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} {t('contacts_selected')}</span>}
+        {groups.length > 0 && (
+          <div className="field" style={{ maxWidth: 320, marginBottom: 12 }}>
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search groups by name"
+            />
           </div>
-          {selected.size > 0 && (
-            <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
-              <i className="ti ti-trash" /> {bulkDeleting ? t('contacts_deleting') : `${t('contacts_delete')} ${selected.size}`}
-            </button>
-          )}
-        </div>
-      )}
+        )}
 
-      {loading ? (
-        <p style={{ color: 'var(--ink-soft)' }}>{t('send_loading')}</p>
-      ) : groups.length === 0 ? (
-        <div className="card empty-state">
-          <h3>{t('groups_empty_title')}</h3>
-          <p>{t('groups_empty_body')}</p>
-        </div>
-      ) : visibleGroups.length === 0 ? (
-        <div className="card empty-state">
-          <h3>No groups match your search</h3>
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
-          {visibleGroups.map((g) => (
-            <div
-              className="card"
-              key={g.id}
-              style={{ padding: 16, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}
-              onClick={() => setDetailGroup(g)}
-            >
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                <input
-                  type="checkbox"
-                  checked={selected.has(g.id)}
-                  onChange={() => toggleSelected(g.id)}
-                  onClick={(e) => e.stopPropagation()}
-                  style={{ marginTop: 3, flexShrink: 0 }}
-                />
-                <div style={{ minWidth: 0 }}>
-                  <div className="row-title" style={{ wordBreak: 'break-word' }}>
-                    {g.name}
-                    {g.source === 'phone_placeholder' && (
-                      <span className="pill signal" style={{ marginLeft: 8 }}>{t('groups_needs_name')}</span>
-                    )}
-                  </div>
-                  <div className="row-sub" style={{ marginTop: 2 }}>
-                    {g.member_count} {g.member_count === 1 ? t('groups_member_one') : t('groups_member_other')}
-                    {g.source === 'phone_placeholder' && (
-                      <><br />{t('groups_created')} {new Date(g.created_at).toLocaleString()}</>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <div
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {g.source === 'phone_placeholder' && g.audio_label_url ? (
-                  <audio controls src={groupAudioLabelUrl(g.id)} style={{ height: 28, maxWidth: 140 }} />
-                ) : <span />}
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <button className="icon-btn" onClick={() => openEdit(g)} aria-label={t('aria_rename_group')}><i className="ti ti-edit" /></button>
-                  <button className="icon-btn danger" onClick={() => handleDelete(g.id)} aria-label={t('aria_delete_group')}><i className="ti ti-trash" /></button>
-                </div>
-              </div>
+        {groups.length > 0 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+              <button type="button" onClick={toggleSelectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}>
+                {allVisibleSelected ? t('contacts_unselect_all') : t('contacts_select_all')}
+              </button>
+              {selected.size > 0 && <span style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>{selected.size} {t('contacts_selected')}</span>}
             </div>
-          ))}
-        </div>
-      )}
+            {selected.size > 0 && (
+              <button type="button" className="btn" style={{ padding: '6px 12px', fontSize: 13, background: 'var(--danger)' }} onClick={handleBulkDelete} disabled={bulkDeleting}>
+                <i className="ti ti-trash" /> {bulkDeleting ? t('contacts_deleting') : `${t('contacts_delete')} ${selected.size}`}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
+        {loading ? (
+          <p style={{ color: 'var(--ink-soft)' }}>{t('send_loading')}</p>
+        ) : groups.length === 0 ? (
+          <div className="card empty-state">
+            <h3>{t('groups_empty_title')}</h3>
+            <p>{t('groups_empty_body')}</p>
+          </div>
+        ) : visibleGroups.length === 0 ? (
+          <div className="card empty-state">
+            <h3>No groups match your search</h3>
+          </div>
+        ) : view === 'list' ? (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 32 }}>
+                    <input type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAll} />
+                  </th>
+                  <th onClick={() => handleSort('name')} style={{ cursor: 'pointer' }}>{t('field_group_name')}{sortArrow('name')}</th>
+                  <th onClick={() => handleSort('member_count')} style={{ cursor: 'pointer', textAlign: 'right' }}>
+                    {t('groups_member_other')}{sortArrow('member_count')}
+                  </th>
+                  <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('groups_created')}{sortArrow('created_at')}</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {visibleGroups.map((g) => (
+                  <tr key={g.id} onClick={() => setDetailGroup(g)} style={{ cursor: 'pointer' }}>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={selected.has(g.id)} onChange={() => toggleSelected(g.id)} />
+                    </td>
+                    <td style={{ fontWeight: 500 }}>
+                      {g.name}
+                      {g.source === 'phone_placeholder' && (
+                        <span className="pill signal" style={{ marginLeft: 8 }}>{t('groups_needs_name')}</span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'right', fontSize: 13 }}>{g.member_count}</td>
+                    <td style={{ fontSize: 13, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+                      {g.created_at ? new Date(g.created_at).toLocaleDateString() : ''}
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', alignItems: 'center' }}>
+                        {g.source === 'phone_placeholder' && g.audio_label_url && (
+                          <audio controls src={groupAudioLabelUrl(g.id)} style={{ height: 28, maxWidth: 140 }} />
+                        )}
+                        <button className="icon-btn" onClick={() => openEdit(g)} aria-label={t('aria_rename_group')}><i className="ti ti-edit" /></button>
+                        <button className="icon-btn danger" onClick={() => handleDelete(g.id)} aria-label={t('aria_delete_group')}><i className="ti ti-trash" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 14 }}>
+            {visibleGroups.map((g) => (
+              <div
+                className="card"
+                key={g.id}
+                style={{ padding: 16, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 8 }}
+                onClick={() => setDetailGroup(g)}
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <input
+                    type="checkbox"
+                    checked={selected.has(g.id)}
+                    onChange={() => toggleSelected(g.id)}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{ marginTop: 3, flexShrink: 0 }}
+                  />
+                  <div style={{ minWidth: 0 }}>
+                    <div className="row-title" style={{ wordBreak: 'break-word' }}>
+                      {g.name}
+                      {g.source === 'phone_placeholder' && (
+                        <span className="pill signal" style={{ marginLeft: 8 }}>{t('groups_needs_name')}</span>
+                      )}
+                    </div>
+                    <div className="row-sub" style={{ marginTop: 2 }}>
+                      {g.member_count} {g.member_count === 1 ? t('groups_member_one') : t('groups_member_other')}
+                      {g.source === 'phone_placeholder' && (
+                        <><br />{t('groups_created')} {new Date(g.created_at).toLocaleString()}</>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 'auto', paddingTop: 8 }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {g.source === 'phone_placeholder' && g.audio_label_url ? (
+                    <audio controls src={groupAudioLabelUrl(g.id)} style={{ height: 28, maxWidth: 140 }} />
+                  ) : <span />}
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button className="icon-btn" onClick={() => openEdit(g)} aria-label={t('aria_rename_group')}><i className="ti ti-edit" /></button>
+                    <button className="icon-btn danger" onClick={() => handleDelete(g.id)} aria-label={t('aria_delete_group')}><i className="ti ti-trash" /></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {modalOpen && (
         <div className="modal-overlay" onClick={() => setModalOpen(false)}>

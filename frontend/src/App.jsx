@@ -47,7 +47,7 @@ export default function App() {
 useEffect(() => {
     document.documentElement.dir = lang === 'he' ? 'rtl' : 'ltr';
     document.documentElement.lang = lang;
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     if (!loggedIn) return;
@@ -107,14 +107,14 @@ useEffect(() => {
           <i className="ti ti-logout" /> {t('nav_logout')}
         </button>
       </aside>
-      <main className={`main ${page === 'contacts' ? 'main-wide' : ''}`}>
+      <main className={`main ${page === 'contacts' || page === 'history' ? 'main-wide' : ''}`}>
         {page === 'dashboard' && <Dashboard onNavigate={setPage} />}
         {page === 'contacts' && <Contacts />}
         {page === 'groups' && <Groups />}
         {page === 'messages' && <Messages />}
         {page === 'replies' && <Replies onRead={() => setUnreadReplies(0)} openContactId={openConversationContactId} onOpened={() => setOpenConversationContactId(null)} />}
         {page === 'send' && <Send />}
-        {page === 'history' && <History onNavigateToConversation={(contactId) => { setOpenConversationContactId(contactId); setPage('replies'); }} />}
+        {page === 'history' && <History isAdmin={isAdmin} onNavigateToConversation={(contactId) => { setOpenConversationContactId(contactId); setPage('replies'); }} />}
         {page === 'users' && <Users />}
         {page === 'settings' && <Settings />}
       </main>
