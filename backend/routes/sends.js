@@ -153,8 +153,11 @@ router.post('/', async (req, res) => {
 });
 
 router.get('/', async (req, res) => {
-  const { contact_id } = req.query;
-  const scope = req.userId;
+  const { contact_id, user_id } = req.query;
+  let scope;
+  if (req.isAdmin && user_id === 'all') scope = null;
+  else if (req.isAdmin && user_id) scope = parseInt(user_id, 10);
+  else scope = req.userId;
   try {
     const baseQuery = `
       SELECT s.*, COALESCE(s.method, c.preferred_method) AS effective_method,
@@ -193,6 +196,20 @@ router.delete('/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to delete send record' });
+  }
+});
+
+router.put('/batch/:batchId/cancel', async (req, res) => {
+  const scope = req.isAdmin ? null : req.userId;
+  try {
+    const { rowCount } = await pool.query(
+      `UPDATE sends SET status = 'canceled' WHERE batch_id = $1 AND status = 'scheduled' AND ($2::int IS NULL OR user_id = $2)`,
+      [req.params.batchId, scope]
+    );
+    res.json({ canceled: rowCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to cancel scheduled send' });
   }
 });
 

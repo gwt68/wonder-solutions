@@ -160,9 +160,10 @@ export const api = {
   },
   sends: {
     create: (data) => request('/sends', { method: 'POST', body: JSON.stringify(data) }),
-    list: () => request('/sends'),
+    list: (userId) => request(userId ? `/sends?user_id=${userId}` : '/sends'),
     listForContact: (contactId) => request(`/sends?contact_id=${contactId}`),
     remove: (id) => request(`/sends/${id}`, { method: 'DELETE' }),
+    cancelBatch: (batchId) => request(`/sends/batch/${batchId}/cancel`, { method: 'PUT' }),
   },
   users: {
     list: () => request('/users'),

@@ -103,6 +103,10 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
   const [sortDir, setSortDir] = useState('desc');
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [userFilter, setUserFilter] = useState('me');
+  const [users, setUsers] = useState([]);
+  const [cancelingBatch, setCancelingBatch] = useState(null);
   const [visibleCols, setVisibleCols] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -145,7 +149,8 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
   async function load() {
     setLoading(true);
     try {
-      setSends(await api.sends.list());
+      const userIdParam = userFilter === 'me' ? null : userFilter;
+      setSends(await api.sends.list(userIdParam));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -153,7 +158,13 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [userFilter]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      api.users.list().then(setUsers).catch(() => {});
+    }
+  }, [isAdmin]);
 
   async function handleDeleteRecipient(id) {
     if (!confirm(t('history_confirm_remove_recipient'))) return;
@@ -162,6 +173,20 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
       await load();
     } catch (err) {
       setError(err.message);
+    }
+  }
+
+  async function handleCancelBatch(batchId) {
+    if (!confirm('Cancel this scheduled broadcast? Recipients who have not been sent to yet will not receive it.')) return;
+    setCancelingBatch(batchId);
+    setError('');
+    try {
+      await api.sends.cancelBatch(batchId);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setCancelingBatch(null);
     }
   }
 
@@ -177,7 +202,7 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
 
   const visibleBroadcasts = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const filtered = !q ? [...allBroadcasts] : allBroadcasts.filter((b) => {
+    let filtered = !q ? [...allBroadcasts] : allBroadcasts.filter((b) => {
       if ((b.messageTitle || '').toLowerCase().includes(q)) return true;
       if ((b.messageText || '').toLowerCase().includes(q)) return true;
       return b.recipients.some((r) =>
@@ -185,6 +210,9 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
         (r.phone_number || '').toLowerCase().includes(q)
       );
     });
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((b) => b.overallStatus === statusFilter);
+    }
 
     const dir = sortDir === 'asc' ? 1 : -1;
     filtered.sort((a, b) => {
@@ -219,7 +247,7 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
       return 0;
     });
     return filtered;
-  }, [allBroadcasts, searchQuery, sortField, sortDir]);
+  }, [allBroadcasts, searchQuery, sortField, sortDir, statusFilter]);
 
   const grandTotal = useMemo(
     () => visibleBroadcasts.reduce((sum, b) => sum + costSummary(b).total, 0),
@@ -364,22 +392,54 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
         {error && <div className="banner error">{error}</div>}
 
         {allBroadcasts.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
-            <div className="field" style={{ maxWidth: 320, marginBottom: 0, flex: '1 1 auto' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', flex: '1 1 auto' }}>
+            <div className="field" style={{ maxWidth: 280, marginBottom: 0 }}>
               <input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search by message or recipient"
               />
             </div>
-            {isAdmin && grandTotal > 0 && (
-              <span style={{ fontSize: 12.5, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
-                {visibleBroadcasts.length} broadcast{visibleBroadcasts.length !== 1 ? 's' : ''} ·{' '}
-                <strong style={{ color: 'var(--ink)' }}>${grandTotal.toFixed(4)}</strong> total
-              </span>
+
+            <div className="chip-select" style={{ marginBottom: 0 }}>
+              {[
+                { value: 'all', label: 'All' },
+                { value: 'active', label: 'Active' },
+                { value: 'scheduled', label: 'Scheduled' },
+                { value: 'completed', label: 'Completed' },
+                { value: 'canceled', label: 'Canceled' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`chip-toggle ${statusFilter === opt.value ? 'active' : ''}`}
+                  onClick={() => setStatusFilter(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {isAdmin && (
+              <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} style={{ maxWidth: 180 }}>
+                <option value="me">My own</option>
+                <option value="all">All users</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.username}</option>
+                ))}
+              </select>
             )}
           </div>
-        )}
+
+          {isAdmin && grandTotal > 0 && (
+            <span style={{ fontSize: 12.5, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+              {visibleBroadcasts.length} broadcast{visibleBroadcasts.length !== 1 ? 's' : ''} ·{' '}
+              <strong style={{ color: 'var(--ink)' }}>${grandTotal.toFixed(4)}</strong> total
+            </span>
+          )}
+        </div>
+      )}
       </div>
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
@@ -423,13 +483,29 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
                     <React.Fragment key={b.batchId}>
                       <tr onClick={() => toggleExpand(b.batchId)} style={{ cursor: 'pointer' }}>
                         {shownCols.includes('date') && (
-                          <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
-                            {(() => { const d = broadcastDate(b); return d ? d.toLocaleString() : '—'; })()}
-                            {b.counts.scheduled > 0 && !b.counts.sent && !b.counts.failed && (
-                              <span className="pill signal" style={{ marginLeft: 6 }}>{t('label_scheduled_pill')}</span>
-                            )}
-                          </td>
-                        )}
+                  <td style={{ fontSize: 13, whiteSpace: 'nowrap' }}>
+                    {(() => { const d = broadcastDate(b); return d ? d.toLocaleString() : '—'; })()}
+                    <span
+                      className="pill"
+                      style={{
+                        marginLeft: 6,
+                        background: b.overallStatus === 'scheduled' ? 'var(--signal-soft)'
+                          : b.overallStatus === 'active' ? 'var(--accent-soft)'
+                          : b.overallStatus === 'canceled' ? 'var(--danger-soft)'
+                          : undefined,
+                        color: b.overallStatus === 'scheduled' ? '#8a6015'
+                          : b.overallStatus === 'active' ? 'var(--accent)'
+                          : b.overallStatus === 'canceled' ? 'var(--danger)'
+                          : undefined,
+                      }}
+                    >
+                      {b.overallStatus === 'scheduled' ? 'Scheduled'
+                        : b.overallStatus === 'active' ? 'Active'
+                        : b.overallStatus === 'canceled' ? 'Canceled'
+                        : 'Completed'}
+                    </span>
+                  </td>
+                )}
                         {shownCols.includes('message') && (
                           <td style={{ fontWeight: 500 }}>
                             <i className={`ti ${METHOD_ICONS[b.singleMethod] || 'ti-send'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
@@ -478,12 +554,24 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
                               )}
 
                               {isAdmin && (cs.total > 0 || cs.pending > 0) && (
-                                <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
-                                  <strong style={{ color: 'var(--ink)' }}>${cs.total.toFixed(4)}</strong> across {cs.charged} recipient{cs.charged !== 1 ? 's' : ''}
-                                  {cs.charged > 0 && ` · avg $${(cs.total / cs.charged).toFixed(4)} each`}
-                                  {cs.pending > 0 && ` · ${cs.pending} still pricing`}
-                                </div>
-                              )}
+                            <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
+                              <strong style={{ color: 'var(--ink)' }}>${cs.total.toFixed(4)}</strong> across {cs.charged} recipient{cs.charged !== 1 ? 's' : ''}
+                              {cs.charged > 0 && ` · avg $${(cs.total / cs.charged).toFixed(4)} each`}
+                              {cs.pending > 0 && ` · ${cs.pending} still pricing`}
+                            </div>
+                          )}
+
+                          {b.overallStatus === 'scheduled' && (
+                            <button
+                              type="button"
+                              className="btn secondary"
+                              style={{ marginBottom: 12, padding: '6px 12px', fontSize: 13, color: 'var(--danger)' }}
+                              onClick={() => handleCancelBatch(b.batchId)}
+                              disabled={cancelingBatch === b.batchId}
+                            >
+                              <i className="ti ti-x" /> {cancelingBatch === b.batchId ? 'Canceling...' : 'Cancel this broadcast'}
+                            </button>
+                          )}
 
                               <div className="list">
                                 {b.recipients.map((s) => {

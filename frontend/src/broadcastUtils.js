@@ -1,5 +1,27 @@
 // Groups raw /api/sends rows (one row per recipient) into broadcasts —
 // one entry per actual "Send" action, with all its recipients nested inside.
+const TERMINAL_DELIVERY = ['delivered', 'undelivered', 'failed', 'completed', 'busy', 'no-answer', 'canceled'];
+
+function computeOverallStatus(b) {
+  const total = b.total;
+  const scheduledCount = b.counts.scheduled || 0;
+  const canceledCount = b.counts.canceled || 0;
+
+  if (scheduledCount === total && total > 0) return 'scheduled';
+  if (canceledCount === total && total > 0) return 'canceled';
+
+  const allResolved = b.recipients.every((r) => {
+    if (r.status === 'scheduled') return false;
+    if (r.status === 'canceled') return true;
+    if (r.status === 'failed') return true;
+    return r.delivery_status ? TERMINAL_DELIVERY.includes(r.delivery_status) : false;
+  });
+
+  return allResolved ? 'completed' : 'active';
+}
+
+export function groupSendsIntoBroadcasts(sends) {
+
 export function groupSendsIntoBroadcasts(sends) {
   const map = new Map();
 
@@ -45,6 +67,7 @@ export function groupSendsIntoBroadcasts(sends) {
     }, {});
     const distinctMethods = Object.keys(b.methodCounts);
     b.singleMethod = distinctMethods.length === 1 ? distinctMethods[0] : null;
+    b.overallStatus = computeOverallStatus(b);
   }
 
   broadcasts.sort((a, b) => new Date(b.sortTime) - new Date(a.sortTime));
