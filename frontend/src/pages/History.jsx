@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { api, audioUrl, imageUrl } from '../api.js';
 import { groupSendsIntoBroadcasts } from '../broadcastUtils.js';
 import CalledIn from './CalledIn.jsx';
+import DateRangeFilter, { resolveDateRange, inDateRange } from '../DateRangeFilter.jsx';
 import { t, tf } from '../i18n.js';
 
 function getDeliveryLabels() {
@@ -106,6 +107,9 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
   const [columnsOpen, setColumnsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [datePreset, setDatePreset] = useState('all');
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
   const [userFilter, setUserFilter] = useState('me');
   const [users, setUsers] = useState([]);
   const [cancelingBatch, setCancelingBatch] = useState(null);
@@ -216,6 +220,11 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
       filtered = filtered.filter((b) => b.overallStatus === statusFilter);
     }
 
+    const range = resolveDateRange(datePreset, customFrom, customTo);
+    if (range.from || range.to) {
+      filtered = filtered.filter((b) => inDateRange(broadcastDate(b), range));
+    }
+
     const dir = sortDir === 'asc' ? 1 : -1;
     filtered.sort((a, b) => {
       let av;
@@ -249,7 +258,7 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
       return 0;
     });
     return filtered;
-  }, [allBroadcasts, searchQuery, sortField, sortDir, statusFilter]);
+  }, [allBroadcasts, searchQuery, sortField, sortDir, statusFilter, datePreset, customFrom, customTo]);
 
   const grandTotal = useMemo(
     () => visibleBroadcasts.reduce((sum, b) => sum + costSummary(b).total, 0),
@@ -489,7 +498,18 @@ const viewToggle = (
               </div>
             )}
 
-            {isAdmin && (
+            {allBroadcasts.length > 0 && (
+              <DateRangeFilter
+                preset={datePreset}
+                setPreset={setDatePreset}
+                customFrom={customFrom}
+                setCustomFrom={setCustomFrom}
+                customTo={customTo}
+                setCustomTo={setCustomTo}
+              />
+            )}
+
+		{isAdmin && (
               <select value={userFilter} onChange={(e) => setUserFilter(e.target.value)} style={{ maxWidth: 180 }}>
                 <option value="me">My own</option>
                 <option value="all">All users</option>
