@@ -97,11 +97,6 @@ async function getMatchingContactId(userId, callerNumber) {
 // their most recent phone-based send, if any. Returns null if there's
 // nothing on file for this caller.
 async function getLastMessageAudioForCaller(userId, callerNumber) {
-
-// Looks up the caller's own contact record and returns the audio URL for
-// their most recent phone-based send, if any. Returns null if there's
-// nothing on file for this caller.
-async function getLastMessageAudioForCaller(userId, callerNumber) {
   const { rows: contactRows } = await pool.query(
     `SELECT id FROM contacts WHERE user_id = $2 AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
     [callerNumber, userId]
