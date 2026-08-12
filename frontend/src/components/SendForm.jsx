@@ -102,7 +102,7 @@ export default function SendForm({ message, onSent, channel }) {
     setAddedGroups([]);
     setSelected(new Map());
   }
-  async function handleAddGroup(group) 
+  async function handleAddGroup(group) { 
     setGroupLoading(group.id);
     setError('');
     try {
