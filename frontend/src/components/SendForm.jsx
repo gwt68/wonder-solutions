@@ -15,6 +15,7 @@ function getMethodOptions() {
 export default function SendForm({ message, onSent, channel }) {
   const [groupPrefixMode, setGroupPrefixMode] = useState('never');
   const [activeGroupContext, setActiveGroupContext] = useState(null);
+  const [includePrefixChoice, setIncludePrefixChoice] = useState(null); // null = not yet answered
   const [addedGroups, setAddedGroups] = useState([]);
   const METHOD_LABELS = getMethodLabels();
   const METHOD_OPTIONS = getMethodOptions();
@@ -235,7 +236,81 @@ export default function SendForm({ message, onSent, channel }) {
             <img src={imageUrl(message.id)} alt={message.title || t('type_image')} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 12, display: 'block' }} />
           )}
 
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>{tf('sf_to_n_recipients', { n: selectedContacts.length, s: selectedContacts.length !== 1 ? 's' : '' })}</p>
+          <p
+            title={recipientNames}
+            style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4, cursor: 'help', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}
+          >
+            {tf('sf_to_n_recipients', { n: selectedContacts.length, s: selectedContacts.length !== 1 ? 's' : '' })}
+            {addedGroups.length > 0 && (
+              <> · {addedGroups.length} {addedGroups.length === 1 ? 'group' : 'groups'} ({addedGroups.map((g) => g.name).join(', ')})</>
+            )}
+          </p>
+
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {Object.entries(methodCounts).map(([method, count]) => (
+              <span className="pill" key={method}>{count} {METHOD_LABELS[method] || method}</span>
+            ))}
+          </div>
+
+          <div style={{ maxHeight: 140, overflowY: 'auto', fontSize: 13, color: 'var(--ink-soft)', marginBottom: 12 }}>
+            {selectedContacts.map((c) => (
+              <div key={c.id}>
+                {contactDisplayName(c) || c.phone_number} — {[...selected.get(c.id)].map((m) => METHOD_LABELS[m]).join(' + ')}
+              </div>
+            ))}
+          </div>
+
+          <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
+            {scheduleEnabled
+              ? tf('sf_scheduled_for_date', { date: new Date(scheduledAt).toLocaleString() })
+              : t('sf_sending_immediately')}
+          </p>
+
+          {prefixUnanswered ? (
+            <div style={{
+              marginTop: 12, padding: '14px 16px', borderRadius: 8,
+              border: '2px solid var(--accent)', background: 'var(--accent-soft)',
+            }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>
+                Start the message with "{activeGroupContext.name}:"?
+              </div>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
+                Choose one before sending.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button type="button" className="btn" style={{ padding: '7px 16px', fontSize: 13 }} onClick={() => setIncludePrefixChoice(true)}>
+                  Yes, include it
+                </button>
+                <button type="button" className="btn secondary" style={{ padding: '7px 16px', fontSize: 13 }} onClick={() => setIncludePrefixChoice(false)}>
+                  No, send as is
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              marginTop: 12, padding: '10px 12px', borderRadius: 7, fontSize: 13,
+              background: 'var(--surface)', border: '1px solid var(--line)',
+            }}>
+              {prefixWillSend ? (
+                <>Sending <strong>with</strong> the group label — starts with "{activeGroupContext.name}:"</>
+              ) : prefixApplies ? (
+                <>
+                  Sending <strong>without</strong> the group label.
+                  {groupPrefixMode === 'ask' && (
+                    <button
+                      type="button"
+                      onClick={() => setIncludePrefixChoice(null)}
+                      style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer', marginLeft: 6, padding: 0 }}
+                    >
+                      Change
+                    </button>
+                  )}
+                </>
+              ) : (
+                <>Sending <strong>without</strong> a group label.</>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
