@@ -7,8 +7,7 @@ function getMethodLabels() {
 }
 function getMethodOptions() {
   return [
-    { value: 'sms', label: t('type_sms') },
-    { value: 'call', label: t('channel_call_label') },
+    { value: 'sms', label: t('type_sms')     { value: 'call', label: t('channel_call_label') },
     { value: 'voice_note', label: t('type_voice_note') },
   ];
 }
@@ -16,7 +15,7 @@ function getMethodOptions() {
 export default function SendForm({ message, onSent, channel }) {
   const [groupPrefixMode, setGroupPrefixMode] = useState('never');
   const [activeGroupContext, setActiveGroupContext] = useState(null);
-  const [includePrefixChoice, setIncludePrefixChoice] = useState(false);
+  const [addedGroups, setAddedGroups] = useState([]);
   const METHOD_LABELS = getMethodLabels();
   const METHOD_OPTIONS = getMethodOptions();
   const [contacts, setContacts] = useState([]);
@@ -92,16 +91,17 @@ export default function SendForm({ message, onSent, channel }) {
 
   function selectAll() {
     setActiveGroupContext(null);
+    setAddedGroups([]);
     const eligible = channel ? contacts.filter((c) => contactMethods(c).includes(channel)) : contacts;
     setSelected(new Map(eligible.map((c) => [c.id, new Set([channel || c.preferred_method])])));
   }
 
   function unselectAll() {
     setActiveGroupContext(null);
+    setAddedGroups([]);
     setSelected(new Map());
   }
-
-  async function handleAddGroup(group) {
+  async function handleAddGroup(group) 
     setGroupLoading(group.id);
     setError('');
     try {
@@ -116,7 +116,10 @@ export default function SendForm({ message, onSent, channel }) {
         return next;
       });
       setActiveGroupContext(isCleanGroupSend ? group : null);
-      setIncludePrefixChoice(groupPrefixMode === 'always');
+      setAddedGroups((prev) => (prev.some((g) => g.id === group.id) ? prev : [...prev, group]));
+      setIncludePrefixChoice(
+        groupPrefixMode === 'always' ? true : groupPrefixMode === 'never' ? false : null
+      );
     } catch (err) {
       setError(err.message);
     } finally {
@@ -137,7 +140,7 @@ export default function SendForm({ message, onSent, channel }) {
     try {
       let effectiveMessageId = message.id;
       const shouldPrefix = activeGroupContext && message.text_content && (
-        groupPrefixMode === 'always' || (groupPrefixMode === 'ask' && includePrefixChoice)
+        groupPrefixMode === 'always' || (groupPrefixMode === 'ask' && includePrefixChoice === true)
       );
       if (shouldPrefix) {
         const prefixed = `${activeGroupContext.name}: ${message.text_content}`;
@@ -202,6 +205,12 @@ export default function SendForm({ message, onSent, channel }) {
 
   if (step === 'preview') {
     const selectedContacts = contacts.filter((c) => selected.has(c.id));
+    const recipientNames = selectedContacts
+      .map((c) => contactDisplayName(c) || c.phone_number)
+      .join('\n');
+    const prefixApplies = !!(activeGroupContext && message.text_content);
+    const prefixUnanswered = prefixApplies && groupPrefixMode === 'ask' && includePrefixChoice === null;
+    const prefixWillSend = prefixApplies && includePrefixChoice === true;
     const methodCounts = {};
     for (const methods of selected.values()) {
       for (const m of methods) methodCounts[m] = (methodCounts[m] || 0) + 1;
@@ -227,37 +236,11 @@ export default function SendForm({ message, onSent, channel }) {
           )}
 
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 4 }}>{tf('sf_to_n_recipients', { n: selectedContacts.length, s: selectedContacts.length !== 1 ? 's' : '' })}</p>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
-            {Object.entries(methodCounts).map(([method, count]) => (
-              <span className="pill" key={method}>{count} {METHOD_LABELS[method] || method}</span>
-            ))}
-          </div>
-
-          <div style={{ maxHeight: 140, overflowY: 'auto', fontSize: 13, color: 'var(--ink-soft)', marginBottom: 12 }}>
-            {selectedContacts.map((c) => (
-              <div key={c.id}>
-                {contactDisplayName(c) || c.phone_number} — {[...selected.get(c.id)].map((m) => METHOD_LABELS[m]).join(' + ')}
-              </div>
-            ))}
-          </div>
-
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-            {scheduleEnabled
-              ? tf('sf_scheduled_for_date', { date: new Date(scheduledAt).toLocaleString() })
-              : t('sf_sending_immediately')}
-          </p>
-
-          {activeGroupContext && message.text_content && groupPrefixMode === 'ask' && (
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, marginTop: 10 }}>
-              <input type="checkbox" checked={includePrefixChoice} onChange={(e) => setIncludePrefixChoice(e.target.checked)} />
-              Start the message with "{activeGroupContext.name}:"
-            </label>
-          )}
         </div>
 
         <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
           <button type="button" className="btn secondary" onClick={() => setStep('select')} disabled={sending}>{t('send_back')}</button>
-          <button type="button" className="btn" onClick={handleConfirmSend} disabled={sending}>
+          <button type="button" className="btn" onClick={handleConfirmSend} disabled={sending || prefixUnanswered}>
             {sending ? t('sf_working') : scheduleEnabled ? t('sf_confirm_schedule') : t('sf_confirm_send')}
           </button>
         </div>
