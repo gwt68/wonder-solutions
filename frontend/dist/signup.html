@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Text Message Sign-Up — Wonder Solutions</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 480px; margin: 60px auto; padding: 0 20px; line-height: 1.6; color: #1a1a1a; }
+    h1 { font-size: 22px; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; }
+    input[type=text], input[type=tel] { width: 100%; padding: 10px 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 15px; box-sizing: border-box; }
+    .consent-row { display: flex; align-items: flex-start; gap: 8px; margin: 20px 0; }
+    .consent-row input { margin-top: 4px; }
+    .consent-row p { font-size: 13px; color: #444; margin: 0; }
+    button { background: #1b4d5c; color: #fff; border: none; padding: 12px 20px; border-radius: 6px; font-size: 15px; cursor: pointer; width: 100%; margin-top: 10px; }
+    button:disabled { opacity: 0.6; }
+    .honeypot { position: absolute; left: -9999px; }
+    .msg { padding: 10px 14px; border-radius: 6px; font-size: 14px; margin-top: 16px; }
+    .msg.ok { background: #e8f0ef; color: #1b4d5c; }
+    .msg.error { background: #fbe9e4; color: #b3452f; }
+    footer { margin-top: 30px; font-size: 12px; color: #888; }
+    footer a { color: #1b4d5c; }
+  </style>
+</head>
+<body>
+  <h1>Get text updates from Wonder Solutions</h1>
+  <p>Sign up below to receive text message updates, reminders, and notifications.</p>
+
+  <form id="optinForm">
+    <label for="name">Name</label>
+    <input type="text" id="name" name="name" />
+
+    <label for="phone">Mobile phone number</label>
+    <input type="tel" id="phone" name="phone" required placeholder="(555) 123-4567" />
+
+    <input class="honeypot" type="text" id="company" name="company" tabindex="-1" autocomplete="off" />
+
+    <div class="consent-row">
+      <input type="checkbox" id="consent" required />
+      <p>
+        I agree to receive recurring text message updates, reminders, and notifications from
+        Wonder Solutions at the number provided. Message frequency varies. Message and data rates
+        may apply. Reply STOP to cancel, HELP for help. View our
+        <a href="/terms.html" target="_blank">Terms and Conditions</a> and
+        <a href="/privacy.html" target="_blank">Privacy Policy</a>.
+      </p>
+    </div>
+
+    <button type="submit" id="submitBtn">Sign up</button>
+    <div id="result"></div>
+  </form>
+
+  <footer>
+    Wonder Solutions does not sell or share your mobile number with third parties.
+  </footer>
+
+  <script>
+    const API_BASE = 'https://wonder-solutions-backend-production.up.railway.app';
+    const form = document.getElementById('optinForm');
+    const resultEl = document.getElementById('result');
+    const submitBtn = document.getElementById('submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      resultEl.innerHTML = '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting...';
+
+      try {
+        const res = await fetch(`${API_BASE}/api/public/optin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: document.getElementById('name').value,
+            phone_number: document.getElementById('phone').value,
+            company: document.getElementById('company').value,
+          }),
+        });
+        if (!res.ok) throw new Error('Something went wrong. Please try again.');
+        resultEl.innerHTML = '<div class="msg ok">You\'re signed up! You may receive a confirmation text shortly.</div>';
+        form.reset();
+      } catch (err) {
+        resultEl.innerHTML = `<div class="msg error">${err.message}</div>`;
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign up';
+      }
+    });
+  </script>
+</body>
+</html>

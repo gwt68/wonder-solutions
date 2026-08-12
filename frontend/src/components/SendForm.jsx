@@ -7,7 +7,8 @@ function getMethodLabels() {
 }
 function getMethodOptions() {
   return [
-    { value: 'sms', label: t('type_sms')     { value: 'call', label: t('channel_call_label') },
+    { value: 'sms', label: t('type_sms') },
+    { value: 'call', label: t('channel_call_label') },
     { value: 'voice_note', label: t('type_voice_note') },
   ];
 }
