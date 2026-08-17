@@ -269,16 +269,8 @@ router.post('/handle', async (req, res) => {
         silentPinGather(twiml, null);
         break;
       }
-      const correctPin = await getPin(userId);
-      if (digits === correctPin) {
-        await pool.query(
-          `UPDATE call_ins SET interrupted_with = 'pin', reached = 'admin_menu' WHERE call_sid = $1`,
-          [callSid]
-        );
-        await updateSession(callSid, 'main_menu');
-        mainMenu(twiml);
-        break;
-      }
+      // Admin now requires a trusted caller ID as well as the PIN, so entering
+      // a PIN here no longer opens the menu — only conference codes are checked.
       const { rows: confRows } = await pool.query(
         `SELECT id FROM conferences WHERE access_code = $1 AND status != 'ended' AND user_id = $2`,
         [digits, userId]
@@ -465,7 +457,7 @@ case 'history_menu': {
         if (b) {
           await updateSession(callSid, 'history_batch', { batch_index: 0 });
           gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-            'To hear which ones failed, press 1. For the one before it, press 2.', { numDigits: 1 });
+            'To hear the message, press 1. To hear which ones failed, press 2. For the one before it, press 3.', { numDigits: 1 });
         } else {
           await updateSession(callSid, 'main_menu');
           mainMenu(twiml);
@@ -475,7 +467,7 @@ case 'history_menu': {
         if (current) {
           await updateSession(callSid, 'history_scheduled', { sched_index: 0, sched_batch_id: current.batch_id });
           gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-            'To cancel it, press 1. For the next one, press 2.', { numDigits: 1 });
+            'To change the time, press 1. To cancel it, press 2. For the next one, press 3.', { numDigits: 1 });
         } else {
           await updateSession(callSid, 'main_menu');
           mainMenu(twiml);
@@ -503,6 +495,16 @@ case 'history_menu': {
       if (digits === '1') {
         const batches = await recentBatches(userId);
         const b = batches[idx];
+        if (b?.message_id) {
+          twiml.play(`${BASE_URL}/api/messages/${b.message_id}/audio`);
+        } else {
+          say(twiml, "There's no recording on that one.");
+        }
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          'To hear which ones failed, press 2. For the one before it, press 3.', { numDigits: 1 });
+      } else if (digits === '2') {
+        const batches = await recentBatches(userId);
+        const b = batches[idx];
         const { rows } = await pool.query(
           `SELECT c.name, c.first_name, c.last_name, s.error_message, s.delivery_status
              FROM sends s LEFT JOIN contacts c ON c.id = s.contact_id
@@ -518,13 +520,13 @@ case 'history_menu': {
           say(twiml, `${rows.length} didn't go through. ${list}`);
         }
         gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'For the one before it, press 2.', { numDigits: 1 });
-      } else if (digits === '2') {
+      } else if (digits === '3') {
         const next = idx + 1;
         const b = await announceBatch(twiml, userId, next);
         if (b) {
           await updateSession(callSid, 'history_batch', { batch_index: next });
           gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-            'To hear which ones failed, press 1. For the one before it, press 2.', { numDigits: 1 });
+            'To hear the message, press 1. To hear which ones failed, press 2. For the one before it, press 3.', { numDigits: 1 });
         } else {
           await updateSession(callSid, 'main_menu');
           mainMenu(twiml);
@@ -539,6 +541,9 @@ case 'history_menu': {
     case 'history_scheduled': {
       const idx = session.data.sched_index || 0;
       if (digits === '1') {
+        await updateSession(callSid, 'schedule_day', { editing_batch_id: session.data.sched_batch_id });
+        scheduleDayPrompt(twiml);
+      } else if (digits === '2') {
         await pool.query(
           `UPDATE sends SET status = 'canceled' WHERE batch_id = $1 AND status = 'scheduled'`,
           [session.data.sched_batch_id]
@@ -546,13 +551,13 @@ case 'history_menu': {
         say(twiml, "Done, that one won't go out.");
         await updateSession(callSid, 'main_menu');
         mainMenu(twiml);
-      } else if (digits === '2') {
+      } else if (digits === '3') {
         const next = idx + 1;
         const { current } = await announceScheduled(twiml, userId, next);
         if (current) {
           await updateSession(callSid, 'history_scheduled', { sched_index: next, sched_batch_id: current.batch_id });
           gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-            'To cancel it, press 1. For the next one, press 2.', { numDigits: 1 });
+            'To change the time, press 1. To cancel it, press 2. For the next one, press 3.', { numDigits: 1 });
         } else {
           await updateSession(callSid, 'main_menu');
           mainMenu(twiml);
@@ -1103,7 +1108,17 @@ case 'history_menu': {
     }
 
     case 'schedule_confirm': {
-      if (digits === '1') {
+      if (digits === '1' && session.data.editing_batch_id) {
+        const zone = await getUserTimezone(userId);
+        const when = DateTime.fromISO(session.data.broadcast_scheduled_at).setZone(zone);
+        await pool.query(
+          `UPDATE sends SET scheduled_at = $1 WHERE batch_id = $2 AND status = 'scheduled'`,
+          [when.toJSDate(), session.data.editing_batch_id]
+        );
+        say(twiml, `Updated — that's now going out ${when.toFormat("cccc 'at' h:mm a")}.`);
+        await updateSession(callSid, 'main_menu', { editing_batch_id: null });
+        mainMenu(twiml);
+      } else if (digits === '1') {
         await updateSession(callSid, 'broadcast_prefix_gate');
         await runPrefixGate(callSid, twiml, userId);
       } else {
@@ -1718,7 +1733,8 @@ async function recentBatches(userId, limit = 10) {
             MIN(s.scheduled_at) AS scheduled_at,
             COUNT(*) AS total,
             COUNT(*) FILTER (WHERE s.status = 'failed') AS failed,
-            MIN(m.title) AS title
+            MIN(m.title) AS title,
+            MIN(m.id) AS message_id
        FROM sends s
        LEFT JOIN messages m ON m.id = s.message_id
       WHERE s.user_id = $1 AND s.batch_id IS NOT NULL
@@ -2213,6 +2229,28 @@ router.post('/sms-incoming', async (req, res) => {
       }
 
       if (isTrusted) {
+        // A contact saved by phone in the last half hour is waiting on a name,
+        // so a plain reply is treated as that name rather than a new message.
+        const { rows: pending } = await pool.query(
+          `SELECT id, phone_number FROM contacts
+            WHERE user_id = $1 AND name_requested_at IS NOT NULL
+              AND name_requested_at > NOW() - INTERVAL '30 minutes'
+            ORDER BY name_requested_at DESC LIMIT 1`,
+          [user.id]
+        );
+
+        if (pending.length && body.length <= 60) {
+          const parts = body.trim().split(/\s+/);
+          const firstName = parts.shift();
+          const lastName = parts.length ? parts.join(' ') : null;
+          await pool.query(
+            `UPDATE contacts SET first_name = $1, last_name = $2, name = $3, name_requested_at = NULL WHERE id = $4`,
+            [firstName, lastName, body.trim(), pending[0].id]
+          );
+          twiml.message(`Saved — ${pending[0].phone_number} is now ${body.trim()}.`);
+          return res.type('text/xml').send(twiml.toString());
+        }
+
         await pool.query(
           `INSERT INTO messages (title, type, text_content, user_id) VALUES ($1, 'sms', $2, $3)`,
           [`Texted in`, body, user.id]
