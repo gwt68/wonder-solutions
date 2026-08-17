@@ -356,11 +356,211 @@ case 'pin_setup': {
     case 'main_menu': {
       if (digits === '1') { await startBroadcastCategorySelect(callSid, twiml); }
       else if (digits === '2') { await startReview(callSid, twiml, userId); }
-      else if (digits === '3') { await updateSession(callSid, 'contact_phone_entry'); contactPhoneEntry(twiml); }
-      else if (digits === '4') { await announceStatus(twiml, userId); }
+      else if (digits === '3') { await updateSession(callSid, 'contacts_menu'); contactsMenu(twiml); }
+      else if (digits === '4') { await updateSession(callSid, 'history_menu'); historyMenu(twiml); }
       else if (digits === '5') { await updateSession(callSid, 'settings_menu'); settingsMenu(twiml); }
       else if (digits === '8') { await startConferenceCreate(callSid, twiml, userId); }
       else { mainMenu(twiml, true); }
+      break;
+    }
+
+case 'contacts_menu': {
+      if (digits === '1') { await updateSession(callSid, 'contact_phone_entry'); contactPhoneEntry(twiml); }
+      else if (digits === '2') { await updateSession(callSid, 'contact_lookup'); lookupPrompt(twiml); }
+      else if (digits === '3') {
+        const groups = await announceGroups(twiml, userId);
+        if (groups.length) {
+          await updateSession(callSid, 'group_members_pick', { group_page: groups });
+          gatherDigits(twiml, `${BASE_URL}/voice/handle`, "To hear who's in one, press its number.", { numDigits: 1 });
+        } else {
+          await updateSession(callSid, 'main_menu');
+          mainMenu(twiml);
+        }
+      }
+      else if (digits === '4') { await updateSession(callSid, 'contact_group_new_record'); newGroupRecordPrompt(twiml); }
+      else { contactsMenu(twiml, true); }
+      break;
+    }
+
+    case 'group_members_pick': {
+      const groups = session.data.group_page || [];
+      const g = groups[parseInt(digits, 10) - 1];
+      if (!g) { await updateSession(callSid, 'main_menu'); mainMenu(twiml); break; }
+      const { rows } = await pool.query(
+        `SELECT c.name, c.first_name, c.last_name FROM contact_groups cg
+           JOIN contacts c ON c.id = cg.contact_id
+          WHERE cg.group_id = $1 ORDER BY c.first_name, c.name LIMIT 10`,
+        [g.id]
+      );
+      const total = parseInt(g.members, 10);
+      const names = rows.map((r) => [r.first_name, r.last_name].filter(Boolean).join(' ') || r.name || 'Unnamed').join('. ');
+      say(twiml, `${g.name} — ${total} contact${total === 1 ? '' : 's'}. ${names}.` +
+        (total > 10 ? ` And ${total - 10} more.` : ''));
+      await updateSession(callSid, 'main_menu');
+      say(twiml, "That's everyone.");
+      mainMenu(twiml);
+      break;
+    }
+
+    case 'contact_lookup': {
+      if (!digits || digits.length < 10) { lookupPrompt(twiml, true); break; }
+      const { rows } = await pool.query(
+        `SELECT * FROM contacts WHERE user_id = $2
+           AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
+        [digits, userId]
+      );
+      if (!rows.length) { lookupPrompt(twiml, true); break; }
+      await describeContact(twiml, rows[0], userId);
+      await updateSession(callSid, 'contact_lookup_action', { lookup_contact_id: rows[0].id });
+      gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+        'To change how they get messages, press 1. To change their group, press 2.', { numDigits: 1 });
+      break;
+    }
+
+    case 'contact_lookup_action': {
+      if (digits === '1') {
+        await updateSession(callSid, 'contact_lookup_method');
+        methodSelect(twiml);
+      } else if (digits === '2') {
+        const groups = await pool.query('SELECT id, name FROM groups WHERE user_id = $1 ORDER BY id', [userId]);
+        if (!groups.rows.length) { say(twiml, "You haven't got any groups yet."); await updateSession(callSid, 'main_menu'); mainMenu(twiml); break; }
+        await updateSession(callSid, 'contact_lookup_group', { group_page: groups.rows });
+        broadcastGroupList(twiml, groups.rows);
+      } else {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      }
+      break;
+    }
+
+    case 'contact_lookup_method': {
+      const methodMap = { '1': 'sms', '2': 'call', '3': 'voice_note' };
+      const m = methodMap[digits];
+      if (!m) { methodSelect(twiml, true); break; }
+      await pool.query('UPDATE contacts SET preferred_method = $1, methods = ARRAY[$1::text] WHERE id = $2 AND user_id = $3',
+        [m, session.data.lookup_contact_id, userId]);
+      say(twiml, 'Updated.');
+      await updateSession(callSid, 'main_menu');
+      mainMenu(twiml);
+      break;
+    }
+
+    case 'contact_lookup_group': {
+      const groups = session.data.group_page || [];
+      const g = groups[parseInt(digits, 10) - 1];
+      if (!g) { broadcastGroupList(twiml, groups, true); break; }
+      await pool.query(
+        `INSERT INTO contact_groups (contact_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [session.data.lookup_contact_id, g.id]
+      );
+      say(twiml, `Added to ${g.name}.`);
+      await updateSession(callSid, 'main_menu');
+      mainMenu(twiml);
+      break;
+    }
+
+case 'history_menu': {
+      if (digits === '1') {
+        const b = await announceBatch(twiml, userId, 0);
+        if (b) {
+          await updateSession(callSid, 'history_batch', { batch_index: 0 });
+          gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+            'To hear which ones failed, press 1. For the one before it, press 2.', { numDigits: 1 });
+        } else {
+          await updateSession(callSid, 'main_menu');
+          mainMenu(twiml);
+        }
+      } else if (digits === '2') {
+        const { current } = await announceScheduled(twiml, userId, 0);
+        if (current) {
+          await updateSession(callSid, 'history_scheduled', { sched_index: 0, sched_batch_id: current.batch_id });
+          gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+            'To cancel it, press 1. For the next one, press 2.', { numDigits: 1 });
+        } else {
+          await updateSession(callSid, 'main_menu');
+          mainMenu(twiml);
+        }
+      } else if (digits === '3') {
+        const { rows } = await pool.query(
+          `SELECT COUNT(DISTINCT batch_id) AS broadcasts, COUNT(*) AS total,
+                  COUNT(*) FILTER (WHERE status = 'failed') AS failed
+             FROM sends WHERE user_id = $1 AND sent_at::date = CURRENT_DATE`,
+          [userId]
+        );
+        const r = rows[0];
+        say(twiml, `Today you've sent ${r.broadcasts} broadcast${r.broadcasts === '1' ? '' : 's'} — ` +
+          `${r.total} message${r.total === '1' ? '' : 's'} out, ${r.failed} didn't go through.`);
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      } else {
+        historyMenu(twiml, true);
+      }
+      break;
+    }
+
+    case 'history_batch': {
+      const idx = session.data.batch_index || 0;
+      if (digits === '1') {
+        const batches = await recentBatches(userId);
+        const b = batches[idx];
+        const { rows } = await pool.query(
+          `SELECT c.name, c.first_name, c.last_name, s.error_message, s.delivery_status
+             FROM sends s LEFT JOIN contacts c ON c.id = s.contact_id
+            WHERE s.batch_id = $1 AND s.status = 'failed' LIMIT 10`,
+          [b.batch_id]
+        );
+        if (!rows.length) say(twiml, 'None of them failed.');
+        else {
+          const list = rows.map((r) => {
+            const who = [r.first_name, r.last_name].filter(Boolean).join(' ') || r.name || 'A contact';
+            return `${who} — ${r.delivery_status || r.error_message || 'no answer'}.`;
+          }).join(' ');
+          say(twiml, `${rows.length} didn't go through. ${list}`);
+        }
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'For the one before it, press 2.', { numDigits: 1 });
+      } else if (digits === '2') {
+        const next = idx + 1;
+        const b = await announceBatch(twiml, userId, next);
+        if (b) {
+          await updateSession(callSid, 'history_batch', { batch_index: next });
+          gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+            'To hear which ones failed, press 1. For the one before it, press 2.', { numDigits: 1 });
+        } else {
+          await updateSession(callSid, 'main_menu');
+          mainMenu(twiml);
+        }
+      } else {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      }
+      break;
+    }
+
+    case 'history_scheduled': {
+      const idx = session.data.sched_index || 0;
+      if (digits === '1') {
+        await pool.query(
+          `UPDATE sends SET status = 'canceled' WHERE batch_id = $1 AND status = 'scheduled'`,
+          [session.data.sched_batch_id]
+        );
+        say(twiml, "Done, that one won't go out.");
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      } else if (digits === '2') {
+        const next = idx + 1;
+        const { current } = await announceScheduled(twiml, userId, next);
+        if (current) {
+          await updateSession(callSid, 'history_scheduled', { sched_index: next, sched_batch_id: current.batch_id });
+          gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+            'To cancel it, press 1. For the next one, press 2.', { numDigits: 1 });
+        } else {
+          await updateSession(callSid, 'main_menu');
+          mainMenu(twiml);
+        }
+      } else {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      }
       break;
     }
 
@@ -388,7 +588,7 @@ case 'pin_setup': {
     }
 
     case 'trusted_menu': {
-      if (digits === '1') { await announceTrusted(twiml, userId); await updateSession(callSid, 'main_menu'); mainMenu(twiml); }
+      if (digits === '1') { await announceTrusted(twiml, userId); trustedMenu(twiml); }
       else if (digits === '2') { await updateSession(callSid, 'trusted_add_entry'); trustedAddPrompt(twiml); }
       else if (digits === '3') { await startTrustedRemove(callSid, twiml, userId, req.body.From); }
       else { trustedMenu(twiml, true); }
@@ -416,9 +616,9 @@ case 'pin_setup': {
           [userId, formatted]
         );
         notifyOwner(userId, `${formatted} was just added as a trusted number. Wasn't you? Remove it from Settings.`);
-        await updateSession(callSid, 'main_menu');
+        await updateSession(callSid, 'trusted_menu');
         say(twiml, "Added. I've texted you a heads-up too.");
-        mainMenu(twiml);
+        trustedMenu(twiml);
       } else {
         await updateSession(callSid, 'trusted_add_entry');
         trustedAddPrompt(twiml);
@@ -488,9 +688,18 @@ case 'pin_setup': {
           `INSERT INTO messages (title, type, audio_url, user_id) VALUES ($1, 'voice_note', $2, $3) RETURNING id`,
           [`Recorded by phone`, session.data.pending_recording_url, userId]
         );
-        await updateSession(callSid, 'main_menu', { last_message_id: rows[0].id });
-        say(twiml, 'Message saved.');
-        mainMenu(twiml);
+        if (session.data.for_broadcast) {
+          await updateSession(callSid, 'broadcast_target_select', {
+            broadcast_message_id: rows[0].id,
+            broadcast_message_title: `Message ${rows[0].id}`,
+          });
+          say(twiml, `Nice. Saved as message ${spokenDigits(rows[0].id)}.`);
+          broadcastTargetPrompt(twiml);
+        } else {
+          await updateSession(callSid, 'main_menu', { last_message_id: rows[0].id });
+          say(twiml, 'Saved.');
+          mainMenu(twiml);
+        }
       } else if (digits === '2') {
         twiml.play(session.data.pending_recording_url);
         recordReviewPrompt(twiml);
@@ -539,7 +748,7 @@ case 'pin_setup': {
     }
 
     case 'contact_phone_confirm': {
-      if (digits === '1') { await updateSession(callSid, 'contact_name_offer'); nameOffer(twiml); }
+      if (digits === '1') { await updateSession(callSid, 'contact_method_select'); methodSelect(twiml); }
       else { await updateSession(callSid, 'contact_phone_entry'); contactPhoneEntry(twiml); }
       break;
     }
@@ -728,10 +937,198 @@ case 'pin_setup': {
       break;
     }
 
+    case 'broadcast_source': {
+      if (digits === '1') {
+        await updateSession(callSid, 'record_prompt', { for_broadcast: true });
+        recordPrompt(twiml);
+      } else if (digits === '2') {
+        const { rows } = await pool.query(
+          `SELECT id, title FROM messages WHERE user_id = $1 ORDER BY created_at DESC LIMIT 9`,
+          [userId]
+        );
+        if (!rows.length) {
+          say(twiml, "You haven't got any saved messages yet.");
+          await updateSession(callSid, 'main_menu');
+          mainMenu(twiml);
+          break;
+        }
+        await updateSession(callSid, 'broadcast_message_select', { broadcast_messages: rows });
+        broadcastMessageList(twiml, rows);
+      } else {
+        broadcastSourcePrompt(twiml, true);
+      }
+      break;
+    }
+
+    case 'broadcast_message_select': {
+      const messages = session.data.broadcast_messages || [];
+      const picked = digits && messages.find((m) => String(m.id) === digits);
+      if (picked) {
+        await updateSession(callSid, 'broadcast_target_select', {
+          broadcast_message_id: picked.id, broadcast_message_title: picked.title,
+        });
+        broadcastTargetPrompt(twiml);
+      } else {
+        broadcastMessageList(twiml, messages, true);
+      }
+      break;
+    }
+
+    case 'broadcast_target_select': {
+      if (digits === '1') { await updateSession(callSid, 'broadcast_contact_phone_entry'); broadcastContactPhoneEntry(twiml); }
+      else if (digits === '2') {
+        const groups = await pool.query('SELECT id, name FROM groups WHERE user_id = $1 ORDER BY id', [userId]);
+        if (!groups.rows.length) { say(twiml, "You haven't got any groups yet."); broadcastTargetPrompt(twiml); }
+        else { await updateSession(callSid, 'broadcast_group_pick', { group_page: groups.rows }); broadcastGroupList(twiml, groups.rows); }
+      } else if (digits === '3') {
+        await updateSession(callSid, 'broadcast_method_select', { broadcast_target: 'all' });
+        broadcastMethodPrompt(twiml);
+      } else {
+        broadcastTargetPrompt(twiml, true);
+      }
+      break;
+    }
+
+    case 'broadcast_contact_phone_entry': {
+      if (digits && digits.length >= 10) {
+        const { rows } = await pool.query(
+          `SELECT id, name, first_name, last_name FROM contacts
+            WHERE user_id = $2 AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
+          [digits, userId]
+        );
+        if (rows.length) {
+          const who = [rows[0].first_name, rows[0].last_name].filter(Boolean).join(' ') || rows[0].name || 'that contact';
+          await updateSession(callSid, 'broadcast_method_select', {
+            broadcast_target: 'contact', broadcast_contact_id: rows[0].id, broadcast_contact_name: who,
+          });
+          say(twiml, `That's ${who}.`);
+          broadcastMethodPrompt(twiml);
+        } else {
+          broadcastContactPhoneEntry(twiml, true);
+        }
+      } else {
+        broadcastContactPhoneEntry(twiml, true);
+      }
+      break;
+    }
+
+    case 'broadcast_group_pick': {
+      const groupRows = session.data.group_page || [];
+      const idx = parseInt(digits, 10) - 1;
+      const group = groupRows[idx];
+      if (group) {
+        await updateSession(callSid, 'broadcast_method_select', {
+          broadcast_target: 'group', broadcast_group_id: group.id, broadcast_group_name: group.name,
+        });
+        broadcastMethodPrompt(twiml);
+      } else {
+        broadcastGroupList(twiml, groupRows, true);
+      }
+      break;
+    }
+
+    case 'broadcast_method_select': {
+      const methodMap = { '1': 'assigned', '2': 'call', '3': 'sms', '4': 'voice_note' };
+      const method = methodMap[digits];
+      if (!method) { broadcastMethodPrompt(twiml, true); break; }
+      await updateSession(callSid, 'broadcast_when_select', { broadcast_method: method });
+      broadcastWhenPrompt(twiml);
+      break;
+    }
+
+    case 'broadcast_when_select': {
+      if (digits === '1') {
+        await updateSession(callSid, 'broadcast_prefix_gate', { broadcast_scheduled_at: null });
+        await runPrefixGate(callSid, twiml, userId);
+      } else if (digits === '2') {
+        await updateSession(callSid, 'schedule_day');
+        scheduleDayPrompt(twiml);
+      } else {
+        broadcastWhenPrompt(twiml, true);
+      }
+      break;
+    }
+
+    case 'schedule_day': {
+      if (!['1', '2', '3'].includes(digits)) { scheduleDayPrompt(twiml, true); break; }
+      if (digits === '3') {
+        await updateSession(callSid, 'schedule_date', { sched_day: digits });
+        scheduleDatePrompt(twiml);
+      } else {
+        await updateSession(callSid, 'schedule_time', { sched_day: digits });
+        scheduleTimePrompt(twiml);
+      }
+      break;
+    }
+
+    case 'schedule_date': {
+      if (!/^\d{4}$/.test(digits || '')) { scheduleDatePrompt(twiml, true); break; }
+      await updateSession(callSid, 'schedule_time', { sched_date: digits });
+      scheduleTimePrompt(twiml);
+      break;
+    }
+
+    case 'schedule_time': {
+      if (!/^\d{4}$/.test(digits || '')) { scheduleTimePrompt(twiml, true); break; }
+      const hh = parseInt(digits.slice(0, 2), 10);
+      const mm = parseInt(digits.slice(2, 4), 10);
+      if (hh < 1 || hh > 12 || mm > 59) { scheduleTimePrompt(twiml, true); break; }
+      await updateSession(callSid, 'schedule_ampm', { sched_time: digits });
+      scheduleAmPmPrompt(twiml);
+      break;
+    }
+
+    case 'schedule_ampm': {
+      if (!['1', '2'].includes(digits)) { scheduleAmPmPrompt(twiml, true); break; }
+      const zone = await getUserTimezone(userId);
+      const dt = buildScheduledDate(session.data.sched_day, session.data.sched_date, session.data.sched_time, digits, zone);
+      if (!dt) {
+        await updateSession(callSid, 'schedule_day');
+        say(twiml, "That date didn't work out. Let's try again.");
+        scheduleDayPrompt(twiml);
+        break;
+      }
+      if (dt < DateTime.now().setZone(zone)) {
+        await updateSession(callSid, 'schedule_day');
+        say(twiml, "That time's already passed. Let's pick another.");
+        scheduleDayPrompt(twiml);
+        break;
+      }
+      await updateSession(callSid, 'schedule_confirm', { sched_ampm: digits, broadcast_scheduled_at: dt.toISO() });
+      gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+        `So that's ${dt.toFormat('cccc, LLLL d, yyyy')}, at ${dt.toFormat('h:mm')} ${digits === '1' ? 'A M' : 'P M'}. ` +
+        `Press 1 if that's right, or 2 to enter it again.`,
+        { numDigits: 1 });
+      break;
+    }
+
+    case 'schedule_confirm': {
+      if (digits === '1') {
+        await updateSession(callSid, 'broadcast_prefix_gate');
+        await runPrefixGate(callSid, twiml, userId);
+      } else {
+        await updateSession(callSid, 'schedule_day');
+        scheduleDayPrompt(twiml);
+      }
+      break;
+    }
+
+    case 'broadcast_prefix_ask': {
+      if (digits === '1' || digits === '2') {
+        await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: digits === '1' });
+        await broadcastConfirmPrompt(callSid, twiml, userId);
+      } else {
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          `Should this start with "${session.data.broadcast_group_name}"? Press 1 for yes, 2 for no.`,
+          { numDigits: 1 });
+      }
+      break;
+    }
+
     case 'broadcast_confirm': {
       if (digits === '1') await executeBroadcast(callSid, twiml, userId);
       else {
-        twiml.say('Cancelled.', SAY_OPTS);
+        say(twiml, 'No worries, cancelled.');
         await updateSession(callSid, 'main_menu');
         mainMenu(twiml);
       }
@@ -1001,14 +1398,98 @@ async function saveContact(callSid, twiml, groupId, userId) {
     );
   }
 
+  await pool.query('UPDATE contacts SET name_requested_at = NOW() WHERE id = $1', [contactId]);
+  notifyOwner(userId, `Contact ${phone} saved.\nReply with a name if you'd like to add one.`);
+
   await updateSession(callSid, 'contact_saved_next');
-  twiml.say('Contact saved.', SAY_OPTS);
-  gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'Press 1 to add another contact, press 2 to return to the main menu.', { numDigits: 1 });
+  say(twiml, "All set. I'll text you so you can add their name.");
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    'To add another, press 1. Otherwise press star.', { numDigits: 1 });
 }
 
 async function startBroadcastCategorySelect(callSid, twiml) {
-  await updateSession(callSid, 'broadcast_category_select');
-  broadcastCategoryPrompt(twiml);
+  await updateSession(callSid, 'broadcast_source');
+  broadcastSourcePrompt(twiml);
+}
+
+function broadcastSourcePrompt(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}Which message? To record something new, press 1. To pick from what you've saved, press 2.`,
+    { numDigits: 1 });
+}
+
+function broadcastMethodPrompt(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}How should this go out? To use each contact's usual method, press 1. ` +
+    `For a phone call, press 2. For a text, press 3. For a voice note, press 4.`,
+    { numDigits: 1 });
+}
+
+function broadcastWhenPrompt(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}When should this go out? To send it right now, press 1. To schedule it, press 2.`,
+    { numDigits: 1 });
+}
+
+function scheduleDayPrompt(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}For today, press 1. For tomorrow, press 2. For another day, press 3.`,
+    { numDigits: 1 });
+}
+
+function scheduleDatePrompt(twiml, retry = false) {
+  const prefix = retry ? "That didn't look like a date. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}What date? Enter four digits, month then day. For August 20th, press zero, eight, two, zero.`,
+    { numDigits: 4 });
+}
+
+function scheduleTimePrompt(twiml, retry = false) {
+  const prefix = retry ? "That didn't look like a time. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}What time? Enter four digits. For 10:15, press one, zero, one, five. ` +
+    `For 1:30, press zero, one, three, zero.`,
+    { numDigits: 4 });
+}
+
+function scheduleAmPmPrompt(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}For A M, press 1. For P M, press 2.`, { numDigits: 1 });
+}
+
+// Builds the scheduled time from the pieces the caller dialed. The year rolls
+// forward based on the DATE alone — comparing date+time would push a same-day
+// past time a full year out.
+function buildScheduledDate(dayChoice, mmdd, hhmm, ampm, zone) {
+  const now = DateTime.now().setZone(zone);
+  let month;
+  let day;
+  let year = now.year;
+
+  if (dayChoice === '1') {
+    month = now.month; day = now.day;
+  } else if (dayChoice === '2') {
+    const t = now.plus({ days: 1 });
+    month = t.month; day = t.day; year = t.year;
+  } else {
+    month = parseInt(mmdd.slice(0, 2), 10);
+    day = parseInt(mmdd.slice(2, 4), 10);
+    const probe = DateTime.fromObject({ year: now.year, month, day }, { zone });
+    if (!probe.isValid) return null;
+    year = probe.startOf('day') < now.startOf('day') ? now.year + 1 : now.year;
+  }
+
+  let hour = parseInt(hhmm.slice(0, 2), 10) % 12;
+  const minute = parseInt(hhmm.slice(2, 4), 10);
+  if (ampm === '2') hour += 12;
+
+  const dt = DateTime.fromObject({ year, month, day, hour, minute }, { zone });
+  return dt.isValid ? dt : null;
 }
 
 function broadcastCategoryPrompt(twiml, retry = false) {
@@ -1034,10 +1515,16 @@ async function startBroadcastMessageSelect(callSid, twiml, types, userId) {
 }
 
 function broadcastMessageList(twiml, messages, retry = false) {
-  const prefix = retry ? "Sorry, I didn't get that. " : '';
-  const list = messages.map((m, i) => `Message ${i + 1}: ${m.title || 'Untitled'}.`).join(' ');
+  const prefix = retry ? "Hmm, I didn't catch that. " : '';
+  if (!messages.length) {
+    say(twiml, "You haven't got any saved recordings yet.");
+    return;
+  }
+  const list = messages
+    .map((m) => `Message ${spokenDigits(m.id)} — ${m.title || 'untitled'}.`)
+    .join(' ');
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `${prefix}${list} Press the message number, or enter a message I D followed by pound to pick any saved message, or 0 to cancel.`,
+    `${prefix}Here's what you've got. ${list} Press the I D of the one you want, then pound.`,
     { finishOnKey: '#' });
 }
 
@@ -1057,59 +1544,64 @@ function broadcastGroupList(twiml, groups, retry = false) {
   gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}${names} Press the group number, or 0 to cancel.`);
 }
 
-async function broadcastConfirmPrompt(callSid, twiml, userId) {
+// Decides whether to ask about the group-name prefix, then moves to confirm.
+async function runPrefixGate(callSid, twiml, userId) {
   const session = await getSession(callSid);
-  const target = session.data.broadcast_target;
-  let targetDesc = '';
+  const isGroup = session.data.broadcast_target === 'group';
+  const mode = await getGroupPrefixMode(userId);
 
-  if (target === 'contact') {
-    targetDesc = session.data.broadcast_contact_name || 'that contact';
-  } else if (target === 'group') {
-    const { rows } = await pool.query('SELECT COUNT(*) FROM contact_groups WHERE group_id = $1', [session.data.broadcast_group_id]);
-    const count = parseInt(rows[0].count, 10);
-    targetDesc = `the group ${session.data.broadcast_group_name}, ${count} contact${count === 1 ? '' : 's'}`;
-
-    const prefixMode = await getGroupPrefixMode(userId);
-    if (prefixMode === 'always') {
-      await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: true });
-    } else if (prefixMode === 'ask') {
-      twiml.say(`Should this message start with "${session.data.broadcast_group_name}"?`, SAY_OPTS);
-      gatherDigits(twiml, `${BASE_URL}/voice/handle`, 'Press 1 for yes, press 2 for no.', { numDigits: 1 });
-      await updateSession(callSid, 'broadcast_prefix_ask');
-      return;
-    }
-  } else {
-    const { rows } = await pool.query('SELECT COUNT(*) FROM contacts WHERE user_id = $1', [userId]);
-    const count = parseInt(rows[0].count, 10);
-    targetDesc = `everyone, ${count} contact${count === 1 ? '' : 's'}`;
+  if (!isGroup || mode === 'never') {
+    await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: false });
+    await broadcastConfirmPrompt(callSid, twiml, userId);
+    return;
   }
-
+  if (mode === 'always') {
+    await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: true });
+    await broadcastConfirmPrompt(callSid, twiml, userId);
+    return;
+  }
+  await updateSession(callSid, 'broadcast_prefix_ask');
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `You are about to send ${session.data.broadcast_message_title || 'this message'} to ${targetDesc}. Press 1 to send now, press 2 to cancel.`,
+    `Should this start with "${session.data.broadcast_group_name}"? Press 1 for yes, 2 for no.`,
     { numDigits: 1 });
 }
 
-// Re-renders the "you're about to send X to Y" confirmation without the
-// prefix-mode branching, used after the prefix-ask step has already run.
-async function broadcastConfirmPromptFinal(callSid, twiml, userId) {
-  const session = await getSession(callSid);
-  const target = session.data.broadcast_target;
-  let targetDesc = '';
+const SPOKEN_METHOD = {
+  assigned: 'each contact\u2019s usual method',
+  call: 'phone call',
+  sms: 'text',
+  voice_note: 'voice note',
+};
 
-  if (target === 'contact') {
-    targetDesc = session.data.broadcast_contact_name || 'that contact';
-  } else if (target === 'group') {
-    const { rows } = await pool.query('SELECT COUNT(*) FROM contact_groups WHERE group_id = $1', [session.data.broadcast_group_id]);
-    const count = parseInt(rows[0].count, 10);
-    targetDesc = `the group ${session.data.broadcast_group_name}, ${count} contact${count === 1 ? '' : 's'}`;
+async function broadcastConfirmPrompt(callSid, twiml, userId) {
+  const session = await getSession(callSid);
+  const d = session.data;
+  let targetDesc = '';
+  let count = 0;
+
+  if (d.broadcast_target === 'contact') {
+    targetDesc = d.broadcast_contact_name || 'that contact';
+    count = 1;
+  } else if (d.broadcast_target === 'group') {
+    const { rows } = await pool.query('SELECT COUNT(*) FROM contact_groups WHERE group_id = $1', [d.broadcast_group_id]);
+    count = parseInt(rows[0].count, 10);
+    targetDesc = `${d.broadcast_group_name} — that's ${count} contact${count === 1 ? '' : 's'}`;
   } else {
     const { rows } = await pool.query('SELECT COUNT(*) FROM contacts WHERE user_id = $1', [userId]);
-    const count = parseInt(rows[0].count, 10);
-    targetDesc = `everyone, ${count} contact${count === 1 ? '' : 's'}`;
+    count = parseInt(rows[0].count, 10);
+    targetDesc = `everyone — that's ${count} contact${count === 1 ? '' : 's'}`;
+  }
+
+  let whenDesc = 'right now';
+  if (d.broadcast_scheduled_at) {
+    const zone = await getUserTimezone(userId);
+    whenDesc = `on ${DateTime.fromISO(d.broadcast_scheduled_at).setZone(zone).toFormat("cccc 'at' h:mm a")}`;
   }
 
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `You are about to send ${session.data.broadcast_message_title || 'this message'} to ${targetDesc}. Press 1 to send now, press 2 to cancel.`,
+    `Alright, here's what I've got. Sending "${d.broadcast_message_title || 'your message'}" to ${targetDesc}, ` +
+    `by ${SPOKEN_METHOD[d.broadcast_method] || 'their usual method'}, ${whenDesc}. ` +
+    `Press 1 to send it, or 2 to cancel.`,
     { numDigits: 1 });
 }
 
@@ -1135,13 +1627,23 @@ async function executeBroadcast(callSid, twiml, userId) {
     if (broadcast_target === 'group' && broadcast_include_prefix && broadcast_group_name) {
       effectiveMessageId = await cloneMessageWithGroupPrefix(broadcast_message_id, broadcast_group_name, userId);
     }
-    const recipients = contactIds.map((id) => ({ contact_id: id }));
+    const method = session.data.broadcast_method;
+    const useSpecific = method && method !== 'assigned';
+    const recipients = contactIds.map((id) => (useSpecific ? { contact_id: id, methods: [method] } : { contact_id: id }));
+    const scheduledAt = session.data.broadcast_scheduled_at || null;
     try {
-      const result = await createSendBatch({ message_id: effectiveMessageId, recipients, userId });
-      twiml.say(`Sent to ${result.count} recipient${result.count === 1 ? '' : 's'}.`, SAY_OPTS);
+      const result = await createSendBatch({
+        message_id: effectiveMessageId, recipients, userId, scheduled_at: scheduledAt,
+      });
+      if (scheduledAt) {
+        const zone = await getUserTimezone(userId);
+        say(twiml, `Done — that's scheduled for ${result.count} contact${result.count === 1 ? '' : 's'} on ${DateTime.fromISO(scheduledAt).setZone(zone).toFormat("cccc 'at' h:mm a")}.`);
+      } else {
+        say(twiml, `Done — it's going out to ${result.count} contact${result.count === 1 ? '' : 's'} now.`);
+      }
     } catch (err) {
       console.error('IVR broadcast error:', err);
-      twiml.say('Something went wrong sending the message.', SAY_OPTS);
+      say(twiml, 'Something went wrong sending that. Nothing went out.');
     }
   }
   await updateSession(callSid, 'main_menu');
@@ -1159,6 +1661,107 @@ async function startPrefixSetting(callSid, twiml, userId) {
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
     `${current} To have them always start with the group name, press 1. To turn that off, press 2. To be asked each time, press 3.`,
     { numDigits: 1 });
+}
+
+function contactsMenu(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}To add a contact, press 1. To look someone up, press 2. ` +
+    `To hear your groups, press 3. To make a new group, press 4.`,
+    { numDigits: 1 });
+}
+
+function lookupPrompt(twiml, retry = false) {
+  const prefix = retry ? "I couldn't find anyone with that number. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}What's the number? Enter it, then press pound.`, { finishOnKey: '#' });
+}
+
+async function describeContact(twiml, contact, userId) {
+  const who = [contact.first_name, contact.last_name].filter(Boolean).join(' ') || contact.name || 'That contact';
+  const { rows } = await pool.query(
+    `SELECT g.name FROM contact_groups cg JOIN groups g ON g.id = cg.group_id WHERE cg.contact_id = $1`,
+    [contact.id]
+  );
+  const groupPart = rows.length
+    ? ` and ${rows.length === 1 ? "they're in " : "they're in "}${rows.map((r) => r.name).join(', ')}`
+    : ", and they're not in any group";
+  const methodLabel = { sms: 'texts', call: 'phone calls', voice_note: 'voice notes' }[contact.preferred_method] || contact.preferred_method;
+  say(twiml, `That's ${who}. They're set to ${methodLabel}${groupPart}.`);
+}
+
+async function announceGroups(twiml, userId) {
+  const { rows } = await pool.query(
+    `SELECT g.id, g.name, COUNT(cg.contact_id) AS members
+       FROM groups g LEFT JOIN contact_groups cg ON cg.group_id = g.id
+      WHERE g.user_id = $1 GROUP BY g.id, g.name ORDER BY g.id`,
+    [userId]
+  );
+  if (!rows.length) { say(twiml, "You haven't got any groups yet."); return []; }
+  const list = rows.map((g, i) => `Group ${i + 1} — ${g.name}, ${g.members} contact${g.members === '1' ? '' : 's'}.`).join(' ');
+  say(twiml, `You've got ${rows.length} group${rows.length === 1 ? '' : 's'}. ${list}`);
+  return rows;
+}
+
+function historyMenu(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}For your last broadcast, press 1. For anything scheduled, press 2. For today's numbers, press 3.`,
+    { numDigits: 1 });
+}
+
+// Groups recent sends by batch so we can talk about "broadcasts" not rows.
+async function recentBatches(userId, limit = 10) {
+  const { rows } = await pool.query(
+    `SELECT s.batch_id,
+            MIN(s.sent_at) AS sent_at,
+            MIN(s.scheduled_at) AS scheduled_at,
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE s.status = 'failed') AS failed,
+            MIN(m.title) AS title
+       FROM sends s
+       LEFT JOIN messages m ON m.id = s.message_id
+      WHERE s.user_id = $1 AND s.batch_id IS NOT NULL
+      GROUP BY s.batch_id
+      ORDER BY MIN(COALESCE(s.sent_at, s.scheduled_at)) DESC
+      LIMIT $2`,
+    [userId, limit]
+  );
+  return rows;
+}
+
+async function announceBatch(twiml, userId, index) {
+  const batches = await recentBatches(userId);
+  const b = batches[index];
+  if (!b) { say(twiml, "That's as far back as I've got."); return null; }
+  const zone = await getUserTimezone(userId);
+  const when = b.sent_at
+    ? DateTime.fromJSDate(b.sent_at, { zone: 'utc' }).setZone(zone).toFormat("cccc 'at' h:mm a")
+    : 'recently';
+  const total = parseInt(b.total, 10);
+  const failed = parseInt(b.failed, 10);
+  say(twiml, `${when} you sent "${b.title || 'a message'}" to ${total} contact${total === 1 ? '' : 's'}. ` +
+    `${total - failed} went through, ${failed} didn't.`);
+  return b;
+}
+
+async function announceScheduled(twiml, userId, index) {
+  const { rows } = await pool.query(
+    `SELECT s.batch_id, MIN(s.scheduled_at) AS scheduled_at, COUNT(*) AS total, MIN(m.title) AS title
+       FROM sends s LEFT JOIN messages m ON m.id = s.message_id
+      WHERE s.user_id = $1 AND s.status = 'scheduled' AND s.scheduled_at > NOW()
+      GROUP BY s.batch_id ORDER BY MIN(s.scheduled_at) ASC`,
+    [userId]
+  );
+  if (!rows.length) { say(twiml, 'Nothing scheduled right now.'); return { list: [], current: null }; }
+  const current = rows[index];
+  if (!current) { say(twiml, "That's all of them."); return { list: rows, current: null }; }
+  const zone = await getUserTimezone(userId);
+  const when = DateTime.fromJSDate(current.scheduled_at, { zone: 'utc' }).setZone(zone).toFormat("cccc 'at' h:mm a");
+  const total = parseInt(current.total, 10);
+  if (index === 0) say(twiml, `You've got ${rows.length} scheduled.`);
+  say(twiml, `"${current.title || 'A message'}" to ${total} contact${total === 1 ? '' : 's'}, ${when}.`);
+  return { list: rows, current };
 }
 
 async function announceTrusted(twiml, userId) {
