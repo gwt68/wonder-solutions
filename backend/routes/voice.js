@@ -39,7 +39,7 @@ async function getSession(callSid) {
 async function updateSession(callSid, step, dataPatch = {}, attempts = null) {
   const { rows } = await pool.query(
     `UPDATE call_sessions
-     SET step = $1, data = data || $2::jsonb, attempts = COALESCE($3, attempts), updated_at = NOW()
+     SET step = $1, data = data || $2::jsonb, attempts = COALESCE($3, 0), updated_at = NOW()
      WHERE call_sid = $4
      RETURNING *`,
     [step, JSON.stringify(dataPatch), attempts, callSid]
@@ -103,12 +103,78 @@ async function notifyOwner(userId, body) {
   }
 }
 
+// Which menu "go back" returns to from each step.
+const PARENT_STEP = {
+  settings_menu: 'main_menu',
+  trusted_menu: 'settings_menu',
+  trusted_add_entry: 'trusted_menu',
+  trusted_add_confirm: 'trusted_menu',
+  trusted_remove_pick: 'trusted_menu',
+  trusted_remove_confirm: 'trusted_menu',
+  prefix_setting: 'settings_menu',
+  pin_change_entry: 'settings_menu',
+  pin_change_confirm: 'settings_menu',
+  contacts_menu: 'main_menu',
+  contact_phone_entry: 'contacts_menu',
+  contact_phone_confirm: 'contacts_menu',
+  contact_method_select: 'contacts_menu',
+  contact_group_offer: 'contacts_menu',
+  contact_group_list: 'contacts_menu',
+  contact_lookup: 'contacts_menu',
+  contact_lookup_action: 'contacts_menu',
+  contact_lookup_method: 'contacts_menu',
+  contact_lookup_group: 'contacts_menu',
+  group_members_pick: 'contacts_menu',
+  history_menu: 'main_menu',
+  history_batch: 'history_menu',
+  history_scheduled: 'history_menu',
+  broadcast_source: 'main_menu',
+  broadcast_message_select: 'broadcast_source',
+  broadcast_target_select: 'broadcast_source',
+  broadcast_contact_phone_entry: 'broadcast_target_select',
+  broadcast_group_pick: 'broadcast_target_select',
+  broadcast_method_select: 'broadcast_target_select',
+  broadcast_when_select: 'broadcast_method_select',
+  schedule_day: 'broadcast_when_select',
+  schedule_date: 'schedule_day',
+  schedule_time: 'schedule_day',
+  schedule_ampm: 'schedule_day',
+  schedule_confirm: 'schedule_day',
+};
+
+// Steps where the caller shouldn't be offered navigation — mid-authentication.
+const NO_NAV_STEPS = new Set(['pin_setup', 'pin_setup_confirm', 'pin_entry', 'pin_gate']);
+
+// Re-renders whichever menu a step belongs to, so an action never dumps the
+// caller back at the top by surprise.
+async function showMenu(step, twiml, callSid, userId) {
+  await updateSession(callSid, step);
+  if (step === 'settings_menu') settingsMenu(twiml);
+  else if (step === 'trusted_menu') trustedMenu(twiml);
+  else if (step === 'contacts_menu') contactsMenu(twiml);
+  else if (step === 'history_menu') historyMenu(twiml);
+  else if (step === 'broadcast_source') broadcastSourcePrompt(twiml);
+  else if (step === 'broadcast_target_select') broadcastTargetPrompt(twiml);
+  else if (step === 'broadcast_method_select') broadcastMethodPrompt(twiml);
+  else if (step === 'broadcast_when_select') broadcastWhenPrompt(twiml);
+  else if (step === 'schedule_day') scheduleDayPrompt(twiml);
+  else mainMenu(twiml);
+}
+
+// Pulls the spoken text back out of the generated TwiML so "repeat" can say
+// it again without every prompt needing to register itself.
+function extractSpoken(xml) {
+  const parts = [...xml.matchAll(/<Say[^>]*>([\s\S]*?)<\/Say>/g)].map((m) => m[1]);
+  return parts.join(' ').replace(/<[^>]+>/g, '').trim().slice(0, 900);
+}
+
 function gatherDigits(twiml, action, prompt, opts = {}) {
   const gather = livelyVoice(twiml.gather({
     numDigits: opts.numDigits, finishOnKey: opts.finishOnKey ?? '#',
     action, method: 'POST', timeout: opts.timeout ?? 8,
   }));
-  gather.say(prompt, SAY_OPTS);
+  const nav = opts.noNav ? '' : ' To go back, press 9. For the main menu, press star.';
+  gather.say(`${prompt}${nav}`, SAY_OPTS);
   twiml.redirect(action.replace('/handle', '/repeat'));
   return twiml;
 }
@@ -132,20 +198,20 @@ function pinSetupPrompt(twiml, lead) {
     || "Hi, and welcome to Wonder Solutions. Since this is your first time calling in, let's set up a PIN. You'll use it every time from now on.";
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
     `${opener} Choose a PIN, anywhere from four to eight digits, then press pound.`,
-    { finishOnKey: '#' });
+    { finishOnKey: '#', noNav: true });
 }
 
 function pinConfirmPrompt(twiml) {
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
     'Got it. Now enter the same PIN again to confirm, then press pound.',
-    { finishOnKey: '#' });
+    { finishOnKey: '#', noNav: true });
 }
 
 function pinEntryPrompt(twiml, retry = false) {
   const text = retry
     ? "That didn't match. Give it another try. Enter your PIN, then press pound."
     : 'Hi, welcome back. Enter your PIN, then press pound.';
-  gatherDigits(twiml, `${BASE_URL}/voice/handle`, text, { finishOnKey: '#' });
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`, text, { finishOnKey: '#', noNav: true });
 }
 
 function say(twiml, text) {
@@ -262,6 +328,23 @@ router.post('/handle', async (req, res) => {
     return res.type('text/xml').send(twiml.toString());
   }
   const userId = session.user_id;
+
+  if (!NO_NAV_STEPS.has(session.step)) {
+    if (digits === '*') {
+      await updateSession(callSid, 'main_menu');
+      mainMenu(twiml);
+      return res.type('text/xml').send(twiml.toString());
+    }
+    if (digits === '9') {
+      const parent = PARENT_STEP[session.step] || 'main_menu';
+      await showMenu(parent, twiml, callSid, userId);
+      return res.type('text/xml').send(twiml.toString());
+    }
+    if (digits === '0' && session.data.last_prompt) {
+      gatherDigits(twiml, `${BASE_URL}/voice/handle`, session.data.last_prompt, { noNav: true });
+      return res.type('text/xml').send(twiml.toString());
+    }
+  }
 
   switch (session.step) {
     case 'pin_gate': {
@@ -1204,11 +1287,28 @@ case 'history_menu': {
     }
   }
 
-  res.type('text/xml').send(twiml.toString());
+  const xml = twiml.toString();
+  await pool.query(
+    `UPDATE call_sessions SET data = data || $1::jsonb WHERE call_sid = $2`,
+    [JSON.stringify({ last_prompt: extractSpoken(xml) }), callSid]
+  );
+  res.type('text/xml').send(xml);
 });
 
 router.post('/repeat', async (req, res) => {
+  const callSid = req.body.CallSid;
   const twiml = livelyVoice(new VoiceResponse());
+  const session = await getSession(callSid);
+
+  const silences = (session?.attempts || 0) + 1;
+  if (silences >= 2) {
+    say(twiml, "Looks like you've stepped away. Talk to you soon!");
+    twiml.hangup();
+    await clearSession(callSid);
+    return res.type('text/xml').send(twiml.toString());
+  }
+
+  await pool.query('UPDATE call_sessions SET attempts = $1 WHERE call_sid = $2', [silences, callSid]);
   twiml.redirect(`${BASE_URL}/voice/handle`);
   res.type('text/xml').send(twiml.toString());
 });
