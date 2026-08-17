@@ -8,15 +8,11 @@ const { createSendBatch } = require('./sends');
 const VoiceResponse = twilio.twiml.VoiceResponse;
 const BASE_URL = process.env.BASE_URL;
 
-const SAY_OPTS = { voice: 'Polly.Matthew-Neural' };
+const SAY_OPTS = { voice: 'Polly.Stephen-Generative' };
 
+// Generative voices handle their own pacing and emphasis, so this no longer
+// rewrites prosody — kept as a passthrough so call sites don't all need changing.
 function livelyVoice(node) {
-  const originalSay = node.say.bind(node);
-  node.say = (text, opts = {}) => {
-    const sayNode = originalSay({ ...SAY_OPTS, ...opts });
-    sayNode.prosody({ rate: '112%' }, text);
-    return sayNode;
-  };
   return node;
 }
 
@@ -53,7 +49,54 @@ async function clearSession(callSid) {
 
 async function getPin(userId) {
   const { rows } = await pool.query('SELECT call_in_pin FROM users WHERE id = $1', [userId]);
-  return rows[0]?.call_in_pin || '0000';
+  return rows[0]?.call_in_pin || null;
+}
+
+const MAX_PIN_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
+
+async function getTrustedPhone(userId, phone) {
+  const { rows } = await pool.query(
+    'SELECT * FROM trusted_phones WHERE user_id = $1 AND phone_number = $2',
+    [userId, phone]
+  );
+  return rows[0] || null;
+}
+
+// Bumps the failure count and, on the threshold, stamps a lockout window.
+async function registerFailedPin(userId, phone) {
+  const { rows } = await pool.query(
+    `UPDATE trusted_phones
+        SET failed_attempts = failed_attempts + 1,
+            locked_until = CASE WHEN failed_attempts + 1 >= $3
+                                THEN NOW() + ($4 || ' minutes')::interval
+                                ELSE locked_until END
+      WHERE user_id = $1 AND phone_number = $2
+      RETURNING failed_attempts, locked_until`,
+    [userId, phone, MAX_PIN_ATTEMPTS, String(LOCKOUT_MINUTES)]
+  );
+  return rows[0] || null;
+}
+
+async function clearFailedPin(userId, phone) {
+  await pool.query(
+    'UPDATE trusted_phones SET failed_attempts = 0, locked_until = NULL WHERE user_id = $1 AND phone_number = $2',
+    [userId, phone]
+  );
+}
+
+// Fire-and-forget SMS to the account owner's personal phone.
+async function notifyOwner(userId, body) {
+  try {
+    const { rows } = await pool.query('SELECT phone, twilio_phone_number FROM users WHERE id = $1', [userId]);
+    const to = rows[0]?.phone;
+    const from = rows[0]?.twilio_phone_number;
+    if (!to || !from) return;
+    const client = twilio((process.env.TWILIO_ACCOUNT_SID || '').trim(), (process.env.TWILIO_AUTH_TOKEN || '').trim());
+    await client.messages.create({ to, from, body });
+  } catch (err) {
+    console.error('notifyOwner failed:', err.message);
+  }
 }
 
 function gatherDigits(twiml, action, prompt, opts = {}) {
@@ -78,6 +121,27 @@ function silentPinGather(twiml, playUrl) {
   if (playUrl) gather.play(playUrl);
   twiml.redirect(`${BASE_URL}/voice/repeat`);
   return twiml;
+}
+
+function pinSetupPrompt(twiml, lead) {
+  const opener = lead
+    || "Hi, and welcome to Wonder Solutions. Since this is your first time calling in, let's set up a PIN. You'll use it every time from now on.";
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${opener} Choose a PIN, anywhere from four to eight digits, then press pound.`,
+    { finishOnKey: '#' });
+}
+
+function pinConfirmPrompt(twiml) {
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    'Got it. Now enter the same PIN again to confirm, then press pound.',
+    { finishOnKey: '#' });
+}
+
+function pinEntryPrompt(twiml, retry = false) {
+  const text = retry
+    ? "That didn't match. Give it another try. Enter your PIN, then press pound."
+    : 'Hi, welcome back. Enter your PIN, then press pound.';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`, text, { finishOnKey: '#' });
 }
 
 function say(twiml, text) {
@@ -139,16 +203,27 @@ router.post('/incoming', async (req, res) => {
   const matchedContactId = await getMatchingContactId(user.id, callerNumber);
 
   if (isTrusted) {
+    const trustedRow = await getTrustedPhone(user.id, callerNumber);
+    if (trustedRow?.locked_until && new Date(trustedRow.locked_until) > new Date()) {
+      say(twiml, "This number is locked for a few more minutes after too many wrong PINs. Try again shortly.");
+      twiml.hangup();
+      return res.type('text/xml').send(twiml.toString());
+    }
+
     await pool.query(
-      `INSERT INTO call_ins (user_id, call_sid, from_phone_number, contact_id, is_trusted, reached)
-       VALUES ($1, $2, $3, $4, TRUE, 'admin_menu')`,
+      `INSERT INTO call_ins (user_id, call_sid, from_phone_number, contact_id, is_trusted)
+       VALUES ($1, $2, $3, $4, TRUE)`,
       [user.id, callSid, callerNumber, matchedContactId]
     );
+
+    const existingPin = await getPin(user.id);
     await pool.query(
-      `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, 'main_menu', 0, '{}', $2)`,
-      [callSid, user.id]
+      `INSERT INTO call_sessions (call_sid, step, attempts, data, user_id) VALUES ($1, $2, 0, '{}', $3)`,
+      [callSid, existingPin ? 'pin_entry' : 'pin_setup', user.id]
     );
-    mainMenu(twiml);
+
+    if (existingPin) pinEntryPrompt(twiml);
+    else pinSetupPrompt(twiml);
     return res.type('text/xml').send(twiml.toString());
   }
 
@@ -216,6 +291,54 @@ router.post('/handle', async (req, res) => {
       break;
     }
 
+case 'pin_setup': {
+      if (!digits) { pinSetupPrompt(twiml); break; }
+      if (!/^\d{4,8}$/.test(digits)) {
+        pinSetupPrompt(twiml, 'That needs to be between four and eight digits.');
+        break;
+      }
+      await updateSession(callSid, 'pin_setup_confirm', { pending_pin: digits });
+      pinConfirmPrompt(twiml);
+      break;
+    }
+
+    case 'pin_setup_confirm': {
+      if (!digits) { pinConfirmPrompt(twiml); break; }
+      if (digits === session.data.pending_pin) {
+        await pool.query('UPDATE users SET call_in_pin = $1 WHERE id = $2', [digits, userId]);
+        await pool.query(`UPDATE call_ins SET reached = 'admin_menu' WHERE call_sid = $1`, [callSid]);
+        await updateSession(callSid, 'main_menu');
+        say(twiml, "Perfect, your PIN is set. Let's get started.");
+        mainMenu(twiml);
+      } else {
+        await updateSession(callSid, 'pin_setup');
+        pinSetupPrompt(twiml, "Those didn't match. No problem, let's start over.");
+      }
+      break;
+    }
+
+    case 'pin_entry': {
+      const fromNumber = req.body.From;
+      if (!digits) { pinEntryPrompt(twiml); break; }
+      const correctPin = await getPin(userId);
+      if (correctPin && digits === correctPin) {
+        await clearFailedPin(userId, fromNumber);
+        await pool.query(`UPDATE call_ins SET reached = 'admin_menu' WHERE call_sid = $1`, [callSid]);
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+        break;
+      }
+      const state = await registerFailedPin(userId, fromNumber);
+      if (state?.locked_until && new Date(state.locked_until) > new Date()) {
+        say(twiml, "That's five tries now, so I'll lock things up for a bit. Give it fifteen minutes and try again. Goodbye.");
+        twiml.hangup();
+        notifyOwner(userId, `${state.failed_attempts} failed PIN attempts from ${fromNumber}. Admin access is locked for ${LOCKOUT_MINUTES} minutes.`);
+      } else {
+        pinEntryPrompt(twiml, true);
+      }
+      break;
+    }
+
     case 'conference_created_join': {
       if (digits === '1') {
         joinConference(twiml, session.data.pending_conference_id);
@@ -227,15 +350,98 @@ router.post('/handle', async (req, res) => {
     }
 
     case 'main_menu': {
-      if (digits === '1') { await updateSession(callSid, 'record_prompt'); recordPrompt(twiml); }
+      if (digits === '1') { await startBroadcastCategorySelect(callSid, twiml); }
       else if (digits === '2') { await startReview(callSid, twiml, userId); }
       else if (digits === '3') { await updateSession(callSid, 'contact_phone_entry'); contactPhoneEntry(twiml); }
-      else if (digits === '4') { await updateSession(callSid, 'pin_change_entry'); pinChangeEntry(twiml); }
-      else if (digits === '5') { await announceStatus(twiml, userId); }
-      else if (digits === '6') { await startBroadcastCategorySelect(callSid, twiml); }
-      else if (digits === '7') { await updateSession(callSid, 'assign_group_phone_entry'); assignGroupPhoneEntry(twiml); }
+      else if (digits === '4') { await announceStatus(twiml, userId); }
+      else if (digits === '5') { await updateSession(callSid, 'settings_menu'); settingsMenu(twiml); }
       else if (digits === '8') { await startConferenceCreate(callSid, twiml, userId); }
       else { mainMenu(twiml, true); }
+      break;
+    }
+
+    case 'settings_menu': {
+      if (digits === '1') { await updateSession(callSid, 'pin_change_entry'); pinChangeEntry(twiml); }
+      else if (digits === '2') { await updateSession(callSid, 'trusted_menu'); trustedMenu(twiml); }
+      else if (digits === '3') { await startPrefixSetting(callSid, twiml, userId); }
+      else if (digits === '4') { await announceStatus(twiml, userId); }
+      else { settingsMenu(twiml, true); }
+      break;
+    }
+
+    case 'prefix_setting': {
+      const modeMap = { '1': 'always', '2': 'never', '3': 'ask' };
+      const mode = modeMap[digits];
+      if (mode) {
+        await pool.query('UPDATE users SET group_prefix_mode = $1 WHERE id = $2', [mode, userId]);
+        await updateSession(callSid, 'main_menu');
+        say(twiml, 'Got it.');
+        mainMenu(twiml);
+      } else {
+        await startPrefixSetting(callSid, twiml, userId);
+      }
+      break;
+    }
+
+    case 'trusted_menu': {
+      if (digits === '1') { await announceTrusted(twiml, userId); await updateSession(callSid, 'main_menu'); mainMenu(twiml); }
+      else if (digits === '2') { await updateSession(callSid, 'trusted_add_entry'); trustedAddPrompt(twiml); }
+      else if (digits === '3') { await startTrustedRemove(callSid, twiml, userId, req.body.From); }
+      else { trustedMenu(twiml, true); }
+      break;
+    }
+
+    case 'trusted_add_entry': {
+      if (digits && digits.length >= 10) {
+        await updateSession(callSid, 'trusted_add_confirm', { pending_trusted: digits });
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          `That's ${spokenDigits(digits)}. Press 1 to add it, 2 to enter it again.`, { numDigits: 1 });
+      } else {
+        trustedAddPrompt(twiml, true);
+      }
+      break;
+    }
+
+    case 'trusted_add_confirm': {
+      if (digits === '1') {
+        const num = session.data.pending_trusted;
+        const formatted = num.length === 10 ? `+1${num}` : (num.startsWith('+') ? num : `+${num}`);
+        await pool.query(
+          `INSERT INTO trusted_phones (user_id, phone_number, label) VALUES ($1, $2, 'Added by phone')
+           ON CONFLICT (user_id, phone_number) DO NOTHING`,
+          [userId, formatted]
+        );
+        notifyOwner(userId, `${formatted} was just added as a trusted number. Wasn't you? Remove it from Settings.`);
+        await updateSession(callSid, 'main_menu');
+        say(twiml, "Added. I've texted you a heads-up too.");
+        mainMenu(twiml);
+      } else {
+        await updateSession(callSid, 'trusted_add_entry');
+        trustedAddPrompt(twiml);
+      }
+      break;
+    }
+
+    case 'trusted_remove_pick': {
+      const list = session.data.removable || [];
+      const idx = parseInt(digits, 10) - 1;
+      const target = list[idx];
+      if (!target) { await startTrustedRemove(callSid, twiml, userId, req.body.From); break; }
+      await updateSession(callSid, 'trusted_remove_confirm', { pending_remove_id: target.id, pending_remove_num: target.phone_number });
+      gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+        `Remove ${spokenDigits(target.phone_number)}? Press 1 to remove it.`, { numDigits: 1 });
+      break;
+    }
+
+    case 'trusted_remove_confirm': {
+      if (digits === '1') {
+        await pool.query('DELETE FROM trusted_phones WHERE id = $1 AND user_id = $2', [session.data.pending_remove_id, userId]);
+        say(twiml, 'Done.');
+      } else {
+        say(twiml, 'Left it alone.');
+      }
+      await updateSession(callSid, 'main_menu');
+      mainMenu(twiml);
       break;
     }
 
@@ -592,11 +798,36 @@ router.post('/repeat', async (req, res) => {
 });
 
 function mainMenu(twiml, retry = false) {
-  const prefix = retry ? "Sorry, I didn't get that. " : '';
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `${prefix}Main menu. Press 1 to record a new message. Press 2 to review your saved messages. ` +
-    `Press 3 to add a contact. Press 4 to change your PIN. Press 5 to hear your account status. ` +
-    `Press 6 to send a message. Press 7 to assign a contact to a group. Press 8 to start a conference call.`);
+    `${prefix}What can I do for you? ` +
+    `To send a broadcast, press 1. ` +
+    `For your recordings and messages, press 2. ` +
+    `For contacts and groups, press 3. ` +
+    `To hear what's been going out, press 4. ` +
+    `For settings, press 5.`,
+    { numDigits: 1 });
+}
+
+function settingsMenu(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}To change your PIN, press 1. ` +
+    `For trusted numbers, press 2. ` +
+    `For your group label setting, press 3. ` +
+    `To hear your account summary, press 4.`,
+    { numDigits: 1 });
+}
+
+function trustedMenu(twiml, retry = false) {
+  const prefix = retry ? "Hmm, that's not one of the options. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}To hear them, press 1. To add one, press 2. To remove one, press 3.`,
+    { numDigits: 1 });
+}
+
+function spokenDigits(value) {
+  return String(value || '').replace(/\D/g, '').split('').join(' ');
 }
 
 function recordPrompt(twiml) {
@@ -911,6 +1142,51 @@ async function executeBroadcast(callSid, twiml, userId) {
   }
   await updateSession(callSid, 'main_menu');
   mainMenu(twiml);
+}
+
+async function startPrefixSetting(callSid, twiml, userId) {
+  const mode = await getGroupPrefixMode(userId);
+  const current = mode === 'always'
+    ? 'Right now, group messages start with the group name.'
+    : mode === 'never'
+      ? "Right now, group messages don't start with the group name."
+      : "Right now, I ask you each time.";
+  await updateSession(callSid, 'prefix_setting');
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${current} To have them always start with the group name, press 1. To turn that off, press 2. To be asked each time, press 3.`,
+    { numDigits: 1 });
+}
+
+async function announceTrusted(twiml, userId) {
+  const { rows } = await pool.query(
+    'SELECT phone_number FROM trusted_phones WHERE user_id = $1 ORDER BY id', [userId]
+  );
+  if (!rows.length) { say(twiml, "You haven't got any trusted numbers yet."); return; }
+  const list = rows.map((r) => spokenDigits(r.phone_number)).join('. And ');
+  say(twiml, `You've got ${rows.length} trusted number${rows.length === 1 ? '' : 's'}. ${list}.`);
+}
+
+function trustedAddPrompt(twiml, retry = false) {
+  const prefix = retry ? "That didn't look like a valid number. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}What's the number? Enter it, then press pound.`, { finishOnKey: '#' });
+}
+
+// Never offers the number the caller is on — removing it would lock them out.
+async function startTrustedRemove(callSid, twiml, userId, callerNumber) {
+  const { rows } = await pool.query(
+    'SELECT id, phone_number FROM trusted_phones WHERE user_id = $1 AND phone_number <> $2 ORDER BY id',
+    [userId, callerNumber]
+  );
+  if (!rows.length) {
+    say(twiml, "That's the only trusted number, and it's the one you're on. You'd lock yourself out. You can remove it from the website.");
+    await updateSession(callSid, 'main_menu');
+    mainMenu(twiml);
+    return;
+  }
+  await updateSession(callSid, 'trusted_remove_pick', { removable: rows });
+  const list = rows.map((r, i) => `Press ${i + 1} for ${spokenDigits(r.phone_number)}.`).join(' ');
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`, `Which one? ${list}`, { numDigits: 1 });
 }
 
 function assignGroupPhoneEntry(twiml, retry = false) {
