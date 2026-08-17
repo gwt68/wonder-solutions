@@ -926,6 +926,105 @@ case 'history_menu': {
       break;
     }
 
+    case 'broadcast_category_select': {
+      const types = BROADCAST_CATEGORY_TYPES[digits];
+      if (types) await startBroadcastMessageSelect(callSid, twiml, types, userId);
+      else broadcastCategoryPrompt(twiml, true);
+      break;
+    }
+
+    case 'broadcast_message_select': {
+      const messages = session.data.broadcast_messages || [];
+      if (digits === '0') { await updateSession(callSid, 'main_menu'); mainMenu(twiml); break; }
+
+      if (digits && digits.length === 1) {
+        const idx = parseInt(digits, 10) - 1;
+        const message = messages[idx];
+        if (message) {
+          await updateSession(callSid, 'broadcast_target_select', { broadcast_message_id: message.id, broadcast_message_title: message.title });
+          broadcastTargetPrompt(twiml);
+          break;
+        }
+      }
+
+      if (digits) {
+        const { rows } = await pool.query(
+          'SELECT id, title FROM messages WHERE id = $1 AND user_id = $2', [parseInt(digits, 10), userId]
+        );
+        if (rows.length) {
+          await updateSession(callSid, 'broadcast_target_select', { broadcast_message_id: rows[0].id, broadcast_message_title: rows[0].title });
+          broadcastTargetPrompt(twiml);
+          break;
+        }
+      }
+
+      broadcastMessageList(twiml, messages, true);
+      break;
+    }
+
+    case 'broadcast_target_select': {
+      if (digits === '1') { await updateSession(callSid, 'broadcast_contact_phone_entry'); broadcastContactPhoneEntry(twiml); }
+      else if (digits === '2') {
+        const groups = await pool.query('SELECT id, name FROM groups WHERE user_id = $1 ORDER BY id', [userId]);
+        if (!groups.rows.length) { twiml.say('You have no groups yet.', SAY_OPTS); broadcastTargetPrompt(twiml); }
+        else { await updateSession(callSid, 'broadcast_group_pick', { group_page: groups.rows }); broadcastGroupList(twiml, groups.rows); }
+      } else if (digits === '3') {
+        await updateSession(callSid, 'broadcast_confirm', { broadcast_target: 'all' });
+        await broadcastConfirmPrompt(callSid, twiml, userId);
+      } else {
+        broadcastTargetPrompt(twiml, true);
+      }
+      break;
+    }
+
+    case 'broadcast_contact_phone_entry': {
+      if (digits && digits.length >= 10) {
+        const { rows } = await pool.query(
+          'SELECT id, name FROM contacts WHERE phone_number = $1 AND user_id = $2', [digits, userId]
+        );
+        if (rows.length) {
+          await updateSession(callSid, 'broadcast_confirm', {
+            broadcast_target: 'contact', broadcast_contact_id: rows[0].id, broadcast_contact_name: rows[0].name,
+          });
+          await broadcastConfirmPrompt(callSid, twiml, userId);
+        } else {
+          broadcastContactPhoneEntry(twiml, true);
+        }
+      } else {
+        broadcastContactPhoneEntry(twiml, true);
+      }
+      break;
+    }
+
+    case 'broadcast_group_pick': {
+      const groupRows = session.data.group_page || [];
+      if (digits === '0') { await updateSession(callSid, 'main_menu'); mainMenu(twiml); }
+      else {
+        const idx = parseInt(digits, 10) - 1;
+        const group = groupRows[idx];
+        if (group) {
+          await updateSession(callSid, 'broadcast_confirm', {
+            broadcast_target: 'group', broadcast_group_id: group.id, broadcast_group_name: group.name,
+          });
+          await broadcastConfirmPrompt(callSid, twiml, userId);
+        } else {
+          broadcastGroupList(twiml, groupRows, true);
+        }
+      }
+      break;
+    }
+
+    case 'broadcast_prefix_ask': {
+      if (digits === '1' || digits === '2') {
+        await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: digits === '1' });
+        await broadcastConfirmPromptFinal(callSid, twiml, userId);
+      } else {
+        twiml.say(`Should this message start with "${session.data.broadcast_group_name}"? Press 1 for yes, press 2 for no.`, SAY_OPTS);
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`, '', { numDigits: 1 });
+      }
+      break;
+    }
+
     case 'broadcast_source': {
       if (digits === '1') {
         await updateSession(callSid, 'record_prompt', { for_broadcast: true });
