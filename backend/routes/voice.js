@@ -10,9 +10,13 @@ const BASE_URL = process.env.BASE_URL;
 
 const SAY_OPTS = { voice: 'Polly.Stephen-Generative' };
 
-// Generative voices handle their own pacing and emphasis, so this no longer
-// rewrites prosody — kept as a passthrough so call sites don't all need changing.
+// Applies the configured voice to every say() on this node. Argument order
+// matters: twilio-node expects say(attributes, message) — passing the string
+// first silently drops the attributes. No prosody override; the generative
+// voice sets its own pacing.
 function livelyVoice(node) {
+  const originalSay = node.say.bind(node);
+  node.say = (text, opts = {}) => originalSay({ ...SAY_OPTS, ...opts }, text);
   return node;
 }
 
