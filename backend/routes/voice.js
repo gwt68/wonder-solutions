@@ -210,7 +210,7 @@ function pinConfirmPrompt(twiml) {
 function pinEntryPrompt(twiml, retry = false) {
   const text = retry
     ? "That didn't match. Give it another try. Enter your PIN, then press pound."
-    : 'Hi, welcome back. Enter your PIN, then press pound.';
+        : 'Hi, and welcome to Wonder Solutions. Please enter your PIN, then press pound.';
   gatherDigits(twiml, `${BASE_URL}/voice/handle`, text, { finishOnKey: '#', noNav: true });
 }
 
@@ -1017,18 +1017,25 @@ case 'history_menu': {
       break;
     }
 
-    case 'broadcast_group_pick': {
+        case 'broadcast_group_pick': {
       const groupRows = session.data.group_page || [];
-      const idx = parseInt(digits, 10) - 1;
-      const group = groupRows[idx];
-      if (group) {
-        await updateSession(callSid, 'broadcast_method_select', {
-          broadcast_target: 'group', broadcast_group_id: group.id, broadcast_group_name: group.name,
-        });
-        broadcastMethodPrompt(twiml);
-      } else {
-        broadcastGroupList(twiml, groupRows, true);
-      }
+      const picked = [];
+      (digits || '').split('').forEach((d) => {
+        const g = groupRows[parseInt(d, 10) - 1];
+        if (g && !picked.some((p) => p.id === g.id)) picked.push(g);
+      });
+      if (!picked.length) { broadcastGroupList(twiml, groupRows, true); break; }
+
+      await updateSession(callSid, 'broadcast_method_select', {
+        broadcast_target: 'group',
+        broadcast_groups: picked,
+        broadcast_group_id: picked[0].id,
+        broadcast_group_name: picked[0].name,
+      });
+      say(twiml, picked.length === 1
+        ? `Got it, ${picked[0].name}.`
+        : `Got it — ${picked.map((g) => g.name).join(', ')}.`);
+      broadcastMethodPrompt(twiml);
       break;
     }
 
@@ -1128,15 +1135,50 @@ case 'history_menu': {
       break;
     }
 
-    case 'broadcast_prefix_ask': {
+        case 'broadcast_prefix_ask': {
       if (digits === '1' || digits === '2') {
-        await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: digits === '1' });
+        await updateSession(callSid, 'broadcast_confirm', { prefix_style: digits === '1' ? 'each' : 'none' });
         await broadcastConfirmPrompt(callSid, twiml, userId);
       } else {
         gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-          `Should this start with "${session.data.broadcast_group_name}"? Press 1 for yes, 2 for no.`,
-          { numDigits: 1 });
+          'Should this start with the group title? Press 1 for yes, 2 for no.', { numDigits: 1 });
       }
+      break;
+    }
+
+    case 'broadcast_prefix_multi': {
+      const groups = session.data.broadcast_groups || [];
+      if (digits === '1') {
+        await updateSession(callSid, 'broadcast_confirm', { prefix_style: 'each' });
+        await broadcastConfirmPrompt(callSid, twiml, userId);
+      } else if (digits === '3') {
+        await updateSession(callSid, 'broadcast_confirm', { prefix_style: 'none' });
+        await broadcastConfirmPrompt(callSid, twiml, userId);
+      } else if (digits === '2') {
+        await updateSession(callSid, 'broadcast_prefix_which');
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          `Which title? ${groups.map((g, i) => `Press ${i + 1} for ${g.name}.`).join(' ')}`,
+          { numDigits: 1 });
+      } else {
+        await updateSession(callSid, 'broadcast_prefix_multi');
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          `To start each one with its own title, press 1. To use one title for all of them, press 2. ` +
+          `To send with no title, press 3.`, { numDigits: 1 });
+      }
+      break;
+    }
+
+    case 'broadcast_prefix_which': {
+      const groups = session.data.broadcast_groups || [];
+      const g = groups[parseInt(digits, 10) - 1];
+      if (!g) {
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          `Which title? ${groups.map((x, i) => `Press ${i + 1} for ${x.name}.`).join(' ')}`,
+          { numDigits: 1 });
+        break;
+      }
+      await updateSession(callSid, 'broadcast_confirm', { prefix_style: 'single', prefix_group_name: g.name });
+      await broadcastConfirmPrompt(callSid, twiml, userId);
       break;
     }
 
@@ -1204,12 +1246,13 @@ case 'history_menu': {
     }
   }
 
-  const xml = twiml.toString();
-  await pool.query(
+    const xml = twiml.toString();
+  res.type('text/xml').send(xml);
+  // Fire-and-forget: the caller doesn't wait on this, it only feeds the 0 key.
+  pool.query(
     `UPDATE call_sessions SET data = data || $1::jsonb WHERE call_sid = $2`,
     [JSON.stringify({ last_prompt: extractSpoken(xml) }), callSid]
-  );
-  res.type('text/xml').send(xml);
+  ).catch(() => {});
 });
 
 router.post('/repeat', async (req, res) => {
@@ -1557,23 +1600,33 @@ function broadcastMessageBrowse(twiml, messages, index, retry = false) {
     { numDigits: 1 });
 }
 
-// Resolves who a broadcast will actually reach, so the confirmation can break
-// the count down by method.
+// Resolves recipients, deduped. For multiple groups the first-selected group
+// that contains a contact wins, so nobody gets two copies.
 async function resolveTargetContacts(data, userId) {
   if (data.broadcast_target === 'contact') {
     const { rows } = await pool.query('SELECT id, preferred_method FROM contacts WHERE id = $1', [data.broadcast_contact_id]);
-    return rows;
+    return rows.map((r) => ({ ...r, groupName: null }));
   }
   if (data.broadcast_target === 'group') {
-    const { rows } = await pool.query(
-      `SELECT c.id, c.preferred_method FROM contact_groups cg
-         JOIN contacts c ON c.id = cg.contact_id WHERE cg.group_id = $1`,
-      [data.broadcast_group_id]
-    );
-    return rows;
+    const groups = data.broadcast_groups || [];
+    const seen = new Set();
+    const out = [];
+    for (const g of groups) {
+      const { rows } = await pool.query(
+        `SELECT c.id, c.preferred_method FROM contact_groups cg
+           JOIN contacts c ON c.id = cg.contact_id WHERE cg.group_id = $1`,
+        [g.id]
+      );
+      rows.forEach((r) => {
+        if (seen.has(r.id)) return;
+        seen.add(r.id);
+        out.push({ ...r, groupName: g.name });
+      });
+    }
+    return out;
   }
   const { rows } = await pool.query('SELECT id, preferred_method FROM contacts WHERE user_id = $1', [userId]);
-  return rows;
+  return rows.map((r) => ({ ...r, groupName: null }));
 }
 
 function broadcastTargetPrompt(twiml, retry = false) {
@@ -1587,39 +1640,45 @@ function broadcastContactPhoneEntry(twiml, retry = false) {
 }
 
 function broadcastGroupList(twiml, groups, retry = false) {
-  const prefix = retry ? "Sorry, I didn't get that. " : '';
+  const prefix = retry ? "Hmm, I didn't catch that. " : '';
   const names = groups.map((g, i) => `Group ${i + 1} is ${g.name}.`).join(' ');
-  gatherDigits(twiml, `${BASE_URL}/voice/handle`, `${prefix}${names} Press the group number, or 0 to cancel.`);
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}${names} Press the numbers of the groups you want, then press pound. ` +
+    `For groups one and three, press one, three, pound.`,
+    { finishOnKey: '#' });
 }
 
-// Decides whether to ask about the group-name prefix, then moves to confirm.
+// Decides whether to ask about group titles, then moves to confirm.
 async function runPrefixGate(callSid, twiml, userId) {
   const session = await getSession(callSid);
-  const isGroup = session.data.broadcast_target === 'group';
+  const groups = session.data.broadcast_groups || [];
+  const isGroup = session.data.broadcast_target === 'group' && groups.length > 0;
   const mode = await getGroupPrefixMode(userId);
 
   if (!isGroup || mode === 'never') {
-    await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: false });
+    await updateSession(callSid, 'broadcast_confirm', { prefix_style: 'none' });
     await broadcastConfirmPrompt(callSid, twiml, userId);
     return;
   }
   if (mode === 'always') {
-    await updateSession(callSid, 'broadcast_confirm', { broadcast_include_prefix: true });
+    await updateSession(callSid, 'broadcast_confirm', { prefix_style: 'each' });
     await broadcastConfirmPrompt(callSid, twiml, userId);
     return;
   }
-  await updateSession(callSid, 'broadcast_prefix_ask');
+
+  if (groups.length === 1) {
+    await updateSession(callSid, 'broadcast_prefix_ask');
+    gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+      'Should this start with the group title? Press 1 for yes, 2 for no.', { numDigits: 1 });
+    return;
+  }
+
+  await updateSession(callSid, 'broadcast_prefix_multi');
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `Should this start with "${session.data.broadcast_group_name}"? Press 1 for yes, 2 for no.`,
+    `You picked ${groups.length} groups. To start each one with its own title, press 1. ` +
+    `To use one title for all of them, press 2. To send with no title, press 3.`,
     { numDigits: 1 });
 }
-
-const SPOKEN_METHOD = {
-  assigned: 'each contact\u2019s usual method',
-  call: 'phone call',
-  sms: 'text',
-  voice_note: 'voice note',
-};
 
 async function broadcastConfirmPrompt(callSid, twiml, userId) {
   const session = await getSession(callSid);
@@ -1627,18 +1686,22 @@ async function broadcastConfirmPrompt(callSid, twiml, userId) {
   let targetDesc = '';
   let count = 0;
 
+    const people = await resolveTargetContacts(d, userId);
+  count = people.length;
+
   if (d.broadcast_target === 'contact') {
     targetDesc = d.broadcast_contact_name || 'that contact';
-    count = 1;
   } else if (d.broadcast_target === 'group') {
-    const { rows } = await pool.query('SELECT COUNT(*) FROM contact_groups WHERE group_id = $1', [d.broadcast_group_id]);
-    count = parseInt(rows[0].count, 10);
-    targetDesc = `${d.broadcast_group_name} — that's ${count} contact${count === 1 ? '' : 's'}`;
+    const groups = d.broadcast_groups || [];
+    const names = groups.map((g) => g.name).join(', ');
+    targetDesc = `${names} — that's ${count} contact${count === 1 ? '' : 's'}`;
   } else {
-    const { rows } = await pool.query('SELECT COUNT(*) FROM contacts WHERE user_id = $1', [userId]);
-    count = parseInt(rows[0].count, 10);
     targetDesc = `everyone — that's ${count} contact${count === 1 ? '' : 's'}`;
   }
+
+  let titleDesc = '';
+  if (d.prefix_style === 'each') titleDesc = ", each starting with its group's title";
+  else if (d.prefix_style === 'single') titleDesc = `, all starting with "${d.prefix_group_name}"`;
 
   let whenDesc = 'right now';
   if (d.broadcast_scheduled_at) {
@@ -1650,7 +1713,7 @@ async function broadcastConfirmPrompt(callSid, twiml, userId) {
   if (d.broadcast_method && d.broadcast_method !== 'assigned') {
     methodDesc = `by ${SPOKEN_METHOD[d.broadcast_method]}`;
   } else {
-    const people = await resolveTargetContacts(d, userId);
+    
     const tally = {};
     people.forEach((p) => { tally[p.preferred_method] = (tally[p.preferred_method] || 0) + 1; });
     const parts = Object.entries(tally).map(([m, n]) => `${n} by ${SPOKEN_METHOD[m] || m}`);
@@ -1659,7 +1722,7 @@ async function broadcastConfirmPrompt(callSid, twiml, userId) {
 
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
     `Alright, here's what I've got. Sending "${d.broadcast_message_title || 'your message'}" to ${targetDesc}, ` +
-    `${methodDesc}, ${whenDesc}. Press 1 to send it, or 2 to cancel.`,
+        `${methodDesc}${titleDesc}, ${whenDesc}. Press 1 to send it, or 2 to cancel.`,
     { numDigits: 1 });
 }
 
@@ -1667,41 +1730,40 @@ async function executeBroadcast(callSid, twiml, userId) {
   const session = await getSession(callSid);
   const { broadcast_message_id, broadcast_target, broadcast_contact_id, broadcast_group_id, broadcast_group_name, broadcast_include_prefix } = session.data;
 
-  let contactIds = [];
-  if (broadcast_target === 'contact') {
-    contactIds = [broadcast_contact_id];
-  } else if (broadcast_target === 'group') {
-    const { rows } = await pool.query('SELECT contact_id FROM contact_groups WHERE group_id = $1', [broadcast_group_id]);
-    contactIds = rows.map((r) => r.contact_id);
+    const people = await resolveTargetContacts(session.data, userId);
+  if (!people.length) {
+    say(twiml, 'No recipients found.');
   } else {
-    const { rows } = await pool.query('SELECT id FROM contacts WHERE user_id = $1', [userId]);
-    contactIds = rows.map((r) => r.id);
-  }
-
-  if (!contactIds.length) {
-    twiml.say('No recipients found.', SAY_OPTS);
-  } else {
-    let effectiveMessageId = broadcast_message_id;
-    if (broadcast_target === 'group' && broadcast_include_prefix && broadcast_group_name) {
-      effectiveMessageId = await cloneMessageWithGroupPrefix(broadcast_message_id, broadcast_group_name, userId);
-    }
     const method = session.data.broadcast_method;
     const useSpecific = method && method !== 'assigned';
-    const recipients = contactIds.map((id) => (useSpecific ? { contact_id: id, methods: [method] } : { contact_id: id }));
     const scheduledAt = session.data.broadcast_scheduled_at || null;
+    const style = session.data.prefix_style || 'none';
+
+    // Per-group titles mean one batch per group; everything else is a single batch.
+    const buckets = style === 'each'
+      ? [...new Set(people.map((p) => p.groupName))].map((name) => ({
+          name, list: people.filter((p) => p.groupName === name),
+        }))
+      : [{ name: style === 'single' ? session.data.prefix_group_name : null, list: people }];
+
+    let total = 0;
     try {
-      const result = await createSendBatch({
-        message_id: effectiveMessageId, recipients, userId, scheduled_at: scheduledAt,
-      });
+      for (const bucket of buckets) {
+        let msgId = broadcast_message_id;
+        if (bucket.name) msgId = await cloneMessageWithGroupPrefix(broadcast_message_id, bucket.name, userId);
+        const recipients = bucket.list.map((p) => (useSpecific ? { contact_id: p.id, methods: [method] } : { contact_id: p.id }));
+        const result = await createSendBatch({ message_id: msgId, recipients, userId, scheduled_at: scheduledAt });
+        total += result.count;
+      }
       if (scheduledAt) {
         const zone = await getUserTimezone(userId);
-        say(twiml, `Done — that's scheduled for ${result.count} contact${result.count === 1 ? '' : 's'} on ${DateTime.fromISO(scheduledAt).setZone(zone).toFormat("cccc 'at' h:mm a")}.`);
+        say(twiml, `Done — that's scheduled for ${total} contact${total === 1 ? '' : 's'} on ${DateTime.fromISO(scheduledAt).setZone(zone).toFormat("cccc 'at' h:mm a")}.`);
       } else {
-        say(twiml, `Done — it's going out to ${result.count} contact${result.count === 1 ? '' : 's'} now.`);
+        say(twiml, `Done — it's going out to ${total} contact${total === 1 ? '' : 's'} now.`);
       }
     } catch (err) {
       console.error('IVR broadcast error:', err);
-      say(twiml, 'Something went wrong sending that. Nothing went out.');
+      say(twiml, 'Something went wrong sending that.');
     }
   }
   await updateSession(callSid, 'main_menu');
