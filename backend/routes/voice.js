@@ -1099,7 +1099,7 @@ case 'history_menu': {
         scheduleDayPrompt(twiml);
         break;
       }
-      await updateSession(callSid, 'schedule_confirm', { sched_ampm: digits, broadcast_scheduled_at: dt.toISO() });
+            await updateSession(callSid, 'schedule_confirm', { sched_ampm: digits, broadcast_scheduled_at: dt.toUTC().toISO() });
       gatherDigits(twiml, `${BASE_URL}/voice/handle`,
         `So that's ${dt.toFormat('cccc, LLLL d, yyyy')}, at ${dt.toFormat('h:mm')} ${digits === '1' ? 'A M' : 'P M'}. ` +
         `Press 1 if that's right, or 2 to enter it again.`,
