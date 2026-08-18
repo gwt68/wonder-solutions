@@ -968,8 +968,10 @@ case 'history_menu': {
         const m = messages[i];
         if (m.audio_url || m.has_audio) twiml.play(`${BASE_URL}/api/messages/${m.id}/audio`);
         else if (m.text_content) say(twiml, m.text_content);
-        else say(twiml, "There's nothing saved on that one.");
-        broadcastMessageBrowse(twiml, messages, i);
+                else say(twiml, "There's nothing saved on that one.");
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          'To use this one, press 2. For the next one, press 3. For the previous one, press 4.',
+          { numDigits: 1 });
       } else if (digits === '5') {
         await updateSession(callSid, 'broadcast_message_by_id');
         messageIdPrompt(twiml);
@@ -1078,8 +1080,9 @@ case 'history_menu': {
         case 'broadcast_group_pick': {
       const groupRows = session.data.group_page || [];
       const picked = [];
-      (digits || '').split('').forEach((d) => {
-        const g = groupRows[parseInt(d, 10) - 1];
+            (digits || '').split('*').forEach((chunk) => {
+        if (!chunk) return;
+        const g = groupRows[parseInt(chunk, 10) - 1];
         if (g && !picked.some((p) => p.id === g.id)) picked.push(g);
       });
       if (!picked.length) { broadcastGroupList(twiml, groupRows, true); break; }
@@ -1716,8 +1719,8 @@ function broadcastGroupList(twiml, groups, retry = false) {
   const prefix = retry ? "Hmm, I didn't catch that. " : '';
   const names = groups.map((g, i) => `Group ${i + 1} is ${g.name}.`).join(' ');
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `${prefix}${names} Press the numbers of the groups you want, then press pound. ` +
-    `For groups one and three, press one, three, pound.`,
+        `${prefix}${names} Press the group numbers with a star between each one, then press pound. ` +
+    `For groups one and three, press one, star, three, pound.`,
     { finishOnKey: '#' });
 }
 
@@ -1752,6 +1755,13 @@ async function runPrefixGate(callSid, twiml, userId) {
     `To use one title for all of them, press 2. To send with no title, press 3.`,
     { numDigits: 1 });
 }
+
+const SPOKEN_METHOD = {
+  assigned: 'each contact\u2019s usual method',
+  call: 'phone call',
+  sms: 'text',
+  voice_note: 'voice note',
+};
 
 async function broadcastConfirmPrompt(callSid, twiml, userId) {
   const session = await getSession(callSid);
