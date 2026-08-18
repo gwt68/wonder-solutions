@@ -2390,38 +2390,36 @@ async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
   await clearSmsSendSession(userId, fromPhone);
   const zone = await getUserTimezone(userId);
 
-  const people = await resolveTargetContacts(
-    { broadcast_target: target, broadcast_contact_id: contact_id, broadcast_groups: session.data.groups || [] },
-    userId
-  );
-  if (!people.length) return 'No recipients found for that selection.';
+  let contactIds = [];
+  if (target === 'contact') {
+    contactIds = [contact_id];
+  } else if (target === 'group') {
+    const { rows } = await pool.query('SELECT contact_id FROM contact_groups WHERE group_id = $1', [group_id]);
+    contactIds = rows.map((r) => r.contact_id);
+  } else {
+    const { rows } = await pool.query('SELECT id FROM contacts WHERE user_id = $1', [userId]);
+    contactIds = rows.map((r) => r.id);
+  }
 
-  const style = session.data.prefix_style || 'none';
+  if (!contactIds.length) return 'No recipients found for that selection.';
+
+  let effectiveMessageId = message_id;
+  if (target === 'group' && include_group_prefix && group_name) {
+    effectiveMessageId = await cloneMessageWithGroupPrefix(message_id, group_name, userId);
+  }
+
   const useSpecificMethod = method && method !== 'assigned';
-
-  const buckets = style === 'each'
-    ? [...new Set(people.map((p) => p.groupName))].map((name) => ({
-        name, list: people.filter((p) => p.groupName === name),
-      }))
-    : [{ name: style === 'single' ? session.data.prefix_group_name : null, list: people }];
-
-  let total = 0;
+  const recipients = contactIds.map((id) => useSpecificMethod ? { contact_id: id, methods: [method] } : { contact_id: id });
   try {
-    for (const bucket of buckets) {
-      let msgId = message_id;
-      if (bucket.name) msgId = await cloneMessageWithGroupPrefix(message_id, bucket.name, userId);
-      const recipients = bucket.list.map((p) => (useSpecificMethod ? { contact_id: p.id, methods: [method] } : { contact_id: p.id }));
-      const result = await createSendBatch({
-        message_id: msgId, recipients, userId,
-        scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
-      });
-      total += result.count;
-    }
+    const result = await createSendBatch({
+      message_id: effectiveMessageId, recipients, userId,
+      scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
+    });
     if (scheduledAt) {
       const formatted = DateTime.fromJSDate(scheduledAt, { zone: 'utc' }).setZone(zone).toFormat('M/d/yyyy h:mm a');
-      return `Scheduled for ${total} contact${total === 1 ? '' : 's'} at ${formatted}.`;
+      return `Scheduled for ${result.count} contact${result.count === 1 ? '' : 's'} at ${formatted}.`;
     }
-    return `Message sent to ${total} contact${total === 1 ? '' : 's'}.`;
+    return `Message sent to ${result.count} contact${result.count === 1 ? '' : 's'}.`;
   } catch (err) {
     console.error('executeSmsSend error:', err);
     return 'Something went wrong sending the message.';
