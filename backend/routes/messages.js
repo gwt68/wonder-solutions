@@ -16,7 +16,9 @@ router.get('/', requireAuth, async (req, res) => {
       `SELECT id, title, type, text_content, audio_url, audio_mime_type,
               (audio_data IS NOT NULL) AS has_uploaded_audio,
               (image_data IS NOT NULL) AS has_image, created_at
-       FROM messages WHERE ($1::int IS NULL OR user_id = $1) ORDER BY created_at DESC`,
+              FROM messages WHERE ($1::int IS NULL OR user_id = $1)
+         AND is_variant = FALSE AND is_reply IS NOT TRUE
+       ORDER BY created_at DESC`,
       [scopeParam(req)]
     );
     res.json(rows);
@@ -185,8 +187,8 @@ router.post('/:id/clone-with-caption', requireAuth, async (req, res) => {
   const { text_content, title } = req.body;
   try {
     const { rows } = await pool.query(
-      `INSERT INTO messages (title, type, text_content, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, user_id)
-       SELECT $1, type, $2, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, $3
+            `INSERT INTO messages (title, type, text_content, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, user_id, is_variant)
+       SELECT $1, type, $2, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, $3, TRUE
        FROM messages WHERE id = $4 AND ($5::int IS NULL OR user_id = $5)
        RETURNING id, title, type, text_content, audio_url,
                  (audio_data IS NOT NULL) AS has_uploaded_audio,

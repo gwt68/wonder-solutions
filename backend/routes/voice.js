@@ -932,8 +932,8 @@ case 'history_menu': {
         recordPrompt(twiml);
       } else if (digits === '2') {
         const { rows } = await pool.query(
-                    `SELECT id, title, text_content, audio_url, (audio_data IS NOT NULL) AS has_audio
-             FROM messages WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
+                              `SELECT id, title, text_content, audio_url, (audio_data IS NOT NULL) AS has_audio
+             FROM messages WHERE user_id = $1 AND is_variant = FALSE ORDER BY created_at DESC LIMIT 20`,
           [userId]
         );
                 if (!rows.length) {
@@ -1384,7 +1384,7 @@ function recordReviewPrompt(twiml, retry = false) {
 }
 
 async function startReview(callSid, twiml, userId) {
-  const { rows } = await pool.query('SELECT id FROM messages WHERE user_id = $1 ORDER BY created_at DESC', [userId]);
+    const { rows } = await pool.query('SELECT id FROM messages WHERE user_id = $1 AND is_variant = FALSE ORDER BY created_at DESC', [userId]);
   if (!rows.length) {
     twiml.say('You have no saved messages.', SAY_OPTS);
     await updateSession(callSid, 'main_menu');
@@ -2122,8 +2122,8 @@ async function cloneMessageWithGroupPrefix(messageId, groupName, userId) {
   if (!rows.length) return messageId;
   const prefixed = `${groupName}: ${rows[0].text_content || ''}`.trim();
   const { rows: created } = await pool.query(
-    `INSERT INTO messages (title, type, text_content, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, user_id)
-     SELECT title, type, $1, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, $2
+        `INSERT INTO messages (title, type, text_content, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, user_id, is_variant)
+     SELECT title, type, $1, audio_data, audio_mime_type, image_data, image_mime_type, audio_url, $2, TRUE
      FROM messages WHERE id = $3
      RETURNING id`,
     [prefixed, userId, messageId]
