@@ -2148,7 +2148,7 @@ async function updateSmsSendSession(userId, fromPhone, step, dataPatch) {
 }
 
 function navFooter(isFirstStep) {
-  return isFirstStep ? '\nReply CANCEL to stop.' : '\nReply BACK to go to the previous step, or CANCEL to stop.';
+  return isFirstStep ? '\nReply EXIT to stop.' : '\nReply BACK to go to the previous step, or EXIT to stop.';
 }
 
 function targetTypePrompt(retry = false) {
@@ -2231,7 +2231,7 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
   const raw = body.trim();
   const lower = raw.toLowerCase();
 
-  if (lower === 'cancel') {
+    if (lower === 'exit') {
     await clearSmsSendSession(userId, fromPhone);
     return 'Cancelled.';
   }
