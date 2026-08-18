@@ -932,7 +932,7 @@ case 'history_menu': {
         recordPrompt(twiml);
       } else if (digits === '2') {
         const { rows } = await pool.query(
-          `SELECT id, title, audio_url, (audio_data IS NOT NULL) AS has_audio
+                    `SELECT id, title, text_content, audio_url, (audio_data IS NOT NULL) AS has_audio
              FROM messages WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
           [userId]
         );
@@ -954,15 +954,21 @@ case 'history_menu': {
       const messages = session.data.broadcast_messages || [];
       let i = session.data.browse_index || 0;
 
-      if (digits === '1') {
+            if (digits === '1') {
         const m = messages[i];
         if (m.audio_url || m.has_audio) twiml.play(`${BASE_URL}/api/messages/${m.id}/audio`);
-        else say(twiml, "That one's a text, so there's nothing to play.");
+        else if (m.text_content) say(twiml, m.text_content);
+        else say(twiml, "There's nothing saved on that one.");
         broadcastMessageBrowse(twiml, messages, i);
+      } else if (digits === '5') {
+        await updateSession(callSid, 'broadcast_message_by_id');
+        messageIdPrompt(twiml);
       } else if (digits === '2') {
         const m = messages[i];
-        await updateSession(callSid, 'broadcast_target_select', {
-          broadcast_message_id: m.id, broadcast_message_title: m.title,
+                await updateSession(callSid, 'broadcast_target_select', {
+          broadcast_message_id: m.id,
+          broadcast_message_title: m.title,
+          broadcast_message_has_audio: !!(m.audio_url || m.has_audio),
         });
         broadcastTargetPrompt(twiml);
       } else if (digits === '3') {
@@ -975,6 +981,48 @@ case 'history_menu': {
         broadcastMessageBrowse(twiml, messages, i);
       } else {
         broadcastMessageBrowse(twiml, messages, i, true);
+      }
+      break;
+    }
+
+    case 'broadcast_message_by_id': {
+      if (!digits) { messageIdPrompt(twiml, true); break; }
+      const { rows } = await pool.query(
+        `SELECT id, title, text_content, audio_url, (audio_data IS NOT NULL) AS has_audio
+           FROM messages WHERE id = $1 AND user_id = $2`,
+        [parseInt(digits, 10), userId]
+      );
+      if (!rows.length) { messageIdPrompt(twiml, true); break; }
+      const m = rows[0];
+      await updateSession(callSid, 'broadcast_message_confirm', { picked_message: m });
+      gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+        `That's "${m.title || 'Untitled'}", ${(m.audio_url || m.has_audio) ? 'a recording' : 'a text'}. ` +
+        `To hear it, press 1. To go with it, press 2. To enter a different I D, press 3.`,
+        { numDigits: 1 });
+      break;
+    }
+
+    case 'broadcast_message_confirm': {
+      const m = session.data.picked_message;
+      if (digits === '1') {
+        if (m.audio_url || m.has_audio) twiml.play(`${BASE_URL}/api/messages/${m.id}/audio`);
+        else if (m.text_content) say(twiml, m.text_content);
+        else say(twiml, "There's nothing saved on that one.");
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          'To go with it, press 2. To enter a different I D, press 3.', { numDigits: 1 });
+      } else if (digits === '2') {
+        await updateSession(callSid, 'broadcast_target_select', {
+          broadcast_message_id: m.id,
+          broadcast_message_title: m.title,
+          broadcast_message_has_audio: !!(m.audio_url || m.has_audio),
+        });
+        broadcastTargetPrompt(twiml);
+      } else if (digits === '3') {
+        await updateSession(callSid, 'broadcast_message_by_id');
+        messageIdPrompt(twiml);
+      } else {
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          'To hear it, press 1. To go with it, press 2. To enter a different I D, press 3.', { numDigits: 1 });
       }
       break;
     }
@@ -1042,7 +1090,12 @@ case 'history_menu': {
     case 'broadcast_method_select': {
       const methodMap = { '1': 'assigned', '2': 'call', '3': 'sms', '4': 'voice_note' };
       const method = methodMap[digits];
-      if (!method) { broadcastMethodPrompt(twiml, true); break; }
+            if (!method) { broadcastMethodPrompt(twiml, true); break; }
+      if (method === 'voice_note' && session.data.broadcast_message_has_audio === false) {
+        say(twiml, "That one's a text, so it can't go out as a voice note. Try a text or a phone call.");
+        broadcastMethodPrompt(twiml);
+        break;
+      }
       await updateSession(callSid, 'broadcast_when_select', { broadcast_method: method });
       broadcastWhenPrompt(twiml);
       break;
@@ -1593,11 +1646,21 @@ function broadcastMessageBrowse(twiml, messages, index, retry = false) {
   const prefix = retry ? "Hmm, that's not one of the options. " : '';
   const m = messages[index];
   const canPlay = !!(m.audio_url || m.has_audio);
+  const kind = canPlay ? 'a recording' : 'a text';
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `${prefix}Message ${index + 1} of ${messages.length}. ${m.title || 'Untitled'}. ` +
-    `${canPlay ? 'To hear it, press 1. ' : ''}` +
-    `To go with this one, press 2. For the next one, press 3. For the previous one, press 4.`,
+    `${prefix}Number ${index + 1} of ${messages.length}. ` +
+    `I D <break time="300ms"/> ${spokenDigits(m.id)} <break time="400ms"/>. ` +
+    `${m.title || 'Untitled'}. This one's ${kind}. ` +
+    `${canPlay ? 'To hear it, press 1. ' : 'To hear it read out, press 1. '}` +
+    `To go with this one, press 2. For the next one, press 3. For the previous one, press 4. ` +
+    `To type an I D instead, press 5.`,
     { numDigits: 1 });
+}
+
+function messageIdPrompt(twiml, retry = false) {
+  const prefix = retry ? "I couldn't find a message with that I D. " : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${prefix}Enter the message I D, then press pound.`, { finishOnKey: '#' });
 }
 
 // Resolves recipients, deduped. For multiple groups the first-selected group
