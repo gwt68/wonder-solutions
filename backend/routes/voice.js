@@ -936,13 +936,23 @@ case 'history_menu': {
              FROM messages WHERE user_id = $1 ORDER BY created_at DESC LIMIT 20`,
           [userId]
         );
-        if (!rows.length) {
+                if (!rows.length) {
           say(twiml, "You haven't got any saved messages yet.");
           await updateSession(callSid, 'main_menu');
           mainMenu(twiml);
           break;
         }
-        await updateSession(callSid, 'broadcast_message_select', { broadcast_messages: rows, browse_index: 0 });
+        const { rows: countRows } = await pool.query(
+          'SELECT COUNT(*) AS total FROM messages WHERE user_id = $1', [userId]
+        );
+        const totalSaved = parseInt(countRows[0].total, 10);
+        if (totalSaved > rows.length) {
+          say(twiml, `You've got ${totalSaved} saved. Here are the ${rows.length} most recent — ` +
+            `press 5 any time to type an I D instead.`);
+        }
+        await updateSession(callSid, 'broadcast_message_select', {
+          broadcast_messages: rows, browse_index: 0, total_saved: totalSaved,
+        });
         broadcastMessageBrowse(twiml, rows, 0);
       } else {
         broadcastSourcePrompt(twiml, true);
@@ -1648,8 +1658,8 @@ function broadcastMessageBrowse(twiml, messages, index, retry = false) {
   const canPlay = !!(m.audio_url || m.has_audio);
   const kind = canPlay ? 'a recording' : 'a text';
   gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `${prefix}Number ${index + 1} of ${messages.length}. ` +
-    `I D <break time="300ms"/> ${spokenDigits(m.id)} <break time="400ms"/>. ` +
+        `${prefix}Number ${index + 1} of ${messages.length} most recent. ` +
+        `I D. ${spokenDigits(m.id).split(' ').join(', ')}. ` +
     `${m.title || 'Untitled'}. This one's ${kind}. ` +
     `${canPlay ? 'To hear it, press 1. ' : 'To hear it read out, press 1. '}` +
     `To go with this one, press 2. For the next one, press 3. For the previous one, press 4. ` +
