@@ -77,7 +77,7 @@ async function sendToContact(contact, message, method, fromNumber) {
   }
 }
 
-async function createSendBatch({ message_id, recipients, scheduled_at, userId, isConversationReply = false }) {
+async function createSendBatch({ message_id, recipients, scheduled_at, userId, isConversationReply = false, batch_id }) {
   const { rows: userRows } = await pool.query('SELECT twilio_phone_number FROM users WHERE id = $1', [userId]);
   const fromNumber = userRows[0]?.twilio_phone_number;
 
@@ -101,7 +101,9 @@ async function createSendBatch({ message_id, recipients, scheduled_at, userId, i
   if (!contactRows.length) throw new Error('No matching contacts found');
 
   const isScheduled = !!scheduled_at && new Date(scheduled_at) > new Date();
-  const batchId = crypto.randomUUID();
+  // A caller sending the same broadcast to several groups passes its own id
+  // so History shows one row rather than one per group.
+  const batchId = batch_id || crypto.randomUUID();
   const created = [];
 
   const expanded = [];

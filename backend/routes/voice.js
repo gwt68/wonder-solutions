@@ -1829,13 +1829,17 @@ async function executeBroadcast(callSid, twiml, userId) {
         }))
       : [{ name: style === 'single' ? session.data.prefix_group_name : null, list: people }];
 
-    let total = 0;
+        let total = 0;
+    let sharedBatchId = null;
     try {
       for (const bucket of buckets) {
         let msgId = broadcast_message_id;
         if (bucket.name) msgId = await cloneMessageWithGroupPrefix(broadcast_message_id, bucket.name, userId);
         const recipients = bucket.list.map((p) => (useSpecific ? { contact_id: p.id, methods: [method] } : { contact_id: p.id }));
-        const result = await createSendBatch({ message_id: msgId, recipients, userId, scheduled_at: scheduledAt });
+        const result = await createSendBatch({
+          message_id: msgId, recipients, userId, scheduled_at: scheduledAt, batch_id: sharedBatchId,
+        });
+        sharedBatchId = sharedBatchId || result.batch_id;
         total += result.count;
       }
       if (scheduledAt) {
@@ -2405,7 +2409,8 @@ async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
       }))
     : [{ name: style === 'single' ? session.data.prefix_group_name : null, list: people }];
 
-  let total = 0;
+    let total = 0;
+  let sharedBatchId = null;
   try {
     for (const bucket of buckets) {
       let msgId = message_id;
@@ -2414,7 +2419,9 @@ async function executeSmsSend(session, userId, fromPhone, scheduledAt) {
       const result = await createSendBatch({
         message_id: msgId, recipients, userId,
         scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
+        batch_id: sharedBatchId,
       });
+      sharedBatchId = sharedBatchId || result.batch_id;
       total += result.count;
     }
     if (scheduledAt) {
