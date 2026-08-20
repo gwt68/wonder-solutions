@@ -6,6 +6,26 @@ const { requireAuth } = require('./auth');
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 16 * 1024 * 1024 } });
 
+// Twilio's <Play> only handles MP3, WAV, AIFF, GSM and u-law. Anything else
+// uploads fine but fails silently when someone actually calls, so reject early.
+const PLAYABLE_AUDIO = [
+  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav',
+  'audio/vnd.wave', 'audio/aiff', 'audio/x-aiff', 'audio/x-aifc',
+  'audio/gsm', 'audio/x-gsm', 'audio/basic', 'audio/ulaw',
+];
+
+function rejectUnplayableAudio(req, res, next) {
+  if (!req.file) return next();
+  const type = (req.file.mimetype || '').toLowerCase();
+  const name = (req.file.originalname || '').toLowerCase();
+  if (PLAYABLE_AUDIO.includes(type)) return next();
+  // Some browsers report a generic type, so fall back to the extension.
+  if (/\.(mp3|wav|wave|aif|aiff|aifc|gsm|ulaw|au)$/.test(name)) return next();
+  return res.status(400).json({
+    error: `That file type won't play on phone calls. Please upload an MP3 or WAV file.`,
+  });
+}
+
 function scopeParam(req) {
   return req.userId;
 }
@@ -142,7 +162,7 @@ router.put('/:id/mark-read', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/upload', requireAuth, upload.single('audio'), async (req, res) => {
+router.post('/upload', requireAuth, upload.single('audio'), rejectUnplayableAudio, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No audio file was uploaded' });
   const title = req.body.title || req.file.originalname;
   try {
@@ -222,7 +242,7 @@ router.put('/:id', requireAuth, async (req, res) => {
   }
 });
 
-router.put('/:id/audio', requireAuth, upload.single('audio'), async (req, res) => {
+router.put('/:id/audio', requireAuth, upload.single('audio'), rejectUnplayableAudio, async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No audio file was uploaded' });
   try {
     const { rows } = await pool.query(

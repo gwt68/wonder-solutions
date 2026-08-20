@@ -177,7 +177,16 @@ function AudioSourcePicker({ onFileChosen, onExistingChosen, existingId }) {
       </div>
 
       {mode === 'upload' && (
-        <input type="file" accept="audio/*" onChange={(e) => onFileChosen(e.target.files?.[0] || null)} />
+                <div>
+          <input
+            type="file"
+            accept=".mp3,.wav,audio/mpeg,audio/wav,audio/x-wav"
+            onChange={(e) => onFileChosen(e.target.files?.[0] || null)}
+          />
+          <div style={{ fontSize: 12, color: 'var(--ink-soft)', marginTop: 4 }}>
+            MP3 or WAV only — other formats won't play on phone calls.
+          </div>
+        </div>
       )}
 
       {mode === 'library' && (
