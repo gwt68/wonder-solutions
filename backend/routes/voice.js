@@ -2231,6 +2231,76 @@ async function promptForStep(step, data, userId) {
   }
 }
 
+// Parses the one-shot form: #send*who*detail*title*method*when message text
+function parseSendShortcut(body) {
+  const m = /^#send\*(\S+?)\s+([\s\S]+)$/i.exec(body.trim());
+  if (!m) return null;
+  const parts = m[1].split('*');
+  if (parts.length !== 5) return null;
+  const [who, detail, title, method, when] = parts;
+  if (!['1', '2', '3'].includes(who)) return null;
+  if (!['1', '2', '3', '4'].includes(method)) return null;
+  return { who, detail, title, method, when, text: m[2].trim() };
+}
+
+async function buildShortcutSession(sc, userId) {
+  const methodMap = { '1': 'assigned', '2': 'call', '3': 'sms', '4': 'voice_note' };
+  const data = { method: methodMap[sc.method], prefix_style: 'none' };
+
+  if (sc.who === '1') {
+    data.target = 'all';
+  } else if (sc.who === '2') {
+    const { rows } = await pool.query(
+      `SELECT id FROM contacts WHERE user_id = $2
+         AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
+      [sc.detail, userId]
+    );
+    if (!rows.length) return { error: `No contact found with the number ${sc.detail}.` };
+    data.target = 'contact';
+    data.contact_id = rows[0].id;
+  } else {
+    const { rows: allGroups } = await pool.query(
+      'SELECT id, name FROM groups WHERE user_id = $1 ORDER BY id', [userId]
+    );
+    const picked = [];
+    sc.detail.split(/[,\s]+/).forEach((n) => {
+      const g = allGroups[parseInt(n, 10) - 1];
+      if (g && !picked.some((p) => p.id === g.id)) picked.push(g);
+    });
+    if (!picked.length) return { error: `I couldn't match "${sc.detail}" to any of your groups.` };
+    data.target = 'group';
+    data.groups = picked;
+    data.group_id = picked[0].id;
+    data.group_name = picked[0].name;
+    data.prefix_style = sc.title === '1' ? 'each' : 'none';
+  }
+
+  if (sc.when !== '1') {
+    const zone = await getUserTimezone(userId);
+    const dt = parseScheduleDateTime(sc.when.replace('-', ' '), zone);
+    if (!dt) return { error: `I couldn't read "${sc.when}" as a date and time. Try 8/20-3:00pm.` };
+    data.scheduled_at = dt.toJSDate().toISOString();
+  }
+
+  return { data };
+}
+
+async function shortcutSummary(data, userId) {
+  const people = await resolveTargetContacts(
+    { broadcast_target: data.target, broadcast_contact_id: data.contact_id, broadcast_groups: data.groups || [] },
+    userId
+  );
+  const methodLabel = { assigned: 'their usual method', call: 'phone call', sms: 'text', voice_note: 'voice note' }[data.method];
+  let whenLabel = 'now';
+  if (data.scheduled_at) {
+    const zone = await getUserTimezone(userId);
+    whenLabel = DateTime.fromISO(data.scheduled_at).setZone(zone).toFormat('M/d h:mm a');
+  }
+  const titleNote = data.prefix_style === 'each' ? ', with group titles' : '';
+  return `Sending to ${people.length} contact${people.length === 1 ? '' : 's'} by ${methodLabel}${titleNote}, ${whenLabel}.\n` +
+    `Reply GO to send, or EXIT to cancel.`;
+}
+
 async function handleSmsSendStep(session, body, userId, fromPhone) {
   const raw = body.trim();
   const lower = raw.toLowerCase();
@@ -2252,7 +2322,16 @@ async function handleSmsSendStep(session, body, userId, fromPhone) {
     return await promptForStep(target, session.data, userId);
   }
 
-  const digits = raw;
+    const digits = raw;
+
+  if (session.step === 'shortcut_confirm') {
+    if (lower === 'go') {
+      return await executeSmsSend(session, userId, fromPhone,
+        session.data.scheduled_at ? new Date(session.data.scheduled_at) : null);
+    }
+    await clearSmsSendSession(userId, fromPhone);
+    return 'Cancelled.';
+  }
 
   switch (session.step) {
     case 'target_type': {
@@ -2456,6 +2535,28 @@ router.post('/sms-incoming', async (req, res) => {
       if (isTrusted && sessionRows.length) {
         const reply = await handleSmsSendStep(sessionRows[0], body, user.id, from);
         twiml.message(reply);
+        return res.type('text/xml').send(twiml.toString());
+      }
+
+      const shortcut = isTrusted ? parseSendShortcut(body) : null;
+      if (shortcut) {
+        const built = await buildShortcutSession(shortcut, user.id);
+        if (built.error) {
+          twiml.message(built.error);
+          return res.type('text/xml').send(twiml.toString());
+        }
+        const { rows: msgRows } = await pool.query(
+          `INSERT INTO messages (title, type, text_content, user_id) VALUES ('Texted in', 'sms', $1, $2) RETURNING id`,
+          [shortcut.text, user.id]
+        );
+        const data = { ...built.data, message_id: msgRows[0].id };
+        await pool.query(
+          `INSERT INTO sms_send_sessions (user_id, from_phone_number, step, data)
+           VALUES ($1, $2, 'shortcut_confirm', $3)
+           ON CONFLICT (user_id, from_phone_number) DO UPDATE SET step = 'shortcut_confirm', data = $3, updated_at = NOW()`,
+          [user.id, from, JSON.stringify(data)]
+        );
+        twiml.message(await shortcutSummary(data, user.id));
         return res.type('text/xml').send(twiml.toString());
       }
 
