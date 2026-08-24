@@ -394,6 +394,20 @@ function exportSingleBroadcast(b) {
 
   const colCount = shownCols.length + 1; // + chevron column
 
+  // When the search matched people rather than the message, the expanded list
+  // shows only those people — otherwise everyone.
+  function matchingRecipients(b) {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return b.recipients;
+    if ((b.title || '').toLowerCase().includes(q)) return b.recipients;
+    const hits = b.recipients.filter((s) =>
+      (s.contact_name || '').toLowerCase().includes(q) ||
+      (s.phone_number || '').toLowerCase().includes(q)
+    );
+    return hits.length ? hits : b.recipients;
+  }
+
+
 const viewToggle = (
     <div className="chip-select" style={{ marginBottom: 12 }}>
       {[
@@ -748,7 +762,7 @@ const viewToggle = (
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {sortRecipients(b.recipients, recipSortField, recipSortDir).map((s) => {
+                                    {sortRecipients(matchingRecipients(b), recipSortField, recipSortDir).map((s) => {
                                       const duration = formatDuration(s.call_duration);
                                       const isReplyOpen = expandedReplyId === s.id;
                                       const recipCols = isAdmin ? 9 : 8;
