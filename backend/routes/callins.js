@@ -25,7 +25,7 @@ router.get('/', async (req, res) => {
       `SELECT ci.id, ci.call_sid, ci.from_phone_number, ci.is_trusted,
               ci.interrupted_with, ci.reached, ci.status,
               ci.duration_seconds, ci.cost, ci.started_at, ci.ended_at,
-              c.name AS contact_name,
+              COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name) AS contact_name,
               m.title AS played_message_name,
               u.username AS user_name
          FROM call_ins ci

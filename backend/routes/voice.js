@@ -2650,4 +2650,42 @@ router.post('/incoming-status', async (req, res) => {
   res.status(200).end();
 });
 
+// Twilio doesn't have a price ready when a call completes — it lands minutes
+// to hours later. The incoming-status webhook only asks once, so this sweeps
+// up call-ins that finished a while ago and still have no cost.
+async function backfillCallInPrices() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT call_sid FROM call_ins
+        WHERE cost IS NULL
+          AND ended_at IS NOT NULL
+          AND ended_at < NOW() - INTERVAL '30 minutes'
+          AND ended_at > NOW() - INTERVAL '7 days'
+        ORDER BY ended_at DESC
+        LIMIT 25`
+    );
+    if (!rows.length) return;
+
+    const client = twilio((process.env.TWILIO_ACCOUNT_SID || '').trim(), (process.env.TWILIO_AUTH_TOKEN || '').trim());
+    for (const row of rows) {
+      try {
+        const call = await client.calls(row.call_sid).fetch();
+        if (call.price != null) {
+          await pool.query(
+            'UPDATE call_ins SET cost = $1 WHERE call_sid = $2',
+            [Math.abs(parseFloat(call.price)), row.call_sid]
+          );
+        }
+      } catch (err) {
+        console.error(`Could not fetch price for ${row.call_sid}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('backfillCallInPrices error:', err);
+  }
+}
+
+setInterval(backfillCallInPrices, 15 * 60 * 1000);
+setTimeout(backfillCallInPrices, 60 * 1000);
+
 module.exports = router;
