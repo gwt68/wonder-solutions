@@ -11,8 +11,9 @@ function issueToken(user) {
   const token = crypto.randomBytes(32).toString('hex');
   validTokens.set(token, {
     expiry: Date.now() + TOKEN_TTL_MS,
-    userId: user.id,
+        userId: user.id,
     isAdmin: user.is_admin,
+    accountType: user.account_type || 'full',
   });
   return token;
 }
@@ -26,13 +27,21 @@ function requireAuth(req, res, next) {
     if (token) validTokens.delete(token);
     return res.status(401).json({ error: 'Not logged in' });
   }
-  req.userId = session.userId;
+    req.userId = session.userId;
   req.isAdmin = session.isAdmin;
+  req.accountType = session.accountType || 'full';
   next();
 }
 
 function requireAdmin(req, res, next) {
   if (!req.isAdmin) return res.status(403).json({ error: 'Admin access required' });
+  next();
+}
+
+function requireFullAccount(req, res, next) {
+  if (req.accountType !== 'full') {
+    return res.status(403).json({ error: 'Not available on this account' });
+  }
   next();
 }
 
@@ -44,7 +53,11 @@ router.post('/login', async (req, res) => {
     const { rows: userRows } = await pool.query('SELECT * FROM users WHERE username = $1', [username]);
     if (userRows.length) {
       const match = await bcrypt.compare(password, userRows[0].password_hash);
-      if (match) return res.json({ token: issueToken(userRows[0]), isAdmin: userRows[0].is_admin });
+            if (match) return res.json({
+        token: issueToken(userRows[0]),
+        isAdmin: userRows[0].is_admin,
+        accountType: userRows[0].account_type || 'full',
+      });
       return res.status(401).json({ error: 'Incorrect username or password' });
     }
 
@@ -99,4 +112,4 @@ router.post('/recover', async (req, res) => {
   }
 });
 
-module.exports = { router, requireAuth, requireAdmin };
+module.exports = { router, requireAuth, requireAdmin, requireFullAccount };

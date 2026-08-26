@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const twilio = require('twilio');
 const pool = require('../db/pool');
-const { requireAuth } = require('./auth');
+const { requireAuth, requireFullAccount } = require('./auth');
 
 router.use(requireAuth);
 
@@ -140,7 +140,7 @@ async function createSendBatch({ message_id, recipients, scheduled_at, userId, i
   return { count: created.length, scheduled: isScheduled, batch_id: batchId, sends: created };
 }
 
-router.post('/', async (req, res) => {
+router.post('/', requireFullAccount, async (req, res) => {
   const { message_id, recipients, scheduled_at } = req.body;
   if (!message_id || !Array.isArray(recipients) || !recipients.length) {
     return res.status(400).json({ error: 'message_id and a non-empty recipients array are required' });
