@@ -41,14 +41,36 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Accepts a rename, a member_posting change, or both.
 router.put('/:id', async (req, res) => {
-  const { name } = req.body;
-  if (!name) return res.status(400).json({ error: 'name is required' });
+  const { name, member_posting } = req.body;
+  if (name === undefined && member_posting === undefined) {
+    return res.status(400).json({ error: 'name or member_posting is required' });
+  }
+  if (member_posting !== undefined && !['off', 'approved'].includes(member_posting)) {
+    return res.status(400).json({ error: 'member_posting must be off or approved' });
+  }
   try {
+    const sets = [];
+    const params = [];
+    if (name !== undefined) {
+      params.push(name);
+      sets.push(`name = $${params.length}`, `source = 'web'`);
+    }
+    if (member_posting !== undefined) {
+      params.push(member_posting);
+      sets.push(`member_posting = $${params.length}`);
+    }
+    params.push(req.params.id);
+    const idIdx = params.length;
+    params.push(scopeParam(req));
+    const scopeIdx = params.length;
+
     const { rows } = await pool.query(
-      `UPDATE groups SET name = $1, source = 'web'
-       WHERE id = $2 AND ($3::int IS NULL OR user_id = $3) RETURNING *`,
-      [name, req.params.id, scopeParam(req)]
+      `UPDATE groups SET ${sets.join(', ')}
+        WHERE id = $${idIdx} AND ($${scopeIdx}::int IS NULL OR user_id = $${scopeIdx})
+        RETURNING *`,
+      params
     );
     if (!rows.length) return res.status(404).json({ error: 'Group not found' });
     res.json(rows[0]);
@@ -89,7 +111,7 @@ router.post('/bulk-delete', async (req, res) => {
 router.get('/:id/contacts', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT c.* FROM contacts c
+      `SELECT c.*, cg.can_post, cg.muted FROM contacts c
        JOIN contact_groups cg ON cg.contact_id = c.id
        JOIN groups g ON g.id = cg.group_id
        WHERE cg.group_id = $1 AND ($2::int IS NULL OR g.user_id = $2)
@@ -134,6 +156,48 @@ router.post('/:id/contacts', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to add contacts to group' });
+  }
+});
+
+// Approve or mute one member of one group. Scoped through groups.user_id
+// because contact_groups has no user_id of its own.
+router.put('/:id/contacts/:contactId', async (req, res) => {
+  const { can_post, muted } = req.body;
+  if (can_post === undefined && muted === undefined) {
+    return res.status(400).json({ error: 'can_post or muted is required' });
+  }
+  try {
+    const sets = [];
+    const params = [];
+    if (can_post !== undefined) {
+      params.push(!!can_post);
+      sets.push(`can_post = $${params.length}`);
+    }
+    if (muted !== undefined) {
+      params.push(!!muted);
+      sets.push(`muted = $${params.length}`);
+    }
+    params.push(req.params.id);
+    const gidIdx = params.length;
+    params.push(req.params.contactId);
+    const cidIdx = params.length;
+    params.push(scopeParam(req));
+    const scopeIdx = params.length;
+
+    const { rowCount } = await pool.query(
+      `UPDATE contact_groups cg SET ${sets.join(', ')}
+         FROM groups g
+        WHERE g.id = cg.group_id
+          AND cg.group_id = $${gidIdx}
+          AND cg.contact_id = $${cidIdx}
+          AND ($${scopeIdx}::int IS NULL OR g.user_id = $${scopeIdx})`,
+      params
+    );
+    if (!rowCount) return res.status(404).json({ error: 'Group member not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update group member' });
   }
 });
 

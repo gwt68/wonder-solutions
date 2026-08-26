@@ -114,7 +114,8 @@ export const api = {
     bulkDelete: (ids) => request('/groups/bulk-delete', { method: 'POST', body: JSON.stringify({ ids }) }),
     contacts: (id) => request(`/groups/${id}/contacts`),
     addContacts: (id, contact_ids) => request(`/groups/${id}/contacts`, { method: 'POST', body: JSON.stringify({ contact_ids }) }),
-    removeContact: (id, contactId) => request(`/groups/${id}/contacts/${contactId}`, { method: 'DELETE' }),
+        removeContact: (id, contactId) => request(`/groups/${id}/contacts/${contactId}`, { method: 'DELETE' }),
+    updateMember: (id, contactId, data) => request(`/groups/${id}/contacts/${contactId}`, { method: 'PUT', body: JSON.stringify(data) }),
     bulkAssign: (contact_ids, group_ids) => request('/groups/bulk-assign', { method: 'POST', body: JSON.stringify({ contact_ids, group_ids }) }),
   },
   messages: {

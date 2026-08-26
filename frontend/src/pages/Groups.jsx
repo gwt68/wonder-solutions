@@ -231,6 +231,7 @@ export default function Groups() {
                   <th onClick={() => handleSort('member_count')} style={{ cursor: 'pointer', textAlign: 'right' }}>
                     {t('groups_member_other')}{sortArrow('member_count')}
                   </th>
+                  <th style={{ whiteSpace: 'nowrap' }}>Group chat</th>
                   <th onClick={() => handleSort('created_at')} style={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('groups_created')}{sortArrow('created_at')}</th>
                   <th />
                 </tr>
@@ -248,6 +249,11 @@ export default function Groups() {
                       )}
                     </td>
                     <td style={{ textAlign: 'right', fontSize: 13 }}>{g.member_count}</td>
+                    <td style={{ fontSize: 13 }}>
+                      {g.member_posting === 'approved'
+                        ? <span className="pill">On</span>
+                        : <span style={{ color: 'var(--ink-soft)' }}>Off</span>}
+                    </td>
                     <td style={{ fontSize: 13, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
                       {g.created_at ? new Date(g.created_at).toLocaleDateString() : ''}
                     </td>
@@ -287,6 +293,9 @@ export default function Groups() {
                       {g.name}
                       {g.source === 'phone_placeholder' && (
                         <span className="pill signal" style={{ marginLeft: 8 }}>{t('groups_needs_name')}</span>
+                      )}
+                      {g.member_posting === 'approved' && (
+                        <span className="pill" style={{ marginLeft: 8 }}>Group chat</span>
                       )}
                     </div>
                     <div className="row-sub" style={{ marginTop: 2 }}>
@@ -358,6 +367,8 @@ function GroupDetailModal({ group, onClose, onChanged }) {
   const [adding, setAdding] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [picked, setPicked] = useState(new Set());
+  const [posting, setPosting] = useState(group.member_posting || 'off');
+  const [savingPosting, setSavingPosting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -412,6 +423,33 @@ function GroupDetailModal({ group, onClose, onChanged }) {
     }
   }
 
+  async function handleTogglePosting() {
+    const next = posting === 'approved' ? 'off' : 'approved';
+    setSavingPosting(true);
+    setError('');
+    try {
+      await api.groups.update(group.id, { member_posting: next });
+      setPosting(next);
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingPosting(false);
+    }
+  }
+
+  async function handleToggleCanPost(contact) {
+    const next = !contact.can_post;
+    // Optimistic: flip locally, roll back if the save fails.
+    setMembers((prev) => prev.map((m) => (m.id === contact.id ? { ...m, can_post: next } : m)));
+    try {
+      await api.groups.updateMember(group.id, contact.id, { can_post: next });
+    } catch (err) {
+      setError(err.message);
+      setMembers((prev) => prev.map((m) => (m.id === contact.id ? { ...m, can_post: !next } : m)));
+    }
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
@@ -420,6 +458,29 @@ function GroupDetailModal({ group, onClose, onChanged }) {
 
         {!pickerOpen ? (
           <>
+            <div
+              style={{
+                border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px',
+                marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 500 }}>Group chat</div>
+                <div style={{ fontSize: 12.5, color: 'var(--ink-soft)' }}>
+                  Approved members can text this group and reach everyone in it.
+                </div>
+              </div>
+              <button
+                type="button"
+                className={`btn ${posting === 'approved' ? '' : 'secondary'}`}
+                style={{ padding: '6px 12px', fontSize: 13, flexShrink: 0 }}
+                onClick={handleTogglePosting}
+                disabled={savingPosting}
+              >
+                {savingPosting ? '…' : posting === 'approved' ? 'On' : 'Off'}
+              </button>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>
                 {members.length} {members.length === 1 ? t('groups_member_one') : t('groups_member_other')}
@@ -446,6 +507,19 @@ function GroupDetailModal({ group, onClose, onChanged }) {
                       <span className="row-title">{contactDisplayName(c) || c.phone_number}</span>
                       <span className="row-sub">{c.phone_number}</span>
                     </div>
+                    {posting === 'approved' && (
+                      <label
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', marginRight: 8, whiteSpace: 'nowrap' }}
+                        title="Let this member post to the group"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!c.can_post}
+                          onChange={() => handleToggleCanPost(c)}
+                        />
+                        Can post
+                      </label>
+                    )}
                     <button className="icon-btn danger" onClick={() => handleRemoveMember(c.id)} aria-label={t('aria_remove_from_group')}>
                       <i className="ti ti-x" />
                     </button>
