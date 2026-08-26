@@ -4,6 +4,7 @@ const twilio = require('twilio');
 const { DateTime } = require('luxon');
 const pool = require('../db/pool');
 const { createSendBatch } = require('./sends');
+const { handleGroupPost, lookupGroupNumber } = require('./groupChat');
 
 const VoiceResponse = twilio.twiml.VoiceResponse;
 const BASE_URL = process.env.BASE_URL;
@@ -2522,7 +2523,19 @@ router.post('/sms-incoming', async (req, res) => {
   const twiml = new MessagingResponse();
 
   try {
-    const user = await getUserByCalledNumber(to);
+        let user = await getUserByCalledNumber(to);
+    let directGroupId = null;
+    if (!user) {
+      const gn = await lookupGroupNumber(to);
+      if (gn) { user = gn.user; directGroupId = gn.group.id; }
+    }
+    if (user && directGroupId && body) {
+      const reply = await handleGroupPost({ user, from, body, directGroupId });
+      if (reply) {
+        twiml.message(reply);
+        return res.type('text/xml').send(twiml.toString());
+      }
+    }
     if (user && body) {
       const { rows: trustedRows } = await pool.query(
         'SELECT 1 FROM trusted_phones WHERE phone_number = $1 AND user_id = $2', [from, user.id]
@@ -2604,7 +2617,12 @@ router.post('/sms-incoming', async (req, res) => {
           [`Texted in`, body, user.id]
         );
         twiml.message('Saved to Wonder Solutions as a new text message.');
-      } else {
+            } else {
+        const groupReply = await handleGroupPost({ user, from, body });
+        if (groupReply) {
+          twiml.message(groupReply);
+          return res.type('text/xml').send(twiml.toString());
+        }
         const { rows: contactRows } = await pool.query(
           `SELECT id FROM contacts WHERE user_id = $2 AND regexp_replace(phone_number, '\\D', '', 'g') LIKE '%' || right(regexp_replace($1, '\\D', '', 'g'), 10)`,
           [from, user.id]
