@@ -126,16 +126,19 @@ async function fanOut({ user, group, sender, body }) {
      VALUES ($1, 'sms', $2, $3, TRUE) RETURNING id`,
     [`${group.name} post`, text, user.id]
   );
+  const messageId = msgRows[0].id;
 
   await createSendBatch({
-    message_id: msgRows[0].id,
+    message_id: messageId,
     recipients: smsMembers.map((m) => ({ contact_id: m.id, method: 'sms' })),
     userId: user.id,
   });
 
+  // One row per post: drives both the rate limit and the Group Chat feed.
   await pool.query(
-    `INSERT INTO group_post_log (group_id, contact_id) VALUES ($1, $2)`,
-    [group.id, sender.id]
+    `INSERT INTO group_post_log (group_id, contact_id, message_id, body)
+     VALUES ($1, $2, $3, $4)`,
+    [group.id, sender.id, messageId, body]
   );
 
   return `Sent to ${smsMembers.length} ${smsMembers.length === 1 ? 'person' : 'people'} in ${group.name}.`;

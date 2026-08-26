@@ -26,6 +26,53 @@ router.get('/', async (req, res) => {
   }
 });
 
+// --- Group chat -------------------------------------------------------
+// Placed above the /:id routes so 'chat' is never read as a group id.
+
+router.get('/chat/enabled', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.id, g.name, g.member_posting,
+              COUNT(DISTINCT cg.contact_id)::int AS member_count,
+              (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.can_post))::int AS poster_count,
+              MAX(gpl.created_at) AS last_post_at
+         FROM groups g
+         LEFT JOIN contact_groups cg ON cg.group_id = g.id
+         LEFT JOIN group_post_log gpl ON gpl.group_id = g.id
+        WHERE g.user_id = $1 AND g.member_posting = 'approved'
+        GROUP BY g.id
+        ORDER BY MAX(gpl.created_at) DESC NULLS LAST, g.name`,
+      [scopeParam(req)]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch group chats' });
+  }
+});
+
+router.get('/:id/posts', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT gpl.id, gpl.created_at, gpl.body,
+              COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name, c.phone_number) AS sender_name,
+              c.phone_number AS sender_phone,
+              (SELECT COUNT(*)::int FROM sends s WHERE s.message_id = gpl.message_id) AS recipient_count
+         FROM group_post_log gpl
+         JOIN groups g ON g.id = gpl.group_id
+         JOIN contacts c ON c.id = gpl.contact_id
+        WHERE gpl.group_id = $1 AND ($2::int IS NULL OR g.user_id = $2)
+        ORDER BY gpl.created_at DESC
+        LIMIT 100`,
+      [req.params.id, scopeParam(req)]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch group posts' });
+  }
+});
+
 router.post('/', async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ error: 'name is required' });

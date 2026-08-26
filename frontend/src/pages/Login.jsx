@@ -44,9 +44,10 @@ function LoginForm({ onLogin, onForgot }) {
     setError('');
     setLoading(true);
     try {
-      const { token, isAdmin } = await api.auth.login(username, password);
+      const { token, isAdmin, accountType } = await api.auth.login(username, password);
       setToken(token);
       localStorage.setItem('wonder_is_admin', isAdmin ? 'true' : 'false');
+      localStorage.setItem('wonder_account_type', accountType || 'full');
       onLogin();
     } catch (err) {
       setError(err.message);
