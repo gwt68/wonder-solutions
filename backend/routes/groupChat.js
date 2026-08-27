@@ -141,7 +141,7 @@ async function fanOut({ user, group, sender, body }) {
     [group.id, sender.id, messageId, body]
   );
 
-  return `Sent to ${smsMembers.length} ${smsMembers.length === 1 ? 'person' : 'people'} in ${group.name}.`;
+    return '';
 }
 
 /**

@@ -2530,9 +2530,9 @@ router.post('/sms-incoming', async (req, res) => {
       if (gn) { user = gn.user; directGroupId = gn.group.id; }
     }
     if (user && directGroupId && body) {
-      const reply = await handleGroupPost({ user, from, body, directGroupId });
-      if (reply) {
-        twiml.message(reply);
+       const reply = await handleGroupPost({ user, from, body, directGroupId });
+      if (reply !== null) {
+        if (reply) twiml.message(reply);
         return res.type('text/xml').send(twiml.toString());
       }
     }
@@ -2619,8 +2619,8 @@ router.post('/sms-incoming', async (req, res) => {
         twiml.message('Saved to Wonder Solutions as a new text message.');
             } else {
         const groupReply = await handleGroupPost({ user, from, body });
-        if (groupReply) {
-          twiml.message(groupReply);
+        if (groupReply !== null) {
+          if (groupReply) twiml.message(groupReply);
           return res.type('text/xml').send(twiml.toString());
         }
         const { rows: contactRows } = await pool.query(
