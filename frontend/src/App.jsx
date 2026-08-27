@@ -34,7 +34,10 @@ export default function App() {
     () => localStorage.getItem('wonder_account_type') || 'full'
   );
   const [page, setPage] = useState(() =>
-    (localStorage.getItem('wonder_account_type') || 'full') === 'groups' ? 'groupchat' : 'dashboard'
+    import.meta.env.VITE_PORTAL === 'groups' ||
+    (localStorage.getItem('wonder_account_type') || 'full') === 'groups'
+      ? 'groupchat'
+      : 'dashboard'
   );
   const [unreadReplies, setUnreadReplies] = useState(0);
   const [lang, setLangState] = useState(getLang());
@@ -48,7 +51,8 @@ export default function App() {
   const [loggedIn, setLoggedIn] = useState(!!localStorage.getItem('wonder_token'));
   const [isAdmin, setIsAdmin] = useState(localStorage.getItem('wonder_is_admin') === 'true');
 
-  const isGroupsTier = accountType === 'groups';
+  const FORCE_GROUPS_PORTAL = import.meta.env.VITE_PORTAL === 'groups';
+  const isGroupsTier = FORCE_GROUPS_PORTAL || accountType === 'groups';
 
   useEffect(() => {
     function handleLogout() { setLoggedIn(false); }
