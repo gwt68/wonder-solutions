@@ -32,6 +32,10 @@ function SectionLabel({ children }) {
 }
 
 export default function Settings() {
+  const isGroupsTier =
+    import.meta.env.VITE_PORTAL === 'groups' ||
+    (localStorage.getItem('wonder_account_type') || 'full') === 'groups';
+
   const [currentPin, setCurrentPin] = useState('');
   const [newPin, setNewPin] = useState('');
   const [pinLoading, setPinLoading] = useState(true);
@@ -46,15 +50,11 @@ export default function Settings() {
   const [userSuccess, setUserSuccess] = useState('');
   const [userSaving, setUserSaving] = useState(false);
 
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [pwError, setPwError] = useState('');
   const [pwSuccess, setPwSuccess] = useState('');
   const [pwSaving, setPwSaving] = useState(false);
-
-  const [recoveryKey, setRecoveryKey] = useState('');
-  const [rkError, setRkError] = useState('');
-  const [rkSuccess, setRkSuccess] = useState('');
-  const [rkSaving, setRkSaving] = useState(false);
 
   const [twilioNumber, setTwilioNumber] = useState(null);
 
@@ -67,10 +67,19 @@ export default function Settings() {
   const [addingTp, setAddingTp] = useState(false);
 
   useEffect(() => {
-    api.settings.getPin().then((r) => setCurrentPin(r.pin)).catch((e) => setPinError(e.message)).finally(() => setPinLoading(false));
-    api.settings.getPortalUsername().then((r) => setCurrentUsername(r.username)).catch((e) => setUserError(e.message)).finally(() => setUserLoading(false));
+    api.account.get()
+      .then((r) => setCurrentUsername(r.username))
+      .catch((e) => setUserError(e.message))
+      .finally(() => setUserLoading(false));
     api.settings.getTwilioNumber().then((r) => setTwilioNumber(r.number)).catch(() => {});
-    loadTrustedPhones();
+
+    if (!isGroupsTier) {
+      api.settings.getPin().then((r) => setCurrentPin(r.pin)).catch((e) => setPinError(e.message)).finally(() => setPinLoading(false));
+      loadTrustedPhones();
+    } else {
+      setPinLoading(false);
+      setTpLoading(false);
+    }
   }, []);
 
   async function loadTrustedPhones() {
@@ -126,7 +135,7 @@ export default function Settings() {
     e.preventDefault();
     setUserError(''); setUserSuccess(''); setUserSaving(true);
     try {
-      await api.settings.setPortalUsername(newUsername);
+      await api.account.setUsername(newUsername);
       setCurrentUsername(newUsername);
       setNewUsername('');
       setUserSuccess(t('settings_username_updated'));
@@ -137,20 +146,11 @@ export default function Settings() {
     e.preventDefault();
     setPwError(''); setPwSuccess(''); setPwSaving(true);
     try {
-      await api.settings.setPortalPassword(newPassword);
+      await api.account.setPassword(currentPassword, newPassword);
+      setCurrentPassword('');
       setNewPassword('');
       setPwSuccess(t('settings_password_updated'));
     } catch (err) { setPwError(err.message); } finally { setPwSaving(false); }
-  }
-
-  async function handleSaveRecoveryKey(e) {
-    e.preventDefault();
-    setRkError(''); setRkSuccess(''); setRkSaving(true);
-    try {
-      await api.settings.setRecoveryKey(recoveryKey);
-      setRecoveryKey('');
-      setRkSuccess(t('settings_recovery_key_set'));
-    } catch (err) { setRkError(err.message); } finally { setRkSaving(false); }
   }
 
   return (
@@ -170,32 +170,34 @@ export default function Settings() {
 
       <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
 
-      <SectionLabel>{t('settings_phone_line')}</SectionLabel>
+      <SectionLabel>{isGroupsTier ? 'Messages' : t('settings_phone_line')}</SectionLabel>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-        <SettingCard
-          icon="ti-lock"
-          title={t('settings_call_in_pin')}
-          description={t('settings_call_in_pin_desc')}
-          error={pinError}
-          success={pinSuccess}
-        >
-          {!pinLoading && (
-            <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginBottom: 10 }}>{t('settings_current')} {currentPin}</p>
-          )}
-          <form onSubmit={handleSavePin}>
-            <div className="field">
-              <label>{t('settings_new_pin')}</label>
-              <input required inputMode="numeric" pattern="\d{4,8}" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder={t('settings_new_pin_placeholder')} />
-            </div>
-            <button type="submit" className="btn" disabled={pinSaving}>{pinSaving ? t('btn_saving') : t('settings_update_pin')}</button>
-          </form>
-        </SettingCard>
+        {!isGroupsTier && (
+          <SettingCard
+            icon="ti-lock"
+            title={t('settings_call_in_pin')}
+            description={t('settings_call_in_pin_desc')}
+            error={pinError}
+            success={pinSuccess}
+          >
+            {!pinLoading && (
+              <p style={{ fontFamily: 'var(--font-mono)', fontSize: 16, marginBottom: 10 }}>{t('settings_current')} {currentPin}</p>
+            )}
+            <form onSubmit={handleSavePin}>
+              <div className="field">
+                <label>{t('settings_new_pin')}</label>
+                <input required inputMode="numeric" pattern="\d{4,8}" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder={t('settings_new_pin_placeholder')} />
+              </div>
+              <button type="submit" className="btn" disabled={pinSaving}>{pinSaving ? t('btn_saving') : t('settings_update_pin')}</button>
+            </form>
+          </SettingCard>
+        )}
 
         <SettingCard icon="ti-users-group" title="Group message prefix" description="When sending to a whole group, start the message with the group's name?">
           <GroupPrefixInline />
         </SettingCard>
 
-        <SettingCard icon="ti-clock" title="Your time zone" description="Used when scheduling messages for later.">
+        <SettingCard icon="ti-clock" title="Your time zone" description="Used for scheduling and for the times shown in History.">
           <TimezoneInline />
         </SettingCard>
       </div>
@@ -230,64 +232,73 @@ export default function Settings() {
         >
           <form onSubmit={handleSavePassword}>
             <div className="field">
+              <label>Current password</label>
+              <PasswordInput required value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} />
+            </div>
+            <div className="field">
               <label>{t('settings_new_password')}</label>
               <PasswordInput required minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
             </div>
             <button type="submit" className="btn" disabled={pwSaving}>{pwSaving ? t('btn_saving') : t('settings_update_password')}</button>
           </form>
         </SettingCard>
-
-        <SettingCard
-          icon="ti-shield-check"
-          title={t('settings_recovery_key_title')}
-          description={t('settings_recovery_key_desc')}
-          error={rkError}
-          success={rkSuccess}
-        >
-          <form onSubmit={handleSaveRecoveryKey}>
-            <div className="field">
-              <label>{t('settings_new_recovery_key')}</label>
-              <input required minLength={4} value={recoveryKey} onChange={(e) => setRecoveryKey(e.target.value)} placeholder={t('settings_new_recovery_key_placeholder')} />
-            </div>
-            <button type="submit" className="btn" disabled={rkSaving}>{rkSaving ? t('btn_saving') : t('settings_set_recovery_key')}</button>
-          </form>
-        </SettingCard>
       </div>
 
-      <SectionLabel>{t('settings_text_to_save')}</SectionLabel>
-      <div className="card" style={{ padding: 18, maxWidth: 420 }}>
-        <p style={{ color: 'var(--ink-soft)', fontSize: 12.5, margin: '0 0 12px' }}>
-          {t('settings_text_to_save_desc')}
-        </p>
-        {tpError && <div className="banner error">{tpError}</div>}
-        {tpSuccess && <div className="banner ok">{tpSuccess}</div>}
+      {!isGroupsTier && (
+        <>
+          <SectionLabel>{t('settings_text_to_save')}</SectionLabel>
+          <div className="card" style={{ padding: 18, maxWidth: 420 }}>
+            <p style={{ color: 'var(--ink-soft)', fontSize: 12.5, margin: '0 0 12px' }}>
+              {t('settings_text_to_save_desc')}
+            </p>
+            {tpError && <div className="banner error">{tpError}</div>}
+            {tpSuccess && <div className="banner ok">{tpSuccess}</div>}
 
-        {!tpLoading && trustedPhones.length > 0 && (
-          <div className="list" style={{ marginBottom: 14 }}>
-            {trustedPhones.map((tp) => (
-              <div className="row" key={tp.id}>
-                <div className="row-main">
-                  <span className="row-title">{tp.phone_number}</span>
-                  {tp.label && <span className="row-sub">{tp.label}</span>}
-                </div>
-                <button className="icon-btn danger" onClick={() => handleRemoveTrustedPhone(tp.id)} aria-label={t('aria_remove_number')}><i className="ti ti-trash" /></button>
+            {!tpLoading && trustedPhones.length > 0 && (
+              <div className="list" style={{ marginBottom: 14 }}>
+                {trustedPhones.map((tp) => (
+                  <div className="row" key={tp.id}>
+                    <div className="row-main">
+                      <span className="row-title">{tp.phone_number}</span>
+                      {tp.label && <span className="row-sub">{tp.label}</span>}
+                    </div>
+                    <button className="icon-btn danger" onClick={() => handleRemoveTrustedPhone(tp.id)} aria-label={t('aria_remove_number')}><i className="ti ti-trash" /></button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        )}
+            )}
 
-        <form onSubmit={handleAddTrustedPhone}>
-          <div className="field">
-            <label>{t('settings_phone_number')}</label>
-            <input required value={newTpNumber} onChange={(e) => setNewTpNumber(e.target.value)} placeholder="+19145551234" />
+            <form onSubmit={handleAddTrustedPhone}>
+              <div className="field">
+                <label>{t('settings_phone_number')}</label>
+                <input required value={newTpNumber} onChange={(e) => setNewTpNumber(e.target.value)} placeholder="+19145551234" />
+              </div>
+              <div className="field">
+                <label>{t('settings_label_optional')}</label>
+                <input value={newTpLabel} onChange={(e) => setNewTpLabel(e.target.value)} placeholder={t('settings_label_optional_placeholder')} />
+              </div>
+              <button type="submit" className="btn" disabled={addingTp}>{addingTp ? t('settings_adding') : t('settings_add_number')}</button>
+            </form>
           </div>
-          <div className="field">
-            <label>{t('settings_label_optional')}</label>
-            <input value={newTpLabel} onChange={(e) => setNewTpLabel(e.target.value)} placeholder={t('settings_label_optional_placeholder')} />
+        </>
+      )}
+
+      {isGroupsTier && (
+        <>
+          <SectionLabel>Text commands</SectionLabel>
+          <div className="card" style={{ padding: 18, maxWidth: 480 }}>
+            <p style={{ color: 'var(--ink-soft)', fontSize: 12.5, margin: '0 0 10px' }}>
+              Members marked as Admin in a group's settings can text these to the group number:
+            </p>
+            <ul style={{ fontSize: 13, lineHeight: 1.9, margin: 0, paddingLeft: 18 }}>
+              <li><code>#add 8455551234 First Last</code> — add someone and let them post</li>
+              <li><code>#remove 8455551234</code> — take someone out of the group</li>
+              <li><code>#count</code> — members, posters, and posts this week</li>
+              <li><code>#help</code> — this list</li>
+            </ul>
           </div>
-          <button type="submit" className="btn" disabled={addingTp}>{addingTp ? t('settings_adding') : t('settings_add_number')}</button>
-        </form>
-      </div>
+        </>
+      )}
 
       </div>
     </div>

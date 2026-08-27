@@ -32,6 +32,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/trusted-phones', trustedPhonesRoutes);
 app.use('/api/signup', signupRoutes);
+app.use('/api/account', require('./routes/account'));
 app.use('/webhooks', webhooksRoutes);
 app.use('/api/call-ins', require('./routes/callins'));
 

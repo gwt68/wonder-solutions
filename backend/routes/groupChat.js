@@ -39,17 +39,111 @@ async function findContactByPhone(userId, phone) {
 // Groups this contact may post to.
 async function postableGroups(userId, contactId) {
   const { rows } = await pool.query(
-    `SELECT g.id, g.name
+    `SELECT g.id, g.name, cg.is_admin
        FROM groups g
        JOIN contact_groups cg ON cg.group_id = g.id
       WHERE g.user_id = $1
         AND cg.contact_id = $2
         AND g.member_posting <> 'off'
-        AND cg.can_post = TRUE
+        AND (cg.can_post = TRUE OR cg.is_admin = TRUE)
       ORDER BY g.name`,
     [userId, contactId]
   );
   return rows;
+}
+
+// ---- Admin commands ---------------------------------------------------
+
+function normalizePhone(raw) {
+  const digits = (raw || '').replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return null;
+}
+
+async function cmdAdd({ user, group, rest }) {
+  const parts = rest.trim().split(/\s+/);
+  const phone = normalizePhone(parts[0]);
+  if (!phone) return 'Use: #add 8455551234 First Last';
+  const name = parts.slice(1).join(' ').trim();
+  if (!name) return 'Add a name too: #add 8455551234 First Last';
+
+  const [firstName, ...lastParts] = name.split(' ');
+
+  const existing = await findContactByPhone(user.id, phone);
+  let contactId = existing?.id;
+
+  if (!contactId) {
+    const { rows } = await pool.query(
+      `INSERT INTO contacts (first_name, last_name, phone_number, preferred_method, methods, user_id)
+       VALUES ($1, $2, $3, 'sms', ARRAY['sms'], $4) RETURNING id`,
+      [firstName, lastParts.join(' ') || null, phone, user.id]
+    );
+    contactId = rows[0].id;
+  }
+
+  await pool.query(
+    `INSERT INTO contact_groups (contact_id, group_id, can_post)
+     VALUES ($1, $2, TRUE)
+     ON CONFLICT (contact_id, group_id) DO UPDATE SET can_post = TRUE, muted = FALSE`,
+    [contactId, group.id]
+  );
+
+  return `${name} added to ${group.name} and can post.`;
+}
+
+async function cmdRemove({ user, group, rest }) {
+  const phone = normalizePhone(rest.trim().split(/\s+/)[0]);
+  if (!phone) return 'Use: #remove 8455551234';
+
+  const contact = await findContactByPhone(user.id, phone);
+  if (!contact) return 'No contact with that number.';
+
+  const { rowCount } = await pool.query(
+    `DELETE FROM contact_groups WHERE contact_id = $1 AND group_id = $2`,
+    [contact.id, group.id]
+  );
+  if (!rowCount) return `${contact.display_name} is not in ${group.name}.`;
+  return `${contact.display_name} removed from ${group.name}.`;
+}
+
+async function cmdCount({ user, group }) {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS members,
+            (COUNT(*) FILTER (WHERE cg.can_post))::int AS posters,
+            (COUNT(*) FILTER (WHERE cg.muted))::int AS muted
+       FROM contact_groups cg WHERE cg.group_id = $1`,
+    [group.id]
+  );
+  const { rows: postRows } = await pool.query(
+    `SELECT COUNT(*)::int AS n FROM group_post_log
+      WHERE group_id = $1 AND created_at > NOW() - INTERVAL '7 days'`,
+    [group.id]
+  );
+  const r = rows[0];
+  return `${group.name}: ${r.members} members, ${r.posters} can post, ${r.muted} muted. ${postRows[0].n} posts in the last 7 days.`;
+}
+
+const COMMAND_HELP = 'Commands: #add 8455551234 First Last · #remove 8455551234 · #count';
+
+async function handleCommand({ user, group, sender, body, isAdmin }) {
+  if (!isAdmin) return 'Only group admins can use commands.';
+
+  const trimmed = body.trim();
+  const spaceAt = trimmed.indexOf(' ');
+  const verb = (spaceAt === -1 ? trimmed : trimmed.slice(0, spaceAt)).toLowerCase();
+  const rest = spaceAt === -1 ? '' : trimmed.slice(spaceAt + 1);
+
+  try {
+    if (verb === '#add') return await cmdAdd({ user, group, rest });
+    if (verb === '#remove') return await cmdRemove({ user, group, rest });
+    if (verb === '#count') return await cmdCount({ user, group });
+    if (verb === '#help') return COMMAND_HELP;
+  } catch (err) {
+    console.error('group command error:', err);
+    return 'That command failed. Check the format and try again.';
+  }
+  return `Unknown command. ${COMMAND_HELP}`;
 }
 
 async function overRateLimit(contactId) {
@@ -141,7 +235,7 @@ async function fanOut({ user, group, sender, body }) {
     [group.id, sender.id, messageId, body]
   );
 
-    return '';
+  return `Sent to ${smsMembers.length} ${smsMembers.length === 1 ? 'person' : 'people'} in ${group.name}.`;
 }
 
 /**
@@ -160,7 +254,7 @@ async function handleGroupPost({ user, from, body, directGroupId = null }) {
     if (!group || group.member_posting === 'off') return null;
 
     const { rows: perm } = await pool.query(
-      `SELECT can_post, muted FROM contact_groups WHERE group_id = $1 AND contact_id = $2`,
+      `SELECT can_post, muted, is_admin FROM contact_groups WHERE group_id = $1 AND contact_id = $2`,
       [group.id, sender.id]
     );
     if (!perm.length) return null;
@@ -178,6 +272,10 @@ async function handleGroupPost({ user, from, body, directGroupId = null }) {
         [group.id, sender.id]
       );
       return `You're back in ${group.name}.`;
+    }
+
+    if (body.trim().startsWith('#')) {
+      return handleCommand({ user, group, sender, body, isAdmin: perm[0].is_admin });
     }
 
     if (!perm[0].can_post) return `You're not set up to post to ${group.name} yet.`;
@@ -206,6 +304,9 @@ async function handleGroupPost({ user, from, body, directGroupId = null }) {
   if (!groups.length) return null;
 
   if (groups.length === 1) {
+    if (body.trim().startsWith('#')) {
+      return handleCommand({ user, group: groups[0], sender, body, isAdmin: groups[0].is_admin });
+    }
     if (await overRateLimit(sender.id)) return 'You have sent a lot of messages in the last hour. Try again shortly.';
     return fanOut({ user, group: groups[0], sender, body });
   }

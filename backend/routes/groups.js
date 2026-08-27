@@ -51,6 +51,43 @@ router.get('/chat/enabled', async (req, res) => {
   }
 });
 
+const USAGE_PERIODS = {
+  hour:  { unit: 'hour',  lookback: '48 hours' },
+  day:   { unit: 'day',   lookback: '30 days' },
+  week:  { unit: 'week',  lookback: '26 weeks' },
+  month: { unit: 'month', lookback: '12 months' },
+};
+
+// Usage and cost for group posts only, bucketed by period.
+router.get('/chat/usage', async (req, res) => {
+  const period = USAGE_PERIODS[req.query.period] ? req.query.period : 'day';
+  const { unit, lookback } = USAGE_PERIODS[period];
+  try {
+    const { rows } = await pool.query(
+      `SELECT date_trunc($2, s.sent_at) AS bucket,
+              COUNT(*)::int AS messages,
+              COALESCE(SUM(ABS(s.cost)), 0)::float AS cost
+         FROM sends s
+         JOIN messages m ON m.id = s.message_id
+        WHERE s.user_id = $1
+          AND m.is_group_post = TRUE
+          AND s.sent_at IS NOT NULL
+          AND s.sent_at > NOW() - $3::interval
+        GROUP BY bucket
+        ORDER BY bucket DESC`,
+      [scopeParam(req), unit, lookback]
+    );
+    const totals = rows.reduce(
+      (acc, r) => ({ messages: acc.messages + r.messages, cost: acc.cost + r.cost }),
+      { messages: 0, cost: 0 }
+    );
+    res.json({ period, buckets: rows, totals });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch usage' });
+  }
+});
+
 router.get('/:id/posts', async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -158,7 +195,7 @@ router.post('/bulk-delete', async (req, res) => {
 router.get('/:id/contacts', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT c.*, cg.can_post, cg.muted FROM contacts c
+      `SELECT c.*, cg.can_post, cg.muted, cg.is_admin FROM contacts c
        JOIN contact_groups cg ON cg.contact_id = c.id
        JOIN groups g ON g.id = cg.group_id
        WHERE cg.group_id = $1 AND ($2::int IS NULL OR g.user_id = $2)
@@ -209,9 +246,9 @@ router.post('/:id/contacts', async (req, res) => {
 // Approve or mute one member of one group. Scoped through groups.user_id
 // because contact_groups has no user_id of its own.
 router.put('/:id/contacts/:contactId', async (req, res) => {
-  const { can_post, muted } = req.body;
-  if (can_post === undefined && muted === undefined) {
-    return res.status(400).json({ error: 'can_post or muted is required' });
+  const { can_post, muted, is_admin } = req.body;
+  if (can_post === undefined && muted === undefined && is_admin === undefined) {
+    return res.status(400).json({ error: 'can_post, muted or is_admin is required' });
   }
   try {
     const sets = [];
@@ -223,6 +260,10 @@ router.put('/:id/contacts/:contactId', async (req, res) => {
     if (muted !== undefined) {
       params.push(!!muted);
       sets.push(`muted = $${params.length}`);
+    }
+    if (is_admin !== undefined) {
+      params.push(!!is_admin);
+      sets.push(`is_admin = $${params.length}`);
     }
     params.push(req.params.id);
     const gidIdx = params.length;

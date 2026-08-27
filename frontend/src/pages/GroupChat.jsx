@@ -10,6 +10,10 @@ export default function GroupChat() {
   const [error, setError] = useState('');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [enableOpen, setEnableOpen] = useState(false);
+  const [view, setView] = useState('feed');
+  const [period, setPeriod] = useState('day');
+  const [usage, setUsage] = useState(null);
+  const [usageLoading, setUsageLoading] = useState(false);
 
   const active = chats.find((c) => c.id === activeId) || null;
 
@@ -40,8 +44,28 @@ export default function GroupChat() {
     }
   }
 
+  async function loadUsage(p) {
+    setUsageLoading(true);
+    try {
+      setUsage(await api.groups.usage(p));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setUsageLoading(false);
+    }
+  }
+
   useEffect(() => { loadChats(false); }, []);
   useEffect(() => { loadPosts(activeId); }, [activeId]);
+  useEffect(() => { if (view === 'history') loadUsage(period); }, [view, period]);
+
+  function bucketLabel(iso) {
+    const d = new Date(iso);
+    if (period === 'hour') return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric' });
+    if (period === 'month') return d.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    if (period === 'week') return `Week of ${d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
 
   function timeAgo(iso) {
     if (!iso) return '';
@@ -60,21 +84,102 @@ export default function GroupChat() {
           <h1>Group Chat</h1>
           <p>Members text the group and everyone in it gets the message.</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn secondary" onClick={() => setEnableOpen(true)}>
-            <i className="ti ti-plus" /> Enable a group
-          </button>
-          {active && (
-            <button className="btn secondary" onClick={() => setSettingsOpen(true)}>
-              <i className="ti ti-settings" /> Settings
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="chip-select" style={{ marginBottom: 0 }}>
+            <button
+              type="button"
+              className={`chip-toggle ${view === 'feed' ? 'active' : ''}`}
+              onClick={() => setView('feed')}
+            >
+              Messages
             </button>
+            <button
+              type="button"
+              className={`chip-toggle ${view === 'history' ? 'active' : ''}`}
+              onClick={() => setView('history')}
+            >
+              History
+            </button>
+          </div>
+          {view === 'feed' && (
+            <>
+              <button className="btn secondary" onClick={() => setEnableOpen(true)}>
+                <i className="ti ti-plus" /> Enable a group
+              </button>
+              {active && (
+                <button className="btn secondary" onClick={() => setSettingsOpen(true)}>
+                  <i className="ti ti-settings" /> Settings
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>
 
       {error && <div className="banner error" style={{ flexShrink: 0 }}>{error}</div>}
 
-      {loading ? (
+      {view === 'history' ? (
+        <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
+          <div className="chip-select" style={{ marginBottom: 14 }}>
+            {[
+              { value: 'hour', label: 'Hourly' },
+              { value: 'day', label: 'Daily' },
+              { value: 'week', label: 'Weekly' },
+              { value: 'month', label: 'Monthly' },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                className={`chip-toggle ${period === opt.value ? 'active' : ''}`}
+                onClick={() => setPeriod(opt.value)}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {usageLoading ? (
+            <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
+          ) : !usage || !usage.buckets.length ? (
+            <div className="card empty-state">
+              <h3>No usage yet</h3>
+              <p>Group messages will show up here once members start posting.</p>
+            </div>
+          ) : (
+            <>
+              <div className="card" style={{ padding: 16, marginBottom: 14, display: 'flex', gap: 32 }}>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Messages sent</div>
+                  <div style={{ fontSize: 22, fontWeight: 500 }}>{usage.totals.messages}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Cost</div>
+                  <div style={{ fontSize: 22, fontWeight: 500 }}>${usage.totals.cost.toFixed(2)}</div>
+                </div>
+              </div>
+
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Period</th>
+                    <th style={{ textAlign: 'right' }}>Messages</th>
+                    <th style={{ textAlign: 'right' }}>Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {usage.buckets.map((b) => (
+                    <tr key={b.bucket}>
+                      <td>{bucketLabel(b.bucket)}</td>
+                      <td style={{ textAlign: 'right' }}>{b.messages}</td>
+                      <td style={{ textAlign: 'right' }}>${b.cost.toFixed(3)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </div>
+      ) : loading ? (
         <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
       ) : chats.length === 0 ? (
         <div className="card empty-state">
@@ -185,15 +290,15 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
   useEffect(() => { load(); }, [group.id]);
 
-  async function toggleCanPost(contact) {
-    const next = !contact.can_post;
-    setMembers((prev) => prev.map((m) => (m.id === contact.id ? { ...m, can_post: next } : m)));
+  async function toggleField(contact, field) {
+    const next = !contact[field];
+    setMembers((prev) => prev.map((m) => (m.id === contact.id ? { ...m, [field]: next } : m)));
     try {
-      await api.groups.updateMember(group.id, contact.id, { can_post: next });
+      await api.groups.updateMember(group.id, contact.id, { [field]: next });
       onChanged();
     } catch (err) {
       setError(err.message);
-      setMembers((prev) => prev.map((m) => (m.id === contact.id ? { ...m, can_post: !next } : m)));
+      setMembers((prev) => prev.map((m) => (m.id === contact.id ? { ...m, [field]: !next } : m)));
     }
   }
 
@@ -232,7 +337,7 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>
-            Tick who is allowed to post to this group.
+            Who can post, and who can run <code>#add</code> / <code>#remove</code> / <code>#count</code> by text.
           </p>
           <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={approveAll}>
             Approve all
@@ -248,13 +353,23 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
         ) : (
           <div className="list" style={{ maxHeight: 340, overflowY: 'auto' }}>
             {members.map((c) => (
-              <label key={c.id} className="row" style={{ cursor: 'pointer' }}>
+              <div key={c.id} className="row">
                 <div className="row-main" style={{ minWidth: 0 }}>
                   <span className="row-title">{contactDisplayName(c) || c.phone_number}</span>
                   <span className="row-sub">{c.phone_number}</span>
                 </div>
-                <input type="checkbox" checked={!!c.can_post} onChange={() => toggleCanPost(c)} />
-              </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', marginRight: 10, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={!!c.can_post} onChange={() => toggleField(c, 'can_post')} />
+                  Post
+                </label>
+                <label
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', cursor: 'pointer' }}
+                  title="Admins can text #add, #remove and #count to the group"
+                >
+                  <input type="checkbox" checked={!!c.is_admin} onChange={() => toggleField(c, 'is_admin')} />
+                  Admin
+                </label>
+              </div>
             ))}
           </div>
         )}
