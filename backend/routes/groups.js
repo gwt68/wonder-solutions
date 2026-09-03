@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
 router.get('/chat/enabled', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT g.id, g.name, g.member_posting, g.post_prefix,
+      `SELECT g.id, g.name, g.member_posting, g.post_prefix, g.invite_note, g.invite_note_position,
               COUNT(DISTINCT cg.contact_id)::int AS member_count,
               (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.can_post))::int AS poster_count,
               (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.join_status = 'joined'))::int AS joined_count,
@@ -129,9 +129,16 @@ router.post('/', async (req, res) => {
 
 // Accepts a rename, a member_posting change, or both.
 router.put('/:id', async (req, res) => {
-  const { name, member_posting, post_prefix } = req.body;
-  if (name === undefined && member_posting === undefined && post_prefix === undefined) {
-    return res.status(400).json({ error: 'name, member_posting or post_prefix is required' });
+  const { name, member_posting, post_prefix, invite_note, invite_note_position } = req.body;
+  if (name === undefined && member_posting === undefined && post_prefix === undefined
+      && invite_note === undefined && invite_note_position === undefined) {
+    return res.status(400).json({ error: 'nothing to update' });
+  }
+  if (invite_note !== undefined && invite_note !== null && String(invite_note).length > 300) {
+    return res.status(400).json({ error: 'Invite note must be 300 characters or fewer' });
+  }
+  if (invite_note_position !== undefined && !['top', 'bottom'].includes(invite_note_position)) {
+    return res.status(400).json({ error: 'invite_note_position must be top or bottom' });
   }
   if (member_posting !== undefined && !['off', 'approved'].includes(member_posting)) {
     return res.status(400).json({ error: 'member_posting must be off or approved' });
@@ -153,6 +160,14 @@ router.put('/:id', async (req, res) => {
     if (post_prefix !== undefined) {
       params.push(post_prefix);
       sets.push(`post_prefix = $${params.length}`);
+    }
+    if (invite_note !== undefined) {
+      params.push(invite_note === null ? null : String(invite_note).trim() || null);
+      sets.push(`invite_note = $${params.length}`);
+    }
+    if (invite_note_position !== undefined) {
+      params.push(invite_note_position);
+      sets.push(`invite_note_position = $${params.length}`);
     }
     params.push(req.params.id);
     const idIdx = params.length;

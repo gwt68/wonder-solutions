@@ -284,6 +284,10 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
   const [sortField, setSortField] = useState('name');
   const [sortDir, setSortDir] = useState('asc');
   const [picked, setPicked] = useState(new Set());
+  const [note, setNote] = useState(group.invite_note || '');
+  const [notePos, setNotePos] = useState(group.invite_note_position || 'top');
+  const [savedNote, setSavedNote] = useState(group.invite_note || '');
+  const [savingNote, setSavingNote] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -401,6 +405,44 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
     }
   }
 
+  const OPENER = `You've been added to "${group.name}" with 12 others.`;
+  const INSTRUCTIONS = 'Reply #join to send and receive messages here via SMS '
+    + '(data rates apply) or #exit to leave the group.';
+
+  function previewInvite() {
+    const n = note.trim();
+    if (!n) return `${OPENER}\n\n${INSTRUCTIONS}`;
+    return notePos === 'bottom'
+      ? `${OPENER}\n\n${INSTRUCTIONS}\n\n${n}`
+      : `${OPENER}\n\n${n}\n\n${INSTRUCTIONS}`;
+  }
+
+  async function saveNote(fields) {
+    setSavingNote(true);
+    setError('');
+    try {
+      await api.groups.update(group.id, fields);
+      if (fields.invite_note !== undefined) setSavedNote(note.trim());
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingNote(false);
+    }
+  }
+
+  async function changeNotePos(next) {
+    const previous = notePos;
+    setNotePos(next);
+    try {
+      await api.groups.update(group.id, { invite_note_position: next });
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+      setNotePos(previous);
+    }
+  }
+
   async function changePrefix(next) {
     const previous = prefix;
     setPrefix(next);
@@ -449,6 +491,51 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
             <button type="button" className={`chip-toggle ${prefix === 'group_name' ? 'active' : ''}`} onClick={() => changePrefix('group_name')}>
               Add group name
             </button>
+          </div>
+        </div>
+
+        <div style={{ border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 16 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 2 }}>Invitation message</div>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 8 }}>
+            Add a line of your own. The opener and the reply instructions are always sent.
+          </div>
+
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value.slice(0, 300))}
+            placeholder="What this group is for — e.g. Carpool coordination for Tuesday and Thursday pickups."
+            rows={2}
+            style={{ width: '100%', resize: 'vertical', marginBottom: 6 }}
+          />
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+            <div className="chip-select" style={{ marginBottom: 0 }}>
+              <button type="button" className={`chip-toggle ${notePos === 'top' ? 'active' : ''}`}
+                onClick={() => changeNotePos('top')} disabled={!note.trim()}>
+                Above instructions
+              </button>
+              <button type="button" className={`chip-toggle ${notePos === 'bottom' ? 'active' : ''}`}
+                onClick={() => changeNotePos('bottom')} disabled={!note.trim()}>
+                Below instructions
+              </button>
+            </div>
+            <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>
+              {previewInvite().length} chars · {Math.ceil(previewInvite().length / 153) || 1} SMS
+            </span>
+            {note.trim() !== savedNote && (
+              <button type="button" className="btn" style={{ padding: '5px 12px', fontSize: 12.5 }}
+                onClick={() => saveNote({ invite_note: note, invite_note_position: notePos })}
+                disabled={savingNote}>
+                {savingNote ? 'Saving…' : 'Save'}
+              </button>
+            )}
+          </div>
+
+          <div style={{
+            fontSize: 12.5, whiteSpace: 'pre-wrap', background: 'var(--accent-soft)',
+            borderRadius: 6, padding: '8px 10px', lineHeight: 1.5,
+          }}>
+            {previewInvite()}
           </div>
         </div>
 

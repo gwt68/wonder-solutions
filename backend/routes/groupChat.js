@@ -39,7 +39,8 @@ async function findContactByPhone(userId, phone) {
 
 async function getGroup(userId, groupId) {
   const { rows } = await pool.query(
-    `SELECT id, name, member_posting, post_prefix FROM groups WHERE id = $1 AND user_id = $2`,
+    `SELECT id, name, member_posting, post_prefix, invite_note, invite_note_position
+       FROM groups WHERE id = $1 AND user_id = $2`,
     [groupId, userId]
   );
   return rows[0] || null;
@@ -145,11 +146,20 @@ async function sendSystemMessage({ user, contactId, title, text }) {
   return rows[0].id;
 }
 
-function inviteText(groupName, othersCount) {
+// The opener and the reply instructions are always present — a group's own
+// note slots in above or below them, never replaces them.
+function inviteText(group, othersCount) {
   const others = othersCount === 1 ? '1 other' : `${othersCount} others`;
-  return `You've been added to "${groupName}" with ${others}.\n\n`
-    + 'Reply #join to send and receive messages here via SMS (data rates apply) '
-    + 'or #exit to leave the group.';
+  const opener = `You've been added to "${group.name}" with ${others}.`;
+  const instructions = 'Reply #join to send and receive messages here via SMS '
+    + '(data rates apply) or #exit to leave the group.';
+
+  const note = (group.invite_note || '').trim();
+  if (!note) return `${opener}\n\n${instructions}`;
+
+  return group.invite_note_position === 'bottom'
+    ? `${opener}\n\n${instructions}\n\n${note}`
+    : `${opener}\n\n${note}\n\n${instructions}`;
 }
 
 async function sendInvite({ user, group, contactId }) {
@@ -158,7 +168,7 @@ async function sendInvite({ user, group, contactId }) {
     user,
     contactId,
     title: `${group.name} invite`,
-    text: inviteText(group.name, others),
+    text: inviteText(group, others),
   });
   await pool.query(
     `UPDATE contact_groups SET invited_at = NOW()
