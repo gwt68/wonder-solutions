@@ -281,7 +281,8 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
   const [prefix, setPrefix] = useState(group.post_prefix || 'off');
   const [busy, setBusy] = useState(null);
   const [query, setQuery] = useState('');
-  const [sort, setSort] = useState('name');
+  const [sortField, setSortField] = useState('name');
+  const [sortDir, setSortDir] = useState('asc');
   const [picked, setPicked] = useState(new Set());
 
   async function load() {
@@ -299,6 +300,16 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
   const STATUS_ORDER = { pending: 0, joined: 1, declined: 2 };
 
+  function handleSort(field) {
+    if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortField(field); setSortDir('asc'); }
+  }
+
+  function sortArrow(field) {
+    if (sortField !== field) return null;
+    return <span className="sort-arrow">{sortDir === 'asc' ? '▲' : '▼'}</span>;
+  }
+
   const visible = members
     .filter((m) => {
       const q = query.trim().toLowerCase();
@@ -307,13 +318,19 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
         || (m.phone_number || '').includes(q);
     })
     .sort((a, b) => {
-      if (sort === 'status') {
+      const dir = sortDir === 'asc' ? 1 : -1;
+      if (sortField === 'status') {
         const d = STATUS_ORDER[a.join_status] - STATUS_ORDER[b.join_status];
-        if (d !== 0) return d;
-      }
-      if (sort === 'can_post') {
+        if (d !== 0) return d * dir;
+      } else if (sortField === 'can_post') {
         const d = (b.can_post ? 1 : 0) - (a.can_post ? 1 : 0);
-        if (d !== 0) return d;
+        if (d !== 0) return d * dir;
+      } else if (sortField === 'is_admin') {
+        const d = (b.is_admin ? 1 : 0) - (a.is_admin ? 1 : 0);
+        if (d !== 0) return d * dir;
+      } else {
+        const d = (contactDisplayName(a) || '').localeCompare(contactDisplayName(b) || '');
+        if (d !== 0) return d * dir;
       }
       return (contactDisplayName(a) || '').localeCompare(contactDisplayName(b) || '');
     });
@@ -332,14 +349,10 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
     setPicked(allVisiblePicked ? new Set() : new Set(visible.map((m) => m.id)));
   }
 
-  function statusPill(m) {
-    if (m.join_status === 'joined') return null;
-    if (m.join_status === 'declined') return <span className="pill" style={{ marginLeft: 8 }}>Left</span>;
-    return (
-      <span className="pill signal" style={{ marginLeft: 8 }}>
-        {m.invited_at ? 'Invited' : 'Not invited'}
-      </span>
-    );
+  function statusText(m) {
+    if (m.join_status === 'joined') return 'Joined';
+    if (m.join_status === 'declined') return 'Left the group';
+    return m.invited_at ? 'Invited, no reply yet' : 'Not invited yet';
   }
 
   async function toggleField(contact, field) {
@@ -417,12 +430,12 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 660 }}>
         <h2>{group.name}</h2>
         {error && <div className="banner error">{error}</div>}
         {notice && <div className="banner ok">{notice}</div>}
 
-        <div style={{ border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 14 }}>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 16 }}>
           <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 2 }}>How messages appear</div>
           <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 8 }}>
             {prefix === 'group_name'
@@ -439,27 +452,22 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search name or number"
-            style={{ flex: '1 1 180px', minWidth: 0 }}
+            style={{ flex: '1 1 auto', minWidth: 0 }}
           />
-          <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ flex: '0 0 auto' }}>
-            <option value="name">Sort by name</option>
-            <option value="status">Sort by join status</option>
-            <option value="can_post">Sort by can post</option>
-          </select>
           {pendingCount > 0 && (
             <button
               type="button"
               className="btn"
-              style={{ padding: '6px 12px', fontSize: 13 }}
+              style={{ padding: '7px 12px', fontSize: 13, flexShrink: 0 }}
               onClick={() => invite(null, 'all')}
               disabled={busy === 'all'}
             >
-              {busy === 'all' ? 'Sending…' : `Invite all pending (${pendingCount})`}
+              {busy === 'all' ? 'Sending…' : `Invite ${pendingCount} pending`}
             </button>
           )}
         </div>
@@ -495,59 +503,77 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
           <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
             This group has no members yet. Add them from the Groups tab.
           </p>
+        ) : !visible.length ? (
+          <p style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>Nobody matches that search.</p>
         ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12.5, color: 'var(--ink-soft)' }}>
-              <input type="checkbox" checked={allVisiblePicked} onChange={toggleAllVisible} />
-              <span>Select all{query.trim() ? ' matching' : ''} ({visible.length})</span>
-            </div>
-
-            {!visible.length ? (
-              <p style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>Nobody matches that search.</p>
-            ) : (
-              <div className="list" style={{ maxHeight: 320, overflowY: 'auto' }}>
+          <div style={{ maxHeight: 340, overflowY: 'auto' }}>
+            <table className="data-table" style={{ tableLayout: 'fixed', width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 34 }}>
+                    <input type="checkbox" checked={allVisiblePicked} onChange={toggleAllVisible} />
+                  </th>
+                  <th onClick={() => handleSort('name')} style={{ cursor: 'pointer' }}>
+                    Member{sortArrow('name')}
+                  </th>
+                  <th onClick={() => handleSort('can_post')} style={{ width: 66, textAlign: 'center', cursor: 'pointer' }}>
+                    Post{sortArrow('can_post')}
+                  </th>
+                  <th onClick={() => handleSort('is_admin')} style={{ width: 72, textAlign: 'center', cursor: 'pointer' }}>
+                    Admin{sortArrow('is_admin')}
+                  </th>
+                  <th style={{ width: 80 }} />
+                </tr>
+              </thead>
+              <tbody>
                 {visible.map((c) => (
-                  <div key={c.id} className="row">
-                    <input
-                      type="checkbox"
-                      checked={picked.has(c.id)}
-                      onChange={() => togglePicked(c.id)}
-                      style={{ marginRight: 10, flexShrink: 0 }}
-                    />
-                    <div className="row-main" style={{ minWidth: 0 }}>
-                      <span className="row-title">
+                  <tr key={c.id}>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" checked={picked.has(c.id)} onChange={() => togglePicked(c.id)} />
+                    </td>
+                    <td style={{ overflow: 'hidden' }}>
+                      <div style={{ fontWeight: 500, fontSize: 13.5, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {contactDisplayName(c) || c.phone_number}
-                        {statusPill(c)}
-                      </span>
-                      <span className="row-sub">{c.phone_number}</span>
-                    </div>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', marginRight: 10, cursor: 'pointer' }}>
-                      <input type="checkbox" checked={!!c.can_post} onChange={() => toggleField(c, 'can_post')} />
-                      Post
-                    </label>
-                    <label
-                      style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', cursor: 'pointer' }}
-                      title="Admins can text #add, #remove and #count to the group"
-                    >
-                      <input type="checkbox" checked={!!c.is_admin} onChange={() => toggleField(c, 'is_admin')} />
-                      Admin
-                    </label>
-                    {c.join_status === 'pending' && (
-                      <button
-                        type="button"
-                        className="btn secondary"
-                        style={{ padding: '4px 10px', fontSize: 12, marginLeft: 8, flexShrink: 0 }}
-                        onClick={() => invite([c.id], c.id)}
-                        disabled={busy === c.id}
-                      >
-                        {busy === c.id ? '…' : c.invited_at ? 'Resend' : 'Invite'}
-                      </button>
-                    )}
-                  </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
+                        {c.phone_number}
+                        {c.join_status !== 'joined' && ` · ${statusText(c)}`}
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!c.can_post}
+                        onChange={() => toggleField(c, 'can_post')}
+                        aria-label={`Let ${contactDisplayName(c) || c.phone_number} post`}
+                      />
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!c.is_admin}
+                        onChange={() => toggleField(c, 'is_admin')}
+                        title="Admins can text #add, #remove and #count to the group"
+                        aria-label={`Make ${contactDisplayName(c) || c.phone_number} an admin`}
+                      />
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      {c.join_status === 'pending' && (
+                        <button
+                          type="button"
+                          onClick={() => invite([c.id], c.id)}
+                          disabled={busy === c.id}
+                          style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer', padding: 0 }}
+                        >
+                          {busy === c.id ? '…' : c.invited_at ? 'Resend' : 'Invite'}
+                        </button>
+                      )}
+                    </td>
+                  </tr>
                 ))}
-              </div>
-            )}
-          </>
+              </tbody>
+            </table>
+          </div>
         )}
 
         <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
