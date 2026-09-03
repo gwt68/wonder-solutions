@@ -411,10 +411,9 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
   function previewInvite() {
     const n = note.trim();
-    if (!n) return `${OPENER}\n\n${INSTRUCTIONS}`;
-    return notePos === 'bottom'
-      ? `${OPENER}\n\n${INSTRUCTIONS}\n\n${n}`
-      : `${OPENER}\n\n${n}\n\n${INSTRUCTIONS}`;
+    if (notePos === 'lead') return [INSTRUCTIONS, OPENER, n].filter(Boolean).join('\n\n');
+    if (notePos === 'bottom') return [OPENER, INSTRUCTIONS, n].filter(Boolean).join('\n\n');
+    return [OPENER, n, INSTRUCTIONS].filter(Boolean).join('\n\n');
   }
 
   async function saveNote(fields) {
@@ -497,7 +496,8 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
         <div style={{ border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 16 }}>
           <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 2 }}>Invitation message</div>
           <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 8 }}>
-            Add a line of your own. The opener and the reply instructions are always sent.
+            Add a line of your own, and choose where the reply instructions go.
+            Putting them first means nobody misses the #join step.
           </div>
 
           <textarea
@@ -510,13 +510,17 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
             <div className="chip-select" style={{ marginBottom: 0 }}>
+              <button type="button" className={`chip-toggle ${notePos === 'lead' ? 'active' : ''}`}
+                onClick={() => changeNotePos('lead')}>
+                Instructions first
+              </button>
               <button type="button" className={`chip-toggle ${notePos === 'top' ? 'active' : ''}`}
-                onClick={() => changeNotePos('top')} disabled={!note.trim()}>
-                Above instructions
+                onClick={() => changeNotePos('top')}>
+                Note in middle
               </button>
               <button type="button" className={`chip-toggle ${notePos === 'bottom' ? 'active' : ''}`}
-                onClick={() => changeNotePos('bottom')} disabled={!note.trim()}>
-                Below instructions
+                onClick={() => changeNotePos('bottom')}>
+                Note last
               </button>
             </div>
             <span style={{ fontSize: 12, color: 'var(--ink-soft)', marginLeft: 'auto' }}>

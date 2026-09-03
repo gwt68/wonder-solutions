@@ -295,6 +295,7 @@ export default function Settings() {
             </p>
             <ul style={{ fontSize: 13, lineHeight: 1.9, margin: 0, paddingLeft: 18 }}>
               <li><code>#add 8455551234 First Last</code> — add someone and let them post</li>
+              <li><code>#invite 8455551234</code> — resend the invitation to someone already in the group</li>
               <li><code>#remove 8455551234</code> — take someone out of the group</li>
               <li><code>#count</code> — members, posters, and posts this week</li>
               <li><code>#help</code> — this list</li>

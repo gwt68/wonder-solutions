@@ -147,7 +147,8 @@ async function sendSystemMessage({ user, contactId, title, text }) {
 }
 
 // The opener and the reply instructions are always present — a group's own
-// note slots in above or below them, never replaces them.
+// note slots in around them, never replaces them.
+// 'lead' puts the reply ask first, so it isn't missed at the end of a long text.
 function inviteText(group, othersCount) {
   const others = othersCount === 1 ? '1 other' : `${othersCount} others`;
   const opener = `You've been added to "${group.name}" with ${others}.`;
@@ -155,11 +156,15 @@ function inviteText(group, othersCount) {
     + '(data rates apply) or #exit to leave the group.';
 
   const note = (group.invite_note || '').trim();
-  if (!note) return `${opener}\n\n${instructions}`;
+  const pos = group.invite_note_position || 'top';
 
-  return group.invite_note_position === 'bottom'
-    ? `${opener}\n\n${instructions}\n\n${note}`
-    : `${opener}\n\n${note}\n\n${instructions}`;
+  if (pos === 'lead') {
+    return [instructions, opener, note].filter(Boolean).join('\n\n');
+  }
+  if (pos === 'bottom') {
+    return [opener, instructions, note].filter(Boolean).join('\n\n');
+  }
+  return [opener, note, instructions].filter(Boolean).join('\n\n');
 }
 
 async function sendInvite({ user, group, contactId }) {
@@ -298,6 +303,26 @@ async function cmdAdd({ user, group, rest }) {
   return `${name} has been invited to ${group.name}. They join by replying #join.`;
 }
 
+// #invite always requires a number — inviting everyone pending is a portal
+// action, not something one bare word should trigger.
+async function cmdInvite({ user, group, rest }) {
+  const phone = normalizePhone(rest.trim().split(/\s+/)[0]);
+  if (!phone) return 'Use: #invite 8455551234 — a number is required.';
+
+  const contact = await findContactByPhone(user.id, phone);
+  if (!contact) return `No contact with that number. Use #add ${rest.trim().split(/\s+/)[0]} First Last to add them.`;
+
+  const { rows } = await pool.query(
+    `SELECT join_status FROM contact_groups WHERE group_id = $1 AND contact_id = $2`,
+    [group.id, contact.id]
+  );
+  if (!rows.length) return `${contact.display_name} is not in ${group.name}. Use #add to put them in first.`;
+  if (rows[0].join_status === 'joined') return `${contact.display_name} has already joined.`;
+
+  await sendInvite({ user, group, contactId: contact.id });
+  return `Invitation sent to ${contact.display_name}.`;
+}
+
 async function cmdRemove({ user, group, rest }) {
   const phone = normalizePhone(rest.trim().split(/\s+/)[0]);
   if (!phone) return 'Use: #remove 8455551234';
@@ -332,7 +357,8 @@ async function cmdCount({ group }) {
     + `${postRows[0].n} posts in the last 7 days.`;
 }
 
-const COMMAND_HELP = 'Commands: #add 8455551234 First Last · #remove 8455551234 · #count · #exit';
+const COMMAND_HELP = 'Commands: #add 8455551234 First Last · #invite 8455551234 · '
+  + '#remove 8455551234 · #count · #exit';
 
 async function handleCommand({ user, group, rest, verb, isAdmin }) {
   try {
@@ -347,6 +373,10 @@ async function handleCommand({ user, group, rest, verb, isAdmin }) {
     if (verb === '#remove') {
       if (!isAdmin) return 'Only group admins can use that.';
       return await cmdRemove({ user, group, rest });
+    }
+    if (verb === '#invite') {
+      if (!isAdmin) return 'Only group admins can use that.';
+      return await cmdInvite({ user, group, rest });
     }
     if (verb === '#help') return COMMAND_HELP;
   } catch (err) {

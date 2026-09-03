@@ -137,8 +137,8 @@ router.put('/:id', async (req, res) => {
   if (invite_note !== undefined && invite_note !== null && String(invite_note).length > 300) {
     return res.status(400).json({ error: 'Invite note must be 300 characters or fewer' });
   }
-  if (invite_note_position !== undefined && !['top', 'bottom'].includes(invite_note_position)) {
-    return res.status(400).json({ error: 'invite_note_position must be top or bottom' });
+  if (invite_note_position !== undefined && !['lead', 'top', 'bottom'].includes(invite_note_position)) {
+    return res.status(400).json({ error: 'invite_note_position must be lead, top or bottom' });
   }
   if (member_posting !== undefined && !['off', 'approved'].includes(member_posting)) {
     return res.status(400).json({ error: 'member_posting must be off or approved' });
