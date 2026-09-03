@@ -278,6 +278,8 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
   const [error, setError] = useState('');
   const [turningOff, setTurningOff] = useState(false);
   const [prefix, setPrefix] = useState(group.post_prefix || 'off');
+  const [inviting, setInviting] = useState(null);
+  const [notice, setNotice] = useState('');
 
   async function load() {
     setLoading(true);
@@ -317,6 +319,24 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
     }
   }
 
+  async function invite(contactIds, key) {
+    setInviting(key);
+    setError('');
+    setNotice('');
+    try {
+      const r = await api.groups.invite(group.id, contactIds);
+      setNotice(r.invited === 0
+        ? 'Nobody to invite.'
+        : `Invitation sent to ${r.invited} ${r.invited === 1 ? 'person' : 'people'}.`);
+      await load();
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setInviting(null);
+    }
+  }
+
   async function changePrefix(next) {
     const previous = prefix;
     setPrefix(next);
@@ -348,6 +368,7 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
         <h2>{group.name}</h2>
         {error && <div className="banner error">{error}</div>}
+        {notice && <div className="banner ok">{notice}</div>}
 
         <div style={{ border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 14 }}>
           <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 2 }}>How messages appear</div>
@@ -378,9 +399,22 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>
             Members get an invite on the first message and join by replying <code>#join</code>.
           </p>
-          <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={approveAll}>
-            Approve all
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {members.some((m) => m.join_status === 'pending') && (
+              <button
+                type="button"
+                className="btn"
+                style={{ padding: '6px 12px', fontSize: 13 }}
+                onClick={() => invite(null, 'all')}
+                disabled={inviting === 'all'}
+              >
+                {inviting === 'all' ? 'Sending…' : 'Invite all pending'}
+              </button>
+            )}
+            <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={approveAll}>
+              Approve all
+            </button>
+          </div>
         </div>
 
         {loading ? (
@@ -418,6 +452,17 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
                   <input type="checkbox" checked={!!c.is_admin} onChange={() => toggleField(c, 'is_admin')} />
                   Admin
                 </label>
+                {c.join_status === 'pending' && (
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    style={{ padding: '4px 10px', fontSize: 12, marginLeft: 8 }}
+                    onClick={() => invite([c.id], c.id)}
+                    disabled={inviting === c.id}
+                  >
+                    {inviting === c.id ? '…' : c.invited_at ? 'Resend' : 'Invite'}
+                  </button>
+                )}
               </div>
             ))}
           </div>

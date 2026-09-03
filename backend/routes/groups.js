@@ -298,6 +298,51 @@ router.put('/:id/contacts/:contactId', async (req, res) => {
   }
 });
 
+// Send (or resend) the join invitation to pending members of a group.
+// contact_ids omitted = every pending member.
+router.post('/:id/invite', async (req, res) => {
+  const { contact_ids } = req.body || {};
+  try {
+    const { rows: groupRows } = await pool.query(
+      `SELECT id, name FROM groups WHERE id = $1 AND ($2::int IS NULL OR user_id = $2)`,
+      [req.params.id, scopeParam(req)]
+    );
+    if (!groupRows.length) return res.status(404).json({ error: 'Group not found' });
+
+    const params = [req.params.id];
+    let filter = '';
+    if (Array.isArray(contact_ids) && contact_ids.length) {
+      params.push(contact_ids);
+      filter = ` AND cg.contact_id = ANY($${params.length}::int[])`;
+    }
+
+    const { rows: targets } = await pool.query(
+      `SELECT cg.contact_id
+         FROM contact_groups cg
+         JOIN contacts c ON c.id = cg.contact_id
+        WHERE cg.group_id = $1
+          AND cg.join_status = 'pending'
+          AND (c.methods IS NULL OR 'sms' = ANY(c.methods) OR c.preferred_method = 'sms')
+          ${filter}`,
+      params
+    );
+
+    if (!targets.length) return res.json({ invited: 0 });
+
+    const { sendInvites } = require('./groupChat');
+    const invited = await sendInvites({
+      userId: req.userId,
+      groupId: parseInt(req.params.id, 10),
+      contactIds: targets.map((t) => t.contact_id),
+    });
+
+    res.json({ invited });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to send invitations' });
+  }
+});
+
 router.post('/bulk-assign', async (req, res) => {
   const { contact_ids, group_ids } = req.body;
   if (!Array.isArray(contact_ids) || !contact_ids.length) return res.status(400).json({ error: 'contact_ids array is required' });

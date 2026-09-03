@@ -496,4 +496,25 @@ async function handleGroupPost({ user, from, body, directGroupId = null }) {
   return `Which group is this for?\n${list}\nReply with the number.`;
 }
 
-module.exports = { handleGroupPost, lookupGroupNumber };
+// Called from the portal (routes/groups.js) to invite pending members.
+async function sendInvites({ userId, groupId, contactIds }) {
+  const { rows: userRows } = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+  if (!userRows.length) throw new Error('User not found');
+  const user = userRows[0];
+
+  const group = await getGroup(userId, groupId);
+  if (!group) throw new Error('Group not found');
+
+  let sent = 0;
+  for (const contactId of contactIds) {
+    try {
+      await sendInvite({ user, group, contactId });
+      sent += 1;
+    } catch (err) {
+      console.error('invite failed for contact', contactId, err);
+    }
+  }
+  return sent;
+}
+
+module.exports = { handleGroupPost, lookupGroupNumber, sendInvites };

@@ -119,6 +119,7 @@ export const api = {
     chatEnabled: () => request('/groups/chat/enabled'),
     posts: (id) => request(`/groups/${id}/posts`),
     usage: (period) => request(`/groups/chat/usage?period=${period}`),
+    invite: (id, contact_ids) => request(`/groups/${id}/invite`, { method: 'POST', body: JSON.stringify({ contact_ids }) }),
   },
   account: {
     get: () => request('/account'),
