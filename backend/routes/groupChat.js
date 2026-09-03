@@ -40,7 +40,7 @@ async function findContactByPhone(userId, phone) {
 
 async function getGroup(userId, groupId) {
   const { rows } = await pool.query(
-    `SELECT id, name, member_posting FROM groups WHERE id = $1 AND user_id = $2`,
+    `SELECT id, name, member_posting, post_prefix FROM groups WHERE id = $1 AND user_id = $2`,
     [groupId, userId]
   );
   return rows[0] || null;
@@ -49,7 +49,7 @@ async function getGroup(userId, groupId) {
 // Groups this contact has JOINED and may post to.
 async function postableGroups(userId, contactId) {
   const { rows } = await pool.query(
-    `SELECT g.id, g.name, cg.is_admin
+    `SELECT g.id, g.name, g.post_prefix, cg.is_admin
        FROM groups g
        JOIN contact_groups cg ON cg.group_id = g.id
       WHERE g.user_id = $1
@@ -191,7 +191,9 @@ async function fanOut({ user, group, sender, body }) {
   const joined = smsCapable.filter((m) => m.join_status === 'joined');
   const notYet = smsCapable.filter((m) => m.join_status === 'pending');
 
-    const text = `${sender.display_name}: ${body}`;
+  const text = group.post_prefix === 'group_name'
+    ? `${group.name} — ${sender.display_name}: ${body}`
+    : `${sender.display_name}: ${body}`;
 
   const { rows: msgRows } = await pool.query(
     `INSERT INTO messages (title, type, text_content, user_id, is_group_post)

@@ -277,6 +277,7 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [turningOff, setTurningOff] = useState(false);
+  const [prefix, setPrefix] = useState(group.post_prefix || 'off');
 
   async function load() {
     setLoading(true);
@@ -316,6 +317,18 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
     }
   }
 
+  async function changePrefix(next) {
+    const previous = prefix;
+    setPrefix(next);
+    try {
+      await api.groups.update(group.id, { post_prefix: next });
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+      setPrefix(previous);
+    }
+  }
+
   async function turnOff() {
     if (!confirm(`Turn off group chat for ${group.name}? Members will no longer be able to text the group.`)) return;
     setTurningOff(true);
@@ -335,6 +348,31 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
       <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
         <h2>{group.name}</h2>
         {error && <div className="banner error">{error}</div>}
+
+        <div style={{ border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 14 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 2 }}>How messages appear</div>
+          <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 8 }}>
+            {prefix === 'group_name'
+              ? `Members see: ${group.name} — Rivka: Meeting at 7`
+              : 'Members see: Rivka: Meeting at 7'}
+          </div>
+          <div className="chip-select" style={{ marginBottom: 0 }}>
+            <button
+              type="button"
+              className={`chip-toggle ${prefix === 'off' ? 'active' : ''}`}
+              onClick={() => changePrefix('off')}
+            >
+              Sender only
+            </button>
+            <button
+              type="button"
+              className={`chip-toggle ${prefix === 'group_name' ? 'active' : ''}`}
+              onClick={() => changePrefix('group_name')}
+            >
+              Add group name
+            </button>
+          </div>
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>

@@ -32,7 +32,7 @@ router.get('/', async (req, res) => {
 router.get('/chat/enabled', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT g.id, g.name, g.member_posting,
+      `SELECT g.id, g.name, g.member_posting, g.post_prefix,
               COUNT(DISTINCT cg.contact_id)::int AS member_count,
               (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.can_post))::int AS poster_count,
               (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.join_status = 'joined'))::int AS joined_count,
@@ -129,12 +129,15 @@ router.post('/', async (req, res) => {
 
 // Accepts a rename, a member_posting change, or both.
 router.put('/:id', async (req, res) => {
-  const { name, member_posting } = req.body;
-  if (name === undefined && member_posting === undefined) {
-    return res.status(400).json({ error: 'name or member_posting is required' });
+  const { name, member_posting, post_prefix } = req.body;
+  if (name === undefined && member_posting === undefined && post_prefix === undefined) {
+    return res.status(400).json({ error: 'name, member_posting or post_prefix is required' });
   }
   if (member_posting !== undefined && !['off', 'approved'].includes(member_posting)) {
     return res.status(400).json({ error: 'member_posting must be off or approved' });
+  }
+  if (post_prefix !== undefined && !['off', 'group_name'].includes(post_prefix)) {
+    return res.status(400).json({ error: 'post_prefix must be off or group_name' });
   }
   try {
     const sets = [];
@@ -146,6 +149,10 @@ router.put('/:id', async (req, res) => {
     if (member_posting !== undefined) {
       params.push(member_posting);
       sets.push(`member_posting = $${params.length}`);
+    }
+    if (post_prefix !== undefined) {
+      params.push(post_prefix);
+      sets.push(`post_prefix = $${params.length}`);
     }
     params.push(req.params.id);
     const idIdx = params.length;

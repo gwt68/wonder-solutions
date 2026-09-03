@@ -193,9 +193,11 @@ export default function Settings() {
           </SettingCard>
         )}
 
-        <SettingCard icon="ti-users-group" title="Group message prefix" description="When sending to a whole group, start the message with the group's name?">
-          <GroupPrefixInline />
-        </SettingCard>
+        {!isGroupsTier && (
+          <SettingCard icon="ti-users-group" title="Group message prefix" description="When sending to a whole group, start the message with the group's name?">
+            <GroupPrefixInline />
+          </SettingCard>
+        )}
 
         <SettingCard icon="ti-clock" title="Your time zone" description="Used for scheduling and for the times shown in History.">
           <TimezoneInline />
@@ -288,7 +290,8 @@ export default function Settings() {
           <SectionLabel>Text commands</SectionLabel>
           <div className="card" style={{ padding: 18, maxWidth: 480 }}>
             <p style={{ color: 'var(--ink-soft)', fontSize: 12.5, margin: '0 0 10px' }}>
-              Members marked as Admin in a group's settings can text these to the group number:
+              How messages are worded is set per group, in that group's Settings on the Group Chat tab.
+              Members marked as Admin there can text these to the group number:
             </p>
             <ul style={{ fontSize: 13, lineHeight: 1.9, margin: 0, paddingLeft: 18 }}>
               <li><code>#add 8455551234 First Last</code> — add someone and let them post</li>
