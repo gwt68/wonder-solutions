@@ -191,7 +191,7 @@ async function fanOut({ user, group, sender, body }) {
   const joined = smsCapable.filter((m) => m.join_status === 'joined');
   const notYet = smsCapable.filter((m) => m.join_status === 'pending');
 
-  const text = `${group.name} — ${sender.display_name}: ${body}`;
+    const text = `${sender.display_name}: ${body}`;
 
   const { rows: msgRows } = await pool.query(
     `INSERT INTO messages (title, type, text_content, user_id, is_group_post)
