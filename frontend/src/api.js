@@ -120,13 +120,12 @@ export const api = {
     posts: (id) => request(`/groups/${id}/posts`),
     usage: (period) => request(`/groups/chat/usage?period=${period}`),
     invite: (id, contact_ids) => request(`/groups/${id}/invite`, { method: 'POST', body: JSON.stringify({ contact_ids }) }),
+    bulkAssign: (contact_ids, group_ids) => request('/groups/bulk-assign', { method: 'POST', body: JSON.stringify({ contact_ids, group_ids }) }),
   },
   account: {
     get: () => request('/account'),
     setUsername: (username) => request('/account/username', { method: 'PUT', body: JSON.stringify({ username }) }),
     setPassword: (current_password, new_password) => request('/account/password', { method: 'PUT', body: JSON.stringify({ current_password, new_password }) }),
-    updateMember: (id, contactId, data) => request(`/groups/${id}/contacts/${contactId}`, { method: 'PUT', body: JSON.stringify(data) }),
-    bulkAssign: (contact_ids, group_ids) => request('/groups/bulk-assign', { method: 'POST', body: JSON.stringify({ contact_ids, group_ids }) }),
   },
   messages: {
     list: () => request('/messages'),
