@@ -120,6 +120,7 @@ export const api = {
     posts: (id) => request(`/groups/${id}/posts`),
     usage: (period) => request(`/groups/chat/usage?period=${period}`),
     invite: (id, contact_ids) => request(`/groups/${id}/invite`, { method: 'POST', body: JSON.stringify({ contact_ids }) }),
+    bulkMembers: (id, contact_ids, fields) => request(`/groups/${id}/members/bulk`, { method: 'POST', body: JSON.stringify({ contact_ids, ...fields }) }),
     bulkAssign: (contact_ids, group_ids) => request('/groups/bulk-assign', { method: 'POST', body: JSON.stringify({ contact_ids, group_ids }) }),
   },
   account: {

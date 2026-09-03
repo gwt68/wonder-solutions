@@ -276,10 +276,13 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [turningOff, setTurningOff] = useState(false);
   const [prefix, setPrefix] = useState(group.post_prefix || 'off');
-  const [inviting, setInviting] = useState(null);
-  const [notice, setNotice] = useState('');
+  const [busy, setBusy] = useState(null);
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState('name');
+  const [picked, setPicked] = useState(new Set());
 
   async function load() {
     setLoading(true);
@@ -294,6 +297,51 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
   useEffect(() => { load(); }, [group.id]);
 
+  const STATUS_ORDER = { pending: 0, joined: 1, declined: 2 };
+
+  const visible = members
+    .filter((m) => {
+      const q = query.trim().toLowerCase();
+      if (!q) return true;
+      return (contactDisplayName(m) || '').toLowerCase().includes(q)
+        || (m.phone_number || '').includes(q);
+    })
+    .sort((a, b) => {
+      if (sort === 'status') {
+        const d = STATUS_ORDER[a.join_status] - STATUS_ORDER[b.join_status];
+        if (d !== 0) return d;
+      }
+      if (sort === 'can_post') {
+        const d = (b.can_post ? 1 : 0) - (a.can_post ? 1 : 0);
+        if (d !== 0) return d;
+      }
+      return (contactDisplayName(a) || '').localeCompare(contactDisplayName(b) || '');
+    });
+
+  const allVisiblePicked = visible.length > 0 && visible.every((m) => picked.has(m.id));
+
+  function togglePicked(id) {
+    setPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setPicked(allVisiblePicked ? new Set() : new Set(visible.map((m) => m.id)));
+  }
+
+  function statusPill(m) {
+    if (m.join_status === 'joined') return null;
+    if (m.join_status === 'declined') return <span className="pill" style={{ marginLeft: 8 }}>Left</span>;
+    return (
+      <span className="pill signal" style={{ marginLeft: 8 }}>
+        {m.invited_at ? 'Invited' : 'Not invited'}
+      </span>
+    );
+  }
+
   async function toggleField(contact, field) {
     const next = !contact[field];
     setMembers((prev) => prev.map((m) => (m.id === contact.id ? { ...m, [field]: next } : m)));
@@ -306,34 +354,37 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
     }
   }
 
-  async function approveAll() {
-    setError('');
+  async function bulkSet(field, value, key) {
+    const ids = [...picked];
+    if (!ids.length) return;
+    setBusy(key); setError(''); setNotice('');
     try {
-      for (const m of members.filter((x) => !x.can_post)) {
-        await api.groups.updateMember(group.id, m.id, { can_post: true });
-      }
-      await load();
-      onChanged();
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
-  async function invite(contactIds, key) {
-    setInviting(key);
-    setError('');
-    setNotice('');
-    try {
-      const r = await api.groups.invite(group.id, contactIds);
-      setNotice(r.invited === 0
-        ? 'Nobody to invite.'
-        : `Invitation sent to ${r.invited} ${r.invited === 1 ? 'person' : 'people'}.`);
+      const r = await api.groups.bulkMembers(group.id, ids, { [field]: value });
+      setNotice(`Updated ${r.updated} ${r.updated === 1 ? 'member' : 'members'}.`);
+      setPicked(new Set());
       await load();
       onChanged();
     } catch (err) {
       setError(err.message);
     } finally {
-      setInviting(null);
+      setBusy(null);
+    }
+  }
+
+  async function invite(contactIds, key) {
+    setBusy(key); setError(''); setNotice('');
+    try {
+      const r = await api.groups.invite(group.id, contactIds);
+      setNotice(r.invited === 0
+        ? 'Nobody to invite.'
+        : `Invitation sent to ${r.invited} ${r.invited === 1 ? 'person' : 'people'}.`);
+      setPicked(new Set());
+      await load();
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -351,8 +402,7 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
   async function turnOff() {
     if (!confirm(`Turn off group chat for ${group.name}? Members will no longer be able to text the group.`)) return;
-    setTurningOff(true);
-    setError('');
+    setTurningOff(true); setError('');
     try {
       await api.groups.update(group.id, { member_posting: 'off' });
       onChanged();
@@ -363,9 +413,11 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
     }
   }
 
+  const pendingCount = members.filter((m) => m.join_status === 'pending').length;
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 460 }}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
         <h2>{group.name}</h2>
         {error && <div className="banner error">{error}</div>}
         {notice && <div className="banner ok">{notice}</div>}
@@ -378,104 +430,128 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
               : 'Members see: Rivka: Meeting at 7'}
           </div>
           <div className="chip-select" style={{ marginBottom: 0 }}>
-            <button
-              type="button"
-              className={`chip-toggle ${prefix === 'off' ? 'active' : ''}`}
-              onClick={() => changePrefix('off')}
-            >
+            <button type="button" className={`chip-toggle ${prefix === 'off' ? 'active' : ''}`} onClick={() => changePrefix('off')}>
               Sender only
             </button>
-            <button
-              type="button"
-              className={`chip-toggle ${prefix === 'group_name' ? 'active' : ''}`}
-              onClick={() => changePrefix('group_name')}
-            >
+            <button type="button" className={`chip-toggle ${prefix === 'group_name' ? 'active' : ''}`} onClick={() => changePrefix('group_name')}>
               Add group name
             </button>
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>
-            Members get an invite on the first message and join by replying <code>#join</code>.
-          </p>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {members.some((m) => m.join_status === 'pending') && (
-              <button
-                type="button"
-                className="btn"
-                style={{ padding: '6px 12px', fontSize: 13 }}
-                onClick={() => invite(null, 'all')}
-                disabled={inviting === 'all'}
-              >
-                {inviting === 'all' ? 'Sending…' : 'Invite all pending'}
-              </button>
-            )}
-            <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={approveAll}>
-              Approve all
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name or number"
+            style={{ flex: '1 1 180px', minWidth: 0 }}
+          />
+          <select value={sort} onChange={(e) => setSort(e.target.value)} style={{ flex: '0 0 auto' }}>
+            <option value="name">Sort by name</option>
+            <option value="status">Sort by join status</option>
+            <option value="can_post">Sort by can post</option>
+          </select>
+          {pendingCount > 0 && (
+            <button
+              type="button"
+              className="btn"
+              style={{ padding: '6px 12px', fontSize: 13 }}
+              onClick={() => invite(null, 'all')}
+              disabled={busy === 'all'}
+            >
+              {busy === 'all' ? 'Sending…' : `Invite all pending (${pendingCount})`}
+            </button>
+          )}
+        </div>
+
+        {picked.size > 0 && (
+          <div style={{
+            display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap',
+            padding: '8px 10px', marginBottom: 10, borderRadius: 7, background: 'var(--accent-soft)',
+          }}>
+            <span style={{ fontSize: 12.5, marginRight: 4 }}>{picked.size} selected</span>
+            <button type="button" className="btn" style={{ padding: '5px 10px', fontSize: 12.5 }}
+              onClick={() => bulkSet('can_post', true, 'post-on')} disabled={busy === 'post-on'}>
+              Allow posting
+            </button>
+            <button type="button" className="btn secondary" style={{ padding: '5px 10px', fontSize: 12.5 }}
+              onClick={() => bulkSet('can_post', false, 'post-off')} disabled={busy === 'post-off'}>
+              Block posting
+            </button>
+            <button type="button" className="btn secondary" style={{ padding: '5px 10px', fontSize: 12.5 }}
+              onClick={() => invite([...picked], 'invite-sel')} disabled={busy === 'invite-sel'}>
+              Invite
+            </button>
+            <button type="button" style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer' }}
+              onClick={() => setPicked(new Set())}>
+              Clear
             </button>
           </div>
-        </div>
+        )}
 
         {loading ? (
           <p style={{ color: 'var(--ink-soft)' }}>Loading…</p>
-        ) : members.length === 0 ? (
+        ) : !members.length ? (
           <p style={{ fontSize: 14, color: 'var(--ink-soft)' }}>
             This group has no members yet. Add them from the Groups tab.
           </p>
         ) : (
-          <div className="list" style={{ maxHeight: 340, overflowY: 'auto' }}>
-            {members.map((c) => (
-              <div key={c.id} className="row">
-                <div className="row-main" style={{ minWidth: 0 }}>
-                  <span className="row-title">
-                    {contactDisplayName(c) || c.phone_number}
-                    {c.join_status === 'pending' && (
-                      <span className="pill signal" style={{ marginLeft: 8 }}>
-                        {c.invited_at ? 'Invited' : 'Not invited'}
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12.5, color: 'var(--ink-soft)' }}>
+              <input type="checkbox" checked={allVisiblePicked} onChange={toggleAllVisible} />
+              <span>Select all{query.trim() ? ' matching' : ''} ({visible.length})</span>
+            </div>
+
+            {!visible.length ? (
+              <p style={{ fontSize: 13.5, color: 'var(--ink-soft)' }}>Nobody matches that search.</p>
+            ) : (
+              <div className="list" style={{ maxHeight: 320, overflowY: 'auto' }}>
+                {visible.map((c) => (
+                  <div key={c.id} className="row">
+                    <input
+                      type="checkbox"
+                      checked={picked.has(c.id)}
+                      onChange={() => togglePicked(c.id)}
+                      style={{ marginRight: 10, flexShrink: 0 }}
+                    />
+                    <div className="row-main" style={{ minWidth: 0 }}>
+                      <span className="row-title">
+                        {contactDisplayName(c) || c.phone_number}
+                        {statusPill(c)}
                       </span>
+                      <span className="row-sub">{c.phone_number}</span>
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', marginRight: 10, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={!!c.can_post} onChange={() => toggleField(c, 'can_post')} />
+                      Post
+                    </label>
+                    <label
+                      style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', cursor: 'pointer' }}
+                      title="Admins can text #add, #remove and #count to the group"
+                    >
+                      <input type="checkbox" checked={!!c.is_admin} onChange={() => toggleField(c, 'is_admin')} />
+                      Admin
+                    </label>
+                    {c.join_status === 'pending' && (
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        style={{ padding: '4px 10px', fontSize: 12, marginLeft: 8, flexShrink: 0 }}
+                        onClick={() => invite([c.id], c.id)}
+                        disabled={busy === c.id}
+                      >
+                        {busy === c.id ? '…' : c.invited_at ? 'Resend' : 'Invite'}
+                      </button>
                     )}
-                    {c.join_status === 'declined' && (
-                      <span className="pill" style={{ marginLeft: 8 }}>Left</span>
-                    )}
-                  </span>
-                  <span className="row-sub">{c.phone_number}</span>
-                </div>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', marginRight: 10, cursor: 'pointer' }}>
-                  <input type="checkbox" checked={!!c.can_post} onChange={() => toggleField(c, 'can_post')} />
-                  Post
-                </label>
-                <label
-                  style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', cursor: 'pointer' }}
-                  title="Admins can text #add, #remove and #count to the group"
-                >
-                  <input type="checkbox" checked={!!c.is_admin} onChange={() => toggleField(c, 'is_admin')} />
-                  Admin
-                </label>
-                {c.join_status === 'pending' && (
-                  <button
-                    type="button"
-                    className="btn secondary"
-                    style={{ padding: '4px 10px', fontSize: 12, marginLeft: 8 }}
-                    onClick={() => invite([c.id], c.id)}
-                    disabled={inviting === c.id}
-                  >
-                    {inviting === c.id ? '…' : c.invited_at ? 'Resend' : 'Invite'}
-                  </button>
-                )}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </>
         )}
 
         <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
-          <button
-            type="button"
-            className="btn"
-            style={{ background: 'var(--danger)' }}
-            onClick={turnOff}
-            disabled={turningOff}
-          >
+          <button type="button" className="btn" style={{ background: 'var(--danger)' }} onClick={turnOff} disabled={turningOff}>
             {turningOff ? 'Turning off…' : 'Turn off group chat'}
           </button>
           <button type="button" className="btn secondary" onClick={onClose}>Close</button>

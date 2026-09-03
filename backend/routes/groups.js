@@ -243,8 +243,8 @@ router.post('/:id/contacts', async (req, res) => {
     return res.status(400).json({ error: 'contact_ids array is required' });
   }
   try {
-    const values = contact_ids.map((cid) => `(${parseInt(cid, 10)}, ${req.params.id})`).join(',');
-    await pool.query(`INSERT INTO contact_groups (contact_id, group_id) VALUES ${values} ON CONFLICT DO NOTHING`);
+    const values = contact_ids.map((cid) => `(${parseInt(cid, 10)}, ${req.params.id}, TRUE)`).join(',');
+    await pool.query(`INSERT INTO contact_groups (contact_id, group_id, can_post) VALUES ${values} ON CONFLICT DO NOTHING`);
     res.status(201).json({ ok: true });
   } catch (err) {
     console.error(err);
@@ -260,6 +260,15 @@ router.put('/:id/contacts/:contactId', async (req, res) => {
     return res.status(400).json({ error: 'can_post, muted or is_admin is required' });
   }
   try {
+    let wasAdmin = true;
+    if (is_admin === true) {
+      const { rows } = await pool.query(
+        'SELECT is_admin FROM contact_groups WHERE group_id = $1 AND contact_id = $2',
+        [req.params.id, req.params.contactId]
+      );
+      wasAdmin = rows.length ? rows[0].is_admin : true;
+    }
+
     const sets = [];
     const params = [];
     if (can_post !== undefined) {
@@ -291,10 +300,78 @@ router.put('/:id/contacts/:contactId', async (req, res) => {
       params
     );
     if (!rowCount) return res.status(404).json({ error: 'Group member not found' });
+
+    if (is_admin === true && !wasAdmin) {
+      const { notifyNewAdmins } = require('./groupChat');
+      notifyNewAdmins({
+        userId: req.userId,
+        groupId: parseInt(req.params.id, 10),
+        contactIds: [parseInt(req.params.contactId, 10)],
+      }).catch((e) => console.error('admin notice failed:', e));
+    }
+
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to update group member' });
+  }
+});
+
+// Set can_post / is_admin / muted on many members of one group at once.
+router.post('/:id/members/bulk', async (req, res) => {
+  const { contact_ids, can_post, muted, is_admin } = req.body || {};
+  if (!Array.isArray(contact_ids) || !contact_ids.length) {
+    return res.status(400).json({ error: 'contact_ids array is required' });
+  }
+  if (can_post === undefined && muted === undefined && is_admin === undefined) {
+    return res.status(400).json({ error: 'can_post, muted or is_admin is required' });
+  }
+  try {
+    let newAdmins = [];
+    if (is_admin === true) {
+      const { rows } = await pool.query(
+        `SELECT contact_id FROM contact_groups
+          WHERE group_id = $1 AND contact_id = ANY($2::int[]) AND is_admin = FALSE`,
+        [req.params.id, contact_ids]
+      );
+      newAdmins = rows.map((r) => r.contact_id);
+    }
+
+    const sets = [];
+    const params = [];
+    if (can_post !== undefined) { params.push(!!can_post); sets.push(`can_post = $${params.length}`); }
+    if (muted !== undefined)    { params.push(!!muted);    sets.push(`muted = $${params.length}`); }
+    if (is_admin !== undefined) { params.push(!!is_admin); sets.push(`is_admin = $${params.length}`); }
+
+    params.push(req.params.id);
+    const gidIdx = params.length;
+    params.push(contact_ids);
+    const cidIdx = params.length;
+    params.push(scopeParam(req));
+    const scopeIdx = params.length;
+
+    const { rowCount } = await pool.query(
+      `UPDATE contact_groups cg SET ${sets.join(', ')}
+         FROM groups g
+        WHERE g.id = cg.group_id
+          AND cg.group_id = $${gidIdx}
+          AND cg.contact_id = ANY($${cidIdx}::int[])
+          AND ($${scopeIdx}::int IS NULL OR g.user_id = $${scopeIdx})`,
+      params
+    );
+    if (newAdmins.length) {
+      const { notifyNewAdmins } = require('./groupChat');
+      notifyNewAdmins({
+        userId: req.userId,
+        groupId: parseInt(req.params.id, 10),
+        contactIds: newAdmins,
+      }).catch((e) => console.error('admin notice failed:', e));
+    }
+
+    res.json({ updated: rowCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update members' });
   }
 });
 
@@ -351,10 +428,10 @@ router.post('/bulk-assign', async (req, res) => {
     const values = [];
     for (const cid of contact_ids) {
       for (const gid of group_ids) {
-        values.push(`(${parseInt(cid, 10)}, ${parseInt(gid, 10)})`);
+        values.push(`(${parseInt(cid, 10)}, ${parseInt(gid, 10)}, TRUE)`);
       }
     }
-    await pool.query(`INSERT INTO contact_groups (contact_id, group_id) VALUES ${values.join(',')} ON CONFLICT DO NOTHING`);
+    await pool.query(`INSERT INTO contact_groups (contact_id, group_id, can_post) VALUES ${values.join(',')} ON CONFLICT DO NOTHING`);
     res.status(201).json({ ok: true });
   } catch (err) {
     console.error(err);

@@ -496,6 +496,52 @@ async function handleGroupPost({ user, from, body, directGroupId = null }) {
   return `Which group is this for?\n${list}\nReply with the number.`;
 }
 
+// Tells members they've just been made an admin. Only joined members are
+// texted — someone who hasn't accepted the invite yet gets nothing.
+async function notifyNewAdmins({ userId, groupId, contactIds }) {
+  if (!contactIds.length) return 0;
+
+  const { rows: userRows } = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
+  if (!userRows.length) return 0;
+  const user = userRows[0];
+
+  const group = await getGroup(userId, groupId);
+  if (!group) return 0;
+
+  const { rows: targets } = await pool.query(
+    `SELECT cg.contact_id
+       FROM contact_groups cg
+       JOIN contacts c ON c.id = cg.contact_id
+      WHERE cg.group_id = $1
+        AND cg.contact_id = ANY($2::int[])
+        AND cg.join_status = 'joined'
+        AND cg.muted = FALSE
+        AND (c.methods IS NULL OR 'sms' = ANY(c.methods) OR c.preferred_method = 'sms')`,
+    [groupId, contactIds]
+  );
+
+  const text = `You're now an admin of "${group.name}". `
+    + 'You can text #add 8455551234 First Last to invite someone, '
+    + '#remove 8455551234 to take them out, and #count to see who is in. '
+    + 'Text #help any time for the list.';
+
+  let sent = 0;
+  for (const t of targets) {
+    try {
+      await sendSystemMessage({
+        user,
+        contactId: t.contact_id,
+        title: `${group.name} admin notice`,
+        text,
+      });
+      sent += 1;
+    } catch (err) {
+      console.error('admin notice failed for contact', t.contact_id, err);
+    }
+  }
+  return sent;
+}
+
 // Called from the portal (routes/groups.js) to invite pending members.
 async function sendInvites({ userId, groupId, contactIds }) {
   const { rows: userRows } = await pool.query('SELECT * FROM users WHERE id = $1', [userId]);
@@ -517,4 +563,4 @@ async function sendInvites({ userId, groupId, contactIds }) {
   return sent;
 }
 
-module.exports = { handleGroupPost, lookupGroupNumber, sendInvites };
+module.exports = { handleGroupPost, lookupGroupNumber, sendInvites, notifyNewAdmins };
