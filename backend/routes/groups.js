@@ -35,6 +35,8 @@ router.get('/chat/enabled', async (req, res) => {
       `SELECT g.id, g.name, g.member_posting,
               COUNT(DISTINCT cg.contact_id)::int AS member_count,
               (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.can_post))::int AS poster_count,
+              (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.join_status = 'joined'))::int AS joined_count,
+              (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.join_status = 'pending'))::int AS pending_count,
               MAX(gpl.created_at) AS last_post_at
          FROM groups g
          LEFT JOIN contact_groups cg ON cg.group_id = g.id
@@ -195,7 +197,7 @@ router.post('/bulk-delete', async (req, res) => {
 router.get('/:id/contacts', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT c.*, cg.can_post, cg.muted, cg.is_admin FROM contacts c
+      `SELECT c.*, cg.can_post, cg.muted, cg.is_admin, cg.join_status, cg.invited_at FROM contacts c
        JOIN contact_groups cg ON cg.contact_id = c.id
        JOIN groups g ON g.id = cg.group_id
        WHERE cg.group_id = $1 AND ($2::int IS NULL OR g.user_id = $2)

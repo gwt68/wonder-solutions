@@ -206,7 +206,8 @@ export default function GroupChat() {
                   <div className="row-main" style={{ minWidth: 0 }}>
                     <span className="row-title" style={{ wordBreak: 'break-word' }}>{c.name}</span>
                     <span className="row-sub">
-                      {c.poster_count} of {c.member_count} can post
+                      {c.joined_count} joined
+                      {c.pending_count > 0 ? `, ${c.pending_count} pending` : ''}
                       {c.last_post_at ? ` · ${timeAgo(c.last_post_at)}` : ''}
                     </span>
                   </div>
@@ -337,7 +338,7 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>
-            Who can post, and who can run <code>#add</code> / <code>#remove</code> / <code>#count</code> by text.
+            Members get an invite on the first message and join by replying <code>#join</code>.
           </p>
           <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 13 }} onClick={approveAll}>
             Approve all
@@ -355,7 +356,17 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
             {members.map((c) => (
               <div key={c.id} className="row">
                 <div className="row-main" style={{ minWidth: 0 }}>
-                  <span className="row-title">{contactDisplayName(c) || c.phone_number}</span>
+                  <span className="row-title">
+                    {contactDisplayName(c) || c.phone_number}
+                    {c.join_status === 'pending' && (
+                      <span className="pill signal" style={{ marginLeft: 8 }}>
+                        {c.invited_at ? 'Invited' : 'Not invited'}
+                      </span>
+                    )}
+                    {c.join_status === 'declined' && (
+                      <span className="pill" style={{ marginLeft: 8 }}>Left</span>
+                    )}
+                  </span>
                   <span className="row-sub">{c.phone_number}</span>
                 </div>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12.5, color: 'var(--ink-soft)', marginRight: 10, cursor: 'pointer' }}>
