@@ -2,7 +2,6 @@ const pool = require('../db/pool');
 const { createSendBatch } = require('./sends');
 
 const RATE_LIMIT_PER_HOUR = 10;
-const PENDING_HOLD_HOURS = 48;
 
 const NAME_EXPR = `COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name, c.phone_number)`;
 
@@ -210,13 +209,9 @@ async function fanOut({ user, group, sender, body }) {
     });
   }
 
-  // Anyone not yet joined: hold this message, and invite them if we haven't.
+  // Anyone not yet joined gets an invite instead of the message. Nothing is
+  // queued — a new member starts fresh from their next message.
   for (const m of notYet) {
-    await pool.query(
-      `INSERT INTO pending_group_messages (group_id, contact_id, message_id)
-       VALUES ($1, $2, $3)`,
-      [group.id, m.id, messageId]
-    );
     if (!m.invited_at) {
       await sendInvite({ user, group, contactId: m.id });
     }
@@ -233,51 +228,20 @@ async function fanOut({ user, group, sender, body }) {
 
 // ---- join / exit -------------------------------------------------------
 
-async function deliverHeldMessages({ user, group, contactId }) {
-  const { rows } = await pool.query(
-    `SELECT DISTINCT message_id FROM pending_group_messages
-      WHERE group_id = $1 AND contact_id = $2
-        AND created_at > NOW() - ($3 || ' hours')::interval
-      ORDER BY message_id ASC`,
-    [group.id, contactId, PENDING_HOLD_HOURS]
-  );
-
-  for (const r of rows) {
-    await createSendBatch({
-      message_id: r.message_id,
-      recipients: [{ contact_id: contactId, method: 'sms' }],
-      userId: user.id,
-    });
-  }
-
-  await pool.query(
-    `DELETE FROM pending_group_messages WHERE group_id = $1 AND contact_id = $2`,
-    [group.id, contactId]
-  );
-
-  return rows.length;
-}
-
 async function handleJoin({ user, group, sender }) {
   await pool.query(
     `UPDATE contact_groups SET join_status = 'joined', joined_at = NOW(), muted = FALSE
       WHERE group_id = $1 AND contact_id = $2`,
     [group.id, sender.id]
   );
-  const held = await deliverHeldMessages({ user, group, contactId: sender.id });
   const others = await joinedCount(group.id, sender.id);
-  const tail = held ? '' : ' Text this number any time to reach the group.';
-  return `You're in "${group.name}" with ${others} ${others === 1 ? 'other' : 'others'}.`
-    + `${tail} Text #exit to leave.`;
+  return `You're in "${group.name}" with ${others} ${others === 1 ? 'other' : 'others'}. `
+    + 'Text this number any time to reach the group. Text #exit to leave.';
 }
 
 async function handleExit({ group, sender }) {
   await pool.query(
     `UPDATE contact_groups SET join_status = 'declined' WHERE group_id = $1 AND contact_id = $2`,
-    [group.id, sender.id]
-  );
-  await pool.query(
-    `DELETE FROM pending_group_messages WHERE group_id = $1 AND contact_id = $2`,
     [group.id, sender.id]
   );
   return `You've left "${group.name}". Nothing further will be sent to you from this group.`;
