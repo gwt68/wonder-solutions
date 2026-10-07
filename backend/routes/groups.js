@@ -219,7 +219,7 @@ router.post('/bulk-delete', async (req, res) => {
 router.get('/:id/contacts', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT c.*, cg.can_post, cg.muted, cg.is_admin, cg.join_status, cg.invited_at FROM contacts c
+      `SELECT c.*, cg.can_post, cg.muted, cg.is_admin, cg.join_status, cg.invited_at, cg.exit_count FROM contacts c
        JOIN contact_groups cg ON cg.contact_id = c.id
        JOIN groups g ON g.id = cg.group_id
        WHERE cg.group_id = $1 AND ($2::int IS NULL OR g.user_id = $2)
@@ -408,12 +408,19 @@ router.post('/:id/invite', async (req, res) => {
       filter = ` AND cg.contact_id = ANY($${params.length}::int[])`;
     }
 
+    // Named people may include someone who left (under the exit cap).
+    // "Invite everyone" never sweeps up people who opted out.
+    const named = Array.isArray(contact_ids) && contact_ids.length;
+    const statusClause = named
+      ? `(cg.join_status = 'pending' OR (cg.join_status = 'declined' AND cg.exit_count < 2))`
+      : `cg.join_status = 'pending'`;
+
     const { rows: targets } = await pool.query(
       `SELECT cg.contact_id
          FROM contact_groups cg
          JOIN contacts c ON c.id = cg.contact_id
         WHERE cg.group_id = $1
-          AND cg.join_status = 'pending'
+          AND ${statusClause}
           AND (c.methods IS NULL OR 'sms' = ANY(c.methods) OR c.preferred_method = 'sms')
           ${filter}`,
       params

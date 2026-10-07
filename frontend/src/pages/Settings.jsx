@@ -300,6 +300,11 @@ export default function Settings() {
               <li><code>#count</code> — members, posters, and posts this week</li>
               <li><code>#help</code> — this list</li>
             </ul>
+            <p style={{ color: 'var(--ink-soft)', fontSize: 12.5, margin: '12px 0 0' }}>
+              Any member can text <code>#join</code> to join or rejoin a group, and{' '}
+              <code>#exit</code> to leave. After leaving twice, only their own{' '}
+              <code>#join</code> brings them back — an admin can't re-invite them.
+            </p>
           </div>
         </>
       )}

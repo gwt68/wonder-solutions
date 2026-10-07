@@ -355,8 +355,15 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
 
   function statusText(m) {
     if (m.join_status === 'joined') return 'Joined';
-    if (m.join_status === 'declined') return 'Left the group';
+    if (m.join_status === 'declined') {
+      return m.exit_count >= 2 ? 'Left twice — can only rejoin themselves' : 'Left the group';
+    }
     return m.invited_at ? 'Invited, no reply yet' : 'Not invited yet';
+  }
+
+  function canInvite(m) {
+    if (m.join_status === 'pending') return true;
+    return m.join_status === 'declined' && (m.exit_count || 0) < 2;
   }
 
   async function toggleField(contact, field) {
@@ -649,14 +656,14 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
                       />
                     </td>
                     <td style={{ textAlign: 'right' }}>
-                      {c.join_status === 'pending' && (
+                      {canInvite(c) && (
                         <button
                           type="button"
                           onClick={() => invite([c.id], c.id)}
                           disabled={busy === c.id}
                           style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12.5, cursor: 'pointer', padding: 0 }}
                         >
-                          {busy === c.id ? '…' : c.invited_at ? 'Resend' : 'Invite'}
+                          {busy === c.id ? '…' : c.join_status === 'declined' ? 'Re-invite' : c.invited_at ? 'Resend' : 'Invite'}
                         </button>
                       )}
                     </td>

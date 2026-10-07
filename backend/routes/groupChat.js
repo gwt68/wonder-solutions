@@ -2,6 +2,9 @@ const pool = require('../db/pool');
 const { createSendBatch } = require('./sends');
 
 const RATE_LIMIT_PER_HOUR = 10;
+// After this many #exits, an admin can no longer re-invite them — only their
+// own #join brings them back.
+const MAX_EXITS = 2;
 
 const NAME_EXPR = `COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name, c.phone_number)`;
 
@@ -74,6 +77,25 @@ async function invitedGroups(userId, contactId) {
         AND cg.join_status = 'pending'
         AND cg.invited_at IS NOT NULL
       ORDER BY cg.invited_at DESC`,
+    [userId, contactId]
+  );
+  return rows;
+}
+
+// Groups this contact can answer #join for: an open invitation, or one they
+// left and may still rejoin.
+async function joinableGroups(userId, contactId) {
+  const { rows } = await pool.query(
+    `SELECT g.id, g.name, cg.join_status
+       FROM groups g
+       JOIN contact_groups cg ON cg.group_id = g.id
+      WHERE g.user_id = $1
+        AND cg.contact_id = $2
+        AND (
+          (cg.join_status = 'pending' AND cg.invited_at IS NOT NULL)
+          OR cg.join_status = 'declined'
+        )
+      ORDER BY cg.invited_at DESC NULLS LAST`,
     [userId, contactId]
   );
   return rows;
@@ -244,21 +266,38 @@ async function fanOut({ user, group, sender, body }) {
 // ---- join / exit -------------------------------------------------------
 
 async function handleJoin({ user, group, sender }) {
+  const { rows: before } = await pool.query(
+    `SELECT join_status FROM contact_groups WHERE group_id = $1 AND contact_id = $2`,
+    [group.id, sender.id]
+  );
+  const returning = before.length && before[0].join_status === 'declined';
+
   await pool.query(
     `UPDATE contact_groups SET join_status = 'joined', joined_at = NOW(), muted = FALSE
       WHERE group_id = $1 AND contact_id = $2`,
     [group.id, sender.id]
   );
   const others = await joinedCount(group.id, sender.id);
-  return `You're in "${group.name}" with ${others} ${others === 1 ? 'other' : 'others'}. `
+  const opener = returning
+    ? `Welcome back to "${group.name}"`
+    : `You're in "${group.name}"`;
+  return `${opener} with ${others} ${others === 1 ? 'other' : 'others'}. `
     + 'Text this number any time to reach the group. Text #exit to leave.';
 }
 
 async function handleExit({ group, sender }) {
-  await pool.query(
-    `UPDATE contact_groups SET join_status = 'declined' WHERE group_id = $1 AND contact_id = $2`,
+  const { rows } = await pool.query(
+    `UPDATE contact_groups
+        SET join_status = 'declined', exit_count = exit_count + 1
+      WHERE group_id = $1 AND contact_id = $2
+      RETURNING exit_count`,
     [group.id, sender.id]
   );
+  const count = rows.length ? rows[0].exit_count : 1;
+  if (count >= MAX_EXITS) {
+    return `You've left "${group.name}" and won't be invited again. `
+      + 'Text #join if you ever want back in.';
+  }
   return `You've left "${group.name}". Nothing further will be sent to you from this group.`;
 }
 
@@ -313,11 +352,23 @@ async function cmdInvite({ user, group, rest }) {
   if (!contact) return `No contact with that number. Use #add ${rest.trim().split(/\s+/)[0]} First Last to add them.`;
 
   const { rows } = await pool.query(
-    `SELECT join_status FROM contact_groups WHERE group_id = $1 AND contact_id = $2`,
+    `SELECT join_status, exit_count FROM contact_groups WHERE group_id = $1 AND contact_id = $2`,
     [group.id, contact.id]
   );
   if (!rows.length) return `${contact.display_name} is not in ${group.name}. Use #add to put them in first.`;
   if (rows[0].join_status === 'joined') return `${contact.display_name} has already joined.`;
+
+  if (rows[0].join_status === 'declined') {
+    if (rows[0].exit_count >= MAX_EXITS) {
+      return `${contact.display_name} has left ${group.name} twice and can't be invited again. `
+        + 'They can rejoin by texting #join themselves.';
+    }
+    await pool.query(
+      `UPDATE contact_groups SET join_status = 'pending', invited_at = NULL
+        WHERE group_id = $1 AND contact_id = $2`,
+      [group.id, contact.id]
+    );
+  }
 
   await sendInvite({ user, group, contactId: contact.id });
   return `Invitation sent to ${contact.display_name}.`;
@@ -410,20 +461,34 @@ async function handleGroupPost({ user, from, body, directGroupId = null }) {
     if (directGroupId) {
       group = await getGroup(user.id, directGroupId);
     } else {
-      const invites = await invitedGroups(user.id, sender.id);
-      if (invites.length === 1) {
-        group = await getGroup(user.id, invites[0].id);
-      } else if (invites.length > 1) {
-        const list = invites.map((g, i) => `${i + 1} ${g.name}`).join('\n');
-        return `Which group?\n${list}\nReply with the number, then #join or #exit.`;
-      } else if (verb === '#exit') {
-        // No pending invite — treat as leaving the group they post to.
-        const groups = await postableGroups(user.id, sender.id);
-        if (groups.length === 1) group = await getGroup(user.id, groups[0].id);
+      if (verb === '#join') {
+        const options = await joinableGroups(user.id, sender.id);
+        if (options.length === 1) {
+          group = await getGroup(user.id, options[0].id);
+        } else if (options.length > 1) {
+          const list = options.map((g, i) => `${i + 1} ${g.name}`).join('\n');
+          return `Which group?\n${list}\nReply with the number, then #join.`;
+        }
+      } else {
+        const invites = await invitedGroups(user.id, sender.id);
+        if (invites.length === 1) {
+          group = await getGroup(user.id, invites[0].id);
+        } else if (invites.length > 1) {
+          const list = invites.map((g, i) => `${i + 1} ${g.name}`).join('\n');
+          return `Which group?\n${list}\nReply with the number, then #exit.`;
+        } else {
+          // No open invite — treat as leaving the group they post to.
+          const groups = await postableGroups(user.id, sender.id);
+          if (groups.length === 1) group = await getGroup(user.id, groups[0].id);
+        }
       }
     }
 
-    if (!group) return "You don't have a group invitation waiting.";
+    if (!group) {
+      return verb === '#join'
+        ? "You don't have a group invitation waiting."
+        : "You're not in a group on this number.";
+    }
     return verb === '#join'
       ? handleJoin({ user, group, sender })
       : handleExit({ group, sender });
@@ -558,6 +623,11 @@ async function sendInvites({ userId, groupId, contactIds }) {
   let sent = 0;
   for (const contactId of contactIds) {
     try {
+      await pool.query(
+        `UPDATE contact_groups SET join_status = 'pending', invited_at = NULL
+          WHERE group_id = $1 AND contact_id = $2 AND join_status = 'declined'`,
+        [group.id, contactId]
+      );
       await sendInvite({ user, group, contactId });
       sent += 1;
     } catch (err) {
