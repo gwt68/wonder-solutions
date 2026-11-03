@@ -162,6 +162,7 @@ export default function Contacts() {
   const [importDataRows, setImportDataRows] = useState([]);
   const [importMapping, setImportMapping] = useState({});
   const [vcfRows, setVcfRows] = useState(null);
+  const [vcfSearch, setVcfSearch] = useState('');
   const [importDefaultMethod, setImportDefaultMethod] = useState('');
   const [importGroupId, setImportGroupId] = useState('');
   const [importing, setImporting] = useState(false);
@@ -331,6 +332,7 @@ export default function Contacts() {
   }
 
   function resetImport() {
+    setVcfSearch('');
     if (importing) return;
     setImportWorkbook(null);
     setImportSheetNames([]);
@@ -878,6 +880,13 @@ export default function Contacts() {
               </div>
             )}
 
+            <input
+              type="text"
+              placeholder="Search these contacts..."
+              value={vcfSearch}
+              onChange={(e) => setVcfSearch(e.target.value)}
+              style={{ width: '100%', marginBottom: 10, padding: '7px 10px', fontSize: 13 }}
+            />
             <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 14 }}>
               <table className="data-table" style={{ fontSize: 12.5 }}>
                 <thead>
@@ -889,7 +898,7 @@ export default function Contacts() {
                   </tr>
                 </thead>
                 <tbody>
-                  {vcfRows.map((r, i) => (
+                  {vcfRows.map((r, i) => [r, i]).filter(([r]) => { const q = vcfSearch.trim().toLowerCase(); if (!q) return true; return (r.first_name + ' ' + r.last_name + ' ' + (r.phone_number || '')).toLowerCase().includes(q); }).map(([r, i]) => (
                     <tr key={i} style={!r.include ? { opacity: 0.45 } : undefined}>
                       <td>
                         <input
