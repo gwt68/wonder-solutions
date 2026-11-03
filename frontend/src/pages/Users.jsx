@@ -239,7 +239,7 @@ function EditUserModal({ user, onClose, onSaved }) {
           </div>
           <div className="field">
             <label>Permissions</label>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, border: '1px solid var(--line)', borderRadius: 7, padding: 10 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 2, border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px' }}>
               {[
                 ['can_send', 'Send broadcasts'],
                 ['can_send_mms', 'Send pictures'],
@@ -253,11 +253,12 @@ function EditUserModal({ user, onClose, onSaved }) {
                 ['can_manage_users', 'Manage users'],
                 ['can_view_costs', 'See costs'],
               ].map(([key, label]) => (
-                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 400, cursor: 'pointer' }}>
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 400, cursor: 'pointer', padding: '5px 0', whiteSpace: 'nowrap' }}>
                   <input
                     type="checkbox"
                     checked={perms[key]}
                     onChange={(e) => setPerms((p) => ({ ...p, [key]: e.target.checked }))}
+                    style={{ width: 15, height: 15, flexShrink: 0, margin: 0 }}
                   />
                   {label}
                 </label>
