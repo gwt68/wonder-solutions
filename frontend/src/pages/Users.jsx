@@ -180,6 +180,19 @@ function EditUserModal({ user, onClose, onSaved }) {
   const [newPassword, setNewPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [perms, setPerms] = useState({
+    can_send: user.can_send !== false,
+    can_send_mms: user.can_send_mms !== false,
+    can_send_voice: user.can_send_voice !== false,
+    can_use_group_chat: user.can_use_group_chat !== false,
+    can_view_all_history: user.can_view_all_history === true,
+    can_view_called_in: user.can_view_called_in !== false,
+    can_retry_failed: user.can_retry_failed !== false,
+    can_call_in: user.can_call_in !== false,
+    can_use_conferences: user.can_use_conferences !== false,
+    can_manage_users: user.can_manage_users === true,
+    can_view_costs: user.can_view_costs !== false,
+  });
 
   async function handleSave(e) {
     e.preventDefault();
@@ -189,6 +202,7 @@ function EditUserModal({ user, onClose, onSaved }) {
       const extra = { name: name || null, phone: phone || null, email: email || null };
       if (newPassword) extra.password = newPassword;
       await api.users.update(user.id, username, extra);
+      await api.users.setPermissions(user.id, perms);
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -222,6 +236,38 @@ function EditUserModal({ user, onClose, onSaved }) {
           <div className="field">
             <label>New password (leave blank to keep current)</label>
             <PasswordInput minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+          </div>
+          <div className="field">
+            <label>Permissions</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, border: '1px solid var(--line)', borderRadius: 7, padding: 10 }}>
+              {[
+                ['can_send', 'Send broadcasts'],
+                ['can_send_mms', 'Send pictures'],
+                ['can_send_voice', 'Send voice messages'],
+                ['can_use_group_chat', 'Use group chat'],
+                ['can_view_all_history', "See everyone's history"],
+                ['can_view_called_in', 'See the call-in log'],
+                ['can_retry_failed', 'Retry failed sends'],
+                ['can_call_in', 'Use the phone menu'],
+                ['can_use_conferences', 'Use conferences'],
+                ['can_manage_users', 'Manage users'],
+                ['can_view_costs', 'See costs'],
+              ].map(([key, label]) => (
+                <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 400, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={perms[key]}
+                    onChange={(e) => setPerms((p) => ({ ...p, [key]: e.target.checked }))}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            {user.is_admin && (
+              <p style={{ fontSize: 12, color: 'var(--ink-faint)', marginTop: 6 }}>
+                This user is an admin, so they can do everything regardless of what is ticked here.
+              </p>
+            )}
           </div>
           <div className="modal-actions">
             <button type="button" className="btn secondary" onClick={onClose}>Cancel</button>

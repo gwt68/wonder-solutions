@@ -179,6 +179,7 @@ export const api = {
     retryOne: (id) => request(`/sends/${id}/retry`, { method: 'POST' }),
   },
   users: {
+    setPermissions: (id, perms) => request(`/users/${id}/permissions`, { method: 'PATCH', body: JSON.stringify(perms) }),
     list: () => request('/users'),
     create: (username, password, extra = {}) => request('/users', { method: 'POST', body: JSON.stringify({ username, password, ...extra }) }),
     update: (id, username, extra = {}) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify({ username, ...extra }) }),
