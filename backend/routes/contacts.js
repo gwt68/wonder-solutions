@@ -144,10 +144,18 @@ router.put('/:id', async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: 'Contact not found' });
 
     if (Array.isArray(group_ids)) {
-      await pool.query('DELETE FROM contact_groups WHERE contact_id = $1', [id]);
+      // Only remove memberships that were actually unticked, and only add new
+      // ones. Wiping the rows would lose join_status, can_post and the rest.
+      await pool.query(
+        'DELETE FROM contact_groups WHERE contact_id = $1 AND NOT (group_id = ANY($2::int[]))',
+        [id, group_ids.length ? group_ids : [0]]
+      );
       if (group_ids.length) {
         const values = group_ids.map((gid) => `(${id}, ${gid})`).join(',');
-        await pool.query(`INSERT INTO contact_groups (contact_id, group_id) VALUES ${values}`);
+        await pool.query(
+          `INSERT INTO contact_groups (contact_id, group_id) VALUES ${values}
+           ON CONFLICT (contact_id, group_id) DO NOTHING`
+        );
       }
     }
 
