@@ -540,6 +540,20 @@ async function handleGroupPost({ user, from, body, directGroupId = null }) {
     await clearPendingPick(user.id, from);
     const group = await getGroup(user.id, picked.id);
     if (!group) return 'That group is no longer available.';
+    const heldText = (pending.data.text || '').trim();
+    if (heldText.startsWith('#')) {
+      const hSpace = heldText.indexOf(' ');
+      const hVerb = (hSpace === -1 ? heldText : heldText.slice(0, hSpace)).toLowerCase();
+      const hRest = hSpace === -1 ? '' : heldText.slice(hSpace + 1);
+      const { rows: hPerm } = await pool.query(
+        'SELECT is_admin FROM contact_groups WHERE group_id = $1 AND contact_id = $2',
+        [group.id, sender.id]
+      );
+      const reply = await handleCommand({
+        user, group, rest: hRest, verb: hVerb, isAdmin: hPerm[0]?.is_admin === true,
+      });
+      if (reply !== null) return reply;
+    }
     if (await overRateLimit(sender.id)) return 'You have sent a lot of messages in the last hour. Try again shortly.';
     return fanOut({ user, group, sender, body: pending.data.text });
   }
