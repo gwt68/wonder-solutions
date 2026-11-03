@@ -401,6 +401,22 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
     }
   }
 
+  async function removeMember(contact) {
+    const who = contactDisplayName(contact) || contact.phone_number;
+    if (!window.confirm(`Remove ${who} from ${group.name}? They stay in your contacts.`)) return;
+    setBusy('rm-' + contact.id); setError(''); setNotice('');
+    try {
+      await api.groups.removeContact(group.id, contact.id);
+      setNotice(`${who} removed.`);
+      await load();
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function invite(contactIds, key) {
     setBusy(key); setError(''); setNotice('');
     try {
@@ -641,7 +657,7 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
                         {c.phone_number}
-                        {c.join_status !== 'joined' && ` · ${statusText(c)}`}
+                        {` · ${statusText(c)}`}
                       </div>
                     </td>
                     <td style={{ textAlign: 'center' }}>
@@ -672,6 +688,14 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
                           {busy === c.id ? '…' : c.join_status === 'declined' ? 'Re-invite' : c.invited_at ? 'Resend' : 'Invite'}
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => removeMember(c)}
+                        disabled={busy === 'rm-' + c.id}
+                        style={{ background: 'none', border: 'none', color: 'var(--danger)', fontSize: 12.5, cursor: 'pointer', padding: 0, marginLeft: 10 }}
+                      >
+                        {busy === 'rm-' + c.id ? '...' : 'Remove'}
+                      </button>
                     </td>
                   </tr>
                 ))}
