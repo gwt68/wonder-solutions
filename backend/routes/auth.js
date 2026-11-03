@@ -82,6 +82,14 @@ router.post('/login', async (req, res) => {
         token: issueToken(userRows[0]),
         isAdmin: userRows[0].is_admin,
         accountType: userRows[0].account_type || 'full',
+        permissions: {
+          can_send: userRows[0].can_send !== false,
+          can_use_group_chat: userRows[0].can_use_group_chat !== false,
+          can_view_called_in: userRows[0].can_view_called_in !== false,
+          can_use_conferences: userRows[0].can_use_conferences !== false,
+          can_manage_users: userRows[0].can_manage_users === true,
+          can_view_costs: userRows[0].can_view_costs !== false,
+        },
       });
       return res.status(401).json({ error: 'Incorrect username or password' });
     }

@@ -445,6 +445,10 @@ async function handleCommand({ user, group, rest, verb, isAdmin }) {
  * existing reply-saving path handle it.
  */
 async function handleGroupPost({ user, from, body, directGroupId = null }) {
+  const { rows: gcPerm } = await pool.query(
+    'SELECT is_admin, can_use_group_chat FROM users WHERE id = $1', [user.id]
+  );
+  if (!gcPerm[0]?.is_admin && gcPerm[0]?.can_use_group_chat !== true) return null;
   const sender = await findContactByPhone(user.id, from);
   if (!sender) return null;
 

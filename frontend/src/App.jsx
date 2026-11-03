@@ -39,6 +39,10 @@ export default function App() {
       ? 'groupchat'
       : 'dashboard'
   );
+  const [perms, setPerms] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('wonder_permissions') || '{}'); }
+    catch { return {}; }
+  });
   const [unreadReplies, setUnreadReplies] = useState(0);
   const [lang, setLangState] = useState(getLang());
 
@@ -88,6 +92,7 @@ export default function App() {
           setIsAdmin(localStorage.getItem('wonder_is_admin') === 'true');
           const type = localStorage.getItem('wonder_account_type') || 'full';
           setAccountType(type);
+          try { setPerms(JSON.parse(localStorage.getItem('wonder_permissions') || '{}')); } catch { setPerms({}); }
           setPage(type === 'groups' ? 'groupchat' : 'dashboard');
         }}
       />
@@ -96,7 +101,12 @@ export default function App() {
 
   const visiblePages = PAGES.filter((p) => {
     if (isGroupsTier) return GROUPS_TIER_PAGES.includes(p.key);
-    return p.key !== 'users' || isAdmin;
+    if (p.key === 'users') return isAdmin || perms.can_manage_users === true;
+    if (!isAdmin) {
+      if (p.key === 'groupchat' && perms.can_use_group_chat === false) return false;
+      if (p.key === 'send' && perms.can_send === false) return false;
+    }
+    return true;
   });
 
   function navLabel(p) {
