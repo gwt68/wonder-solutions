@@ -269,7 +269,13 @@ router.post('/incoming', async (req, res) => {
   const { rows: trustedRows } = await pool.query(
     'SELECT 1 FROM trusted_phones WHERE phone_number = $1 AND user_id = $2', [callerNumber, user.id]
   );
-  const isTrusted = trustedRows.length > 0;
+  let isTrusted = trustedRows.length > 0;
+  if (isTrusted) {
+    const { rows: ciPerm } = await pool.query(
+      'SELECT is_admin, can_call_in FROM users WHERE id = $1', [user.id]
+    );
+    if (!ciPerm[0]?.is_admin && ciPerm[0]?.can_call_in !== true) isTrusted = false;
+  }
 
   const matchedContactId = await getMatchingContactId(user.id, callerNumber);
 
@@ -435,7 +441,17 @@ case 'pin_setup': {
       else if (digits === '3') { await updateSession(callSid, 'contacts_menu'); contactsMenu(twiml); }
       else if (digits === '4') { await updateSession(callSid, 'history_menu'); historyMenu(twiml); }
       else if (digits === '5') { await updateSession(callSid, 'settings_menu'); settingsMenu(twiml); }
-      else if (digits === '8') { await startConferenceCreate(callSid, twiml, userId); }
+      else if (digits === '8') {
+        const { rows: confPerm } = await pool.query(
+          'SELECT is_admin, can_use_conferences FROM users WHERE id = $1', [userId]
+        );
+        if (!confPerm[0]?.is_admin && confPerm[0]?.can_use_conferences !== true) {
+          say(twiml, 'Conferences are not available on this account.');
+          mainMenu(twiml);
+        } else {
+          await startConferenceCreate(callSid, twiml, userId);
+        }
+      }
       else { mainMenu(twiml, true); }
       break;
     }
