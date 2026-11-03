@@ -7,6 +7,12 @@ const { requireAuth, requireAdmin, requirePerm } = require('./auth');
 
 router.use(requireAuth, requirePerm('can_manage_users'));
 
+const PERM_FLAGS = [
+  'can_send', 'can_send_mms', 'can_send_voice', 'can_use_group_chat',
+  'can_view_all_history', 'can_view_called_in', 'can_retry_failed',
+  'can_call_in', 'can_use_conferences', 'can_manage_users', 'can_view_costs',
+];
+
 function twilioClient() {
   return twilio((process.env.TWILIO_ACCOUNT_SID || '').trim(), (process.env.TWILIO_AUTH_TOKEN || '').trim());
 }
@@ -15,7 +21,10 @@ router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(`
       SELECT u.id, u.username, u.name, u.phone, u.email, u.twilio_phone_number, u.is_admin, u.created_at,
-             COALESCE(s.total_cost, 0) AS total_cost
+             COALESCE(s.total_cost, 0) AS total_cost,
+             u.can_send, u.can_send_mms, u.can_send_voice, u.can_use_group_chat,
+             u.can_view_all_history, u.can_view_called_in, u.can_retry_failed,
+             u.can_call_in, u.can_use_conferences, u.can_manage_users, u.can_view_costs
       FROM users u
       LEFT JOIN (
         SELECT user_id, SUM(cost) AS total_cost FROM sends WHERE cost IS NOT NULL GROUP BY user_id
@@ -135,6 +144,31 @@ router.post('/:id/reassign-number', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Failed to reassign number' });
+  }
+});
+
+router.patch('/:id/permissions', async (req, res) => {
+  const updates = [];
+  const params = [];
+  let n = 1;
+  for (const flag of PERM_FLAGS) {
+    if (typeof req.body[flag] === 'boolean') {
+      updates.push(`${flag} = $${n++}`);
+      params.push(req.body[flag]);
+    }
+  }
+  if (!updates.length) return res.status(400).json({ error: 'No permission fields given' });
+  params.push(req.params.id);
+  try {
+    const { rows } = await pool.query(
+      `UPDATE users SET ${updates.join(', ')} WHERE id = $${n} RETURNING id, ${PERM_FLAGS.join(', ')}`,
+      params
+    );
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update permissions' });
   }
 });
 
