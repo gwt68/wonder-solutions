@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import { api, audioUrl, imageUrl, contactDisplayName } from '../api.js';
 import { t } from '../i18n.js';
+import { parseVcf } from '../vcfParser.js';
 
 function METHOD_LABELS_MAP() {
   return { sms: t('method_sms').split(' ')[0], call: t('method_call'), voice_note: t('method_voice_note') };
@@ -160,6 +161,7 @@ export default function Contacts() {
   const [importHeaders, setImportHeaders] = useState([]);
   const [importDataRows, setImportDataRows] = useState([]);
   const [importMapping, setImportMapping] = useState({});
+  const [vcfRows, setVcfRows] = useState(null);
   const [importDefaultMethod, setImportDefaultMethod] = useState('');
   const [importGroupId, setImportGroupId] = useState('');
   const [importing, setImporting] = useState(false);
@@ -336,6 +338,7 @@ export default function Contacts() {
     setImportHeaders([]);
     setImportDataRows([]);
     setImportMapping({});
+    setVcfRows(null);
   }
 
   async function handleFileSelected(e) {
@@ -344,6 +347,18 @@ export default function Contacts() {
     setError('');
     setImportResult(null);
     try {
+      if (/\.vcf$/i.test(file.name)) {
+        const text = await file.text();
+        const rows = parseVcf(text);
+        if (!rows.length) {
+          setError('No contacts found in that file.');
+          return;
+        }
+        setVcfRows(rows);
+        setImportDefaultMethod('');
+        setImportGroupId('');
+        return;
+      }
       const buffer = await file.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: 'array' });
       if (!workbook.SheetNames.length) {
@@ -368,6 +383,40 @@ export default function Contacts() {
     const valid = rows.filter((r) => r.phone_number);
     return { valid, invalidCount: rows.length - valid.length };
   }, [importDataRows, importMapping]);
+
+  async function handleConfirmVcfImport() {
+    const chosen = (vcfRows || []).filter((r) => r.include && r.phone_number);
+    if (!chosen.length) return;
+    setImporting(true);
+    setError('');
+    try {
+      const rowsToImport = chosen.map((r) => ({
+        first_name: r.first_name,
+        last_name: r.last_name,
+        phone_number: r.phone_number,
+        email: r.email,
+        address: r.address,
+        city: r.city,
+        state: r.state,
+        zip: r.zip,
+        country: r.country,
+        notes: '',
+        preferred_method: importDefaultMethod,
+      }));
+      const result = await api.contacts.bulkImport(rowsToImport, importGroupId || null);
+      setImportResult(result);
+      resetImport();
+      await load();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function updateVcfRow(index, patch) {
+    setVcfRows((rows) => rows.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
 
   async function handleConfirmImport() {
     if (!importExtracted.valid.length) return;
@@ -440,7 +489,7 @@ export default function Contacts() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xls,.csv,.vcf"
             style={{ display: 'none' }}
             onChange={handleFileSelected}
           />
@@ -800,6 +849,110 @@ export default function Contacts() {
 
       {logContact && (
         <ContactLogModal contact={logContact} onClose={() => setLogContact(null)} />
+      )}
+
+      {vcfRows && (
+        <div className="modal-overlay" onClick={() => resetImport()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760 }}>
+            <h2>Import from contacts file</h2>
+            <p style={{ fontSize: 13, color: 'var(--ink-soft)', marginBottom: 12 }}>
+              {vcfRows.filter((r) => r.include && r.phone_number).length} of {vcfRows.length} will be imported.
+              Untick anyone you want to skip, pick which number to use, and fix any names before importing.
+            </p>
+
+            <div className="field">
+              <label>{t('import_default_method')}</label>
+              <select value={importDefaultMethod} onChange={(e) => setImportDefaultMethod(e.target.value)}>
+                <option value="">{t('import_no_default')}</option>
+                {ALL_METHODS_T.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+
+            {groups.length > 0 && (
+              <div className="field">
+                <label>{t('import_add_to_group')}</label>
+                <select value={importGroupId} onChange={(e) => setImportGroupId(e.target.value)}>
+                  <option value="">{t('import_no_group')}</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </div>
+            )}
+
+            <div style={{ maxHeight: 360, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 7, marginBottom: 14 }}>
+              <table className="data-table" style={{ fontSize: 12.5 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 30 }}></th>
+                    <th>First name</th>
+                    <th>Last name</th>
+                    <th>Phone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {vcfRows.map((r, i) => (
+                    <tr key={i} style={!r.include ? { opacity: 0.45 } : undefined}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={r.include}
+                          disabled={!r.phones.length}
+                          onChange={() => updateVcfRow(i, { include: !r.include })}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={r.first_name}
+                          onChange={(e) => updateVcfRow(i, { first_name: e.target.value })}
+                          style={{ padding: '4px 6px', fontSize: 12.5 }}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          value={r.last_name}
+                          onChange={(e) => updateVcfRow(i, { last_name: e.target.value })}
+                          style={{ padding: '4px 6px', fontSize: 12.5 }}
+                        />
+                      </td>
+                      <td>
+                        {r.phones.length > 1 ? (
+                          <select
+                            value={r.phone_number}
+                            onChange={(e) => updateVcfRow(i, { phone_number: e.target.value })}
+                            style={{ padding: '4px 6px', fontSize: 12.5, fontFamily: 'var(--font-mono)' }}
+                          >
+                            {r.phones.map((p, pi) => (
+                              <option key={pi} value={p.value}>{p.label}: {p.value}</option>
+                            ))}
+                          </select>
+                        ) : r.phones.length === 1 ? (
+                          <input
+                            value={r.phone_number}
+                            onChange={(e) => updateVcfRow(i, { phone_number: e.target.value })}
+                            style={{ padding: '4px 6px', fontSize: 12.5, fontFamily: 'var(--font-mono)' }}
+                          />
+                        ) : (
+                          <span style={{ color: 'var(--ink-faint)' }}>No number</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="modal-actions">
+              <button type="button" className="btn secondary" onClick={() => resetImport()} disabled={importing}>{t('btn_cancel')}</button>
+              <button
+                type="button"
+                className="btn"
+                onClick={handleConfirmVcfImport}
+                disabled={importing || !vcfRows.some((r) => r.include && r.phone_number)}
+              >
+                {importing ? t('contacts_importing') : `Import ${vcfRows.filter((r) => r.include && r.phone_number).length}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {importWorkbook && (

@@ -175,6 +175,8 @@ export const api = {
     listForContact: (contactId) => request(`/sends?contact_id=${contactId}`),
     remove: (id) => request(`/sends/${id}`, { method: 'DELETE' }),
     cancelBatch: (batchId) => request(`/sends/batch/${batchId}/cancel`, { method: 'PUT' }),
+    retryBatch: (batchId) => request(`/sends/batch/${batchId}/retry`, { method: 'POST' }),
+    retryOne: (id) => request(`/sends/${id}/retry`, { method: 'POST' }),
   },
   users: {
     list: () => request('/users'),

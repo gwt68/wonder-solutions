@@ -201,6 +201,87 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// Resends every failed delivery in a batch as a NEW batch, so the original
+// record of what failed stays intact. Failed rows may point at different
+// messages (group-title clones), so they're grouped by message_id and share
+// one new batch id.
+router.post('/batch/:batchId/retry', async (req, res) => {
+  const scope = req.isAdmin ? null : req.userId;
+  try {
+    const { rows: failed } = await pool.query(
+      `SELECT contact_id, message_id, method FROM sends
+        WHERE batch_id = $1 AND status = 'failed' AND ($2::int IS NULL OR user_id = $2)`,
+      [req.params.batchId, scope]
+    );
+    if (!failed.length) return res.status(400).json({ error: 'Nothing failed in that broadcast' });
+
+    const byMessage = {};
+    failed.forEach((f) => {
+      if (!byMessage[f.message_id]) byMessage[f.message_id] = [];
+      byMessage[f.message_id].push(f);
+    });
+
+    let sharedBatchId = null;
+    let total = 0;
+    for (const [messageId, list] of Object.entries(byMessage)) {
+      const recipients = list.map((f) => (f.method ? { contact_id: f.contact_id, methods: [f.method] } : { contact_id: f.contact_id }));
+      const result = await createSendBatch({
+        message_id: parseInt(messageId, 10),
+        recipients,
+        userId: req.userId,
+        batch_id: sharedBatchId,
+      });
+      sharedBatchId = sharedBatchId || result.batch_id;
+      total += result.count;
+    }
+    res.json({ retried: total, batch_id: sharedBatchId });
+  } catch (err) {
+    console.error('batch retry error:', err);
+    res.status(500).json({ error: err.message || 'Failed to retry' });
+  }
+});
+
+// Retries one failed delivery in place — no new History row for a single contact.
+router.post('/:id/retry', async (req, res) => {
+  const scope = req.isAdmin ? null : req.userId;
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.*, c.* , s.id AS send_id, s.method AS send_method, s.message_id AS msg_id
+         FROM sends s JOIN contacts c ON c.id = s.contact_id
+        WHERE s.id = $1 AND ($2::int IS NULL OR s.user_id = $2)`,
+      [req.params.id, scope]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Send not found' });
+    const row = rows[0];
+
+    const { rows: userRows } = await pool.query('SELECT twilio_phone_number FROM users WHERE id = $1', [req.userId]);
+    const fromNumber = userRows[0]?.twilio_phone_number;
+
+    const { rows: msgRows } = await pool.query('SELECT * FROM messages WHERE id = $1', [row.msg_id]);
+    if (!msgRows.length) return res.status(404).json({ error: 'Message not found' });
+    const message = msgRows[0];
+    const { rows: mediaCheck } = await pool.query(
+      'SELECT (audio_data IS NOT NULL) AS has_audio, (image_data IS NOT NULL) AS has_image FROM messages WHERE id = $1',
+      [row.msg_id]
+    );
+    message.has_uploaded_audio = mediaCheck[0]?.has_audio || false;
+    message.has_image = mediaCheck[0]?.has_image || false;
+
+    const contact = { id: row.contact_id, phone_number: row.phone_number, preferred_method: row.preferred_method };
+    const method = row.send_method || row.preferred_method;
+    const result = await sendToContact(contact, message, method, fromNumber);
+
+    await pool.query(
+      `UPDATE sends SET status = $1, twilio_sid = $2, error_message = $3, sent_at = NOW() WHERE id = $4`,
+      [result.status, result.twilio_sid || null, result.error_message || null, row.send_id]
+    );
+    res.json({ status: result.status, error_message: result.error_message || null });
+  } catch (err) {
+    console.error('send retry error:', err);
+    res.status(500).json({ error: err.message || 'Failed to retry' });
+  }
+});
+
 router.put('/batch/:batchId/cancel', async (req, res) => {
   const scope = req.isAdmin ? null : req.userId;
   try {

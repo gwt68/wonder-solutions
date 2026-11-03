@@ -392,6 +392,27 @@ function exportSingleBroadcast(b) {
     setExportOpen(false);
   }
 
+  async function handleRetryBatch(batchId) {
+    if (!window.confirm('Resend to everyone who failed in this broadcast?')) return;
+    try {
+      const r = await api.sends.retryBatch(batchId);
+      alert(`Resending to ${r.retried} contact${r.retried === 1 ? '' : 's'}.`);
+      load();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
+  async function handleRetryOne(id) {
+    try {
+      const r = await api.sends.retryOne(id);
+      if (r.status !== 'sent') alert(r.error_message || 'Still failing.');
+      load();
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+
   const colCount = shownCols.length + 1; // + chevron column
 
   // When the search matched people rather than the message, the expanded list
@@ -718,6 +739,16 @@ const viewToggle = (
                             </div>
                           )}
 
+                          {b.recipients.some((s) => s.status === 'failed') && (
+                            <button
+                              type="button"
+                              className="btn secondary"
+                              style={{ marginBottom: 12, padding: '6px 12px', fontSize: 13 }}
+                              onClick={() => handleRetryBatch(b.batchId)}
+                            >
+                              <i className="ti ti-refresh" /> Resend the failed ones
+                            </button>
+                          )}
                           {b.overallStatus === 'scheduled' && (
                             <button
                               type="button"
@@ -798,6 +829,12 @@ const viewToggle = (
                                               </span>
                                             </td>
                                             <td style={{ textAlign: 'right' }}>
+                                              {s.status === 'failed' && (
+                                                <button className="icon-btn" onClick={() => handleRetryOne(s.id)} aria-label="Retry" title="Retry">
+                                                  <i className="ti ti-refresh" />
+                                                </button>
+                                              )}
+
                                               <button className="icon-btn danger" onClick={() => handleDeleteRecipient(s.id)} aria-label={t('aria_delete_record')}>
                                                 <i className="ti ti-trash" />
                                               </button>
