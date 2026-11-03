@@ -16,6 +16,10 @@ function outcomeLabel(r) {
 }
 
 export default function CalledIn({ userFilter = 'me', isAdmin = false }) {
+  const canViewCosts = isAdmin || (() => {
+    try { return JSON.parse(localStorage.getItem('wonder_permissions') || '{}').can_view_costs === true; }
+    catch { return false; }
+  })();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -84,7 +88,7 @@ export default function CalledIn({ userFilter = 'me', isAdmin = false }) {
         </div>
         <div style={{ color: 'var(--ink-soft)', fontSize: 13.5 }}>
           {totals.count} {totals.count === 1 ? 'call' : 'calls'} · {fmtDuration(totals.seconds)} ·{' '}
-          <strong style={{ color: 'var(--ink)' }}>${totals.cost.toFixed(4)}</strong>
+          {canViewCosts && <strong style={{ color: 'var(--ink)' }}>${totals.cost.toFixed(4)}</strong>}
         </div>
       </div>
 
@@ -110,7 +114,7 @@ export default function CalledIn({ userFilter = 'me', isAdmin = false }) {
                   <th>Caller</th>
                   <th>Listened to</th>
                   <th>Duration</th>
-                  <th>Cost</th>
+                  {canViewCosts && <th>Cost</th>}
                 </tr>
               </thead>
               <tbody>
@@ -125,9 +129,9 @@ export default function CalledIn({ userFilter = 'me', isAdmin = false }) {
                     </td>
                     <td>{outcomeLabel(r)}</td>
                     <td>{fmtDuration(r.duration_seconds)}</td>
-                    <td style={{ fontFamily: 'var(--font-mono)' }}>
+                    {canViewCosts && <td style={{ fontFamily: 'var(--font-mono)' }}>
                       {r.cost != null ? `$${Number(r.cost).toFixed(4)}` : '—'}
-                    </td>
+                    </td>}
                   </tr>
                 ))}
               </tbody>

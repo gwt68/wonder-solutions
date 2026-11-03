@@ -114,11 +114,15 @@ function costSummary(b) {
 }
 
 export default function History({ onNavigateToConversation, isAdmin = false }) {
+  const canViewCosts = isAdmin || (() => {
+    try { return JSON.parse(localStorage.getItem('wonder_permissions') || '{}').can_view_costs === true; }
+    catch { return false; }
+  })();
   const [view, setView] = useState('outgoing');
   const DELIVERY_LABELS = getDeliveryLabels();
   const ANSWERED_BY_LABELS = getAnsweredByLabels();
   const METHOD_LABELS = getMethodLabels();
-  const ALL_COLUMNS = getAllColumns().filter((c) => !c.adminOnly || isAdmin);
+  const ALL_COLUMNS = getAllColumns().filter((c) => !c.adminOnly || canViewCosts);
   const DEFAULT_VISIBLE = ALL_COLUMNS.filter((c) => c.default).map((c) => c.key);
 
   const [sends, setSends] = useState([]);
@@ -340,7 +344,7 @@ function exportSingleBroadcast(b) {
         Reply: r.reply_text || '',
         Error: r.error_message || '',
       };
-      if (isAdmin) {
+      if (canViewCosts) {
         const n = r.cost === null || r.cost === undefined || r.cost === '' ? '' : Math.abs(parseFloat(r.cost));
         row.Cost = Number.isNaN(n) ? '' : n;
       }
@@ -377,7 +381,7 @@ function exportSingleBroadcast(b) {
           Reply: r.reply_text || '',
           Error: r.error_message || '',
         };
-        if (isAdmin) {
+        if (canViewCosts) {
           const n = r.cost === null || r.cost === undefined || r.cost === '' ? '' : Math.abs(parseFloat(r.cost));
           row.Cost = Number.isNaN(n) ? '' : n;
         }
@@ -589,7 +593,7 @@ const viewToggle = (
             )}
           </div>
 
-          {isAdmin && grandTotal > 0 && (
+          {canViewCosts && grandTotal > 0 && (
             <span style={{ fontSize: 12.5, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
               {visibleBroadcasts.length} broadcast{visibleBroadcasts.length !== 1 ? 's' : ''} ·{' '}
               <strong style={{ color: 'var(--ink)' }}>${grandTotal.toFixed(4)}</strong> total
@@ -731,7 +735,7 @@ const viewToggle = (
                                 <img src={imageUrl(b.messageId)} alt={b.messageTitle || t('type_image')} style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 8, marginBottom: 12, display: 'block' }} />
                               )}
 
-                              {isAdmin && (cs.total > 0 || cs.pending > 0) && (
+                              {canViewCosts && (cs.total > 0 || cs.pending > 0) && (
                             <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 10 }}>
                               <strong style={{ color: 'var(--ink)' }}>${cs.total.toFixed(4)}</strong> across {cs.charged} recipient{cs.charged !== 1 ? 's' : ''}
                               {cs.charged > 0 && ` · avg $${(cs.total / cs.charged).toFixed(4)} each`}
@@ -772,7 +776,7 @@ const viewToggle = (
                                         { key: 'delivery', label: 'Delivery' },
                                         { key: 'duration', label: 'Duration' },
                                         { key: 'answered', label: 'Answered by' },
-                                        ...(isAdmin ? [{ key: 'cost', label: 'Cost' }] : []),
+                                        ...(canViewCosts ? [{ key: 'cost', label: 'Cost' }] : []),
                                         { key: 'status', label: 'Status' },
                                       ].map((col) => (
                                         <th
@@ -796,7 +800,7 @@ const viewToggle = (
                                     {sortRecipients(matchingRecipients(b), recipSortField, recipSortDir).map((s) => {
                                       const duration = formatDuration(s.call_duration);
                                       const isReplyOpen = expandedReplyId === s.id;
-                                      const recipCols = isAdmin ? 9 : 8;
+                                      const recipCols = canViewCosts ? 9 : 8;
                                       return (
                                         <React.Fragment key={s.id}>
                                           <tr>
@@ -818,7 +822,7 @@ const viewToggle = (
                                             <td style={{ whiteSpace: 'nowrap' }}>{s.delivery_status ? (DELIVERY_LABELS[s.delivery_status] || s.delivery_status) : ''}</td>
                                             <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{duration || ''}</td>
                                             <td style={{ whiteSpace: 'nowrap' }}>{s.answered_by ? (ANSWERED_BY_LABELS[s.answered_by] || s.answered_by) : ''}</td>
-                                            {isAdmin && (
+                                            {canViewCosts && (
                                               <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>
                                                 {s.cost ? `$${Math.abs(parseFloat(s.cost)).toFixed(4)}` : '—'}
                                               </td>

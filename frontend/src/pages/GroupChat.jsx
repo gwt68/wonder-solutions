@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { api, contactDisplayName } from '../api.js';
 
 export default function GroupChat() {
+  const canViewCosts = localStorage.getItem('wonder_is_admin') === 'true' || (() => {
+    try { return JSON.parse(localStorage.getItem('wonder_permissions') || '{}').can_view_costs === true; }
+    catch { return false; }
+  })();
   const [chats, setChats] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [posts, setPosts] = useState([]);
@@ -152,10 +156,12 @@ export default function GroupChat() {
                   <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Messages sent</div>
                   <div style={{ fontSize: 22, fontWeight: 500 }}>{usage.totals.messages}</div>
                 </div>
+                {canViewCosts && (
                 <div>
                   <div style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Cost</div>
                   <div style={{ fontSize: 22, fontWeight: 500 }}>${usage.totals.cost.toFixed(2)}</div>
                 </div>
+                )}
               </div>
 
               <table className="data-table">
@@ -163,7 +169,7 @@ export default function GroupChat() {
                   <tr>
                     <th>Period</th>
                     <th style={{ textAlign: 'right' }}>Messages</th>
-                    <th style={{ textAlign: 'right' }}>Cost</th>
+                    {canViewCosts && <th style={{ textAlign: 'right' }}>Cost</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -171,7 +177,7 @@ export default function GroupChat() {
                     <tr key={b.bucket}>
                       <td>{bucketLabel(b.bucket)}</td>
                       <td style={{ textAlign: 'right' }}>{b.messages}</td>
-                      <td style={{ textAlign: 'right' }}>${b.cost.toFixed(3)}</td>
+                      {canViewCosts && <td style={{ textAlign: 'right' }}>${b.cost.toFixed(3)}</td>}
                     </tr>
                   ))}
                 </tbody>
