@@ -18,7 +18,7 @@ function issueToken(user) {
   return token;
 }
 
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   const session = token && validTokens.get(token);
@@ -30,12 +30,37 @@ function requireAuth(req, res, next) {
     req.userId = session.userId;
   req.isAdmin = session.isAdmin;
   req.accountType = session.accountType || 'full';
+  try {
+    const { rows } = await pool.query('SELECT can_view_all_history FROM users WHERE id = $1', [req.userId]);
+    req.canViewAllHistory = rows[0]?.can_view_all_history === true;
+  } catch (err) {
+    req.canViewAllHistory = false;
+  }
   next();
 }
 
 function requireAdmin(req, res, next) {
   if (!req.isAdmin) return res.status(403).json({ error: 'Admin access required' });
   next();
+}
+
+function requirePerm(flag) {
+  return async function (req, res, next) {
+    if (req.isAdmin) return next();
+    try {
+      const { rows } = await pool.query(
+        `SELECT ${flag} AS allowed FROM users WHERE id = $1`,
+        [req.userId]
+      );
+      if (!rows.length || rows[0].allowed !== true) {
+        return res.status(403).json({ error: 'You do not have permission to do that' });
+      }
+      next();
+    } catch (err) {
+      console.error('requirePerm error:', err);
+      res.status(500).json({ error: 'Permission check failed' });
+    }
+  };
 }
 
 function requireFullAccount(req, res, next) {
@@ -112,4 +137,4 @@ router.post('/recover', async (req, res) => {
   }
 });
 
-module.exports = { router, requireAuth, requireAdmin, requireFullAccount };
+module.exports = { router, requireAuth, requireAdmin, requireFullAccount, requirePerm };

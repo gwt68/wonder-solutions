@@ -3,9 +3,9 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const twilio = require('twilio');
 const pool = require('../db/pool');
-const { requireAuth, requireAdmin } = require('./auth');
+const { requireAuth, requireAdmin, requirePerm } = require('./auth');
 
-router.use(requireAuth, requireAdmin);
+router.use(requireAuth, requirePerm('can_manage_users'));
 
 function twilioClient() {
   return twilio((process.env.TWILIO_ACCOUNT_SID || '').trim(), (process.env.TWILIO_AUTH_TOKEN || '').trim());

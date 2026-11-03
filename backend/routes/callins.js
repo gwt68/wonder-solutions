@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
-const { requireAuth } = require('./auth');
+const { requireAuth, requirePerm } = require('./auth');
 
 router.use(requireAuth);
 
 // GET /api/call-ins?userId=all|<id>
-router.get('/', async (req, res) => {
+router.get('/', requirePerm('can_view_called_in'), async (req, res) => {
   try {
     const isAdmin = !!req.isAdmin;
     const requested = req.query.userId;

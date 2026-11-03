@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const twilio = require('twilio');
 const pool = require('../db/pool');
-const { requireAuth, requireFullAccount } = require('./auth');
+const { requireAuth, requireFullAccount, requirePerm } = require('./auth');
 
 router.use(requireAuth);
 
@@ -93,6 +93,17 @@ async function createSendBatch({ message_id, recipients, scheduled_at, userId, i
   message.has_uploaded_audio = mediaCheck[0]?.has_audio || false;
   message.has_image = mediaCheck[0]?.has_image || false;
 
+  const { rows: permRows } = await pool.query(
+    'SELECT is_admin, can_send_mms, can_send_voice FROM users WHERE id = $1', [userId]
+  );
+  const perms = permRows[0] || {};
+  if (!perms.is_admin) {
+    const isVoice = message.type === 'voice' || message.has_uploaded_audio || !!message.audio_url;
+    const isMms = message.has_image;
+    if (isVoice && perms.can_send_voice !== true) throw new Error('You do not have permission to send voice messages');
+    if (isMms && perms.can_send_mms !== true) throw new Error('You do not have permission to send picture messages');
+  }
+
   const contactIds = [...new Set(recipients.map((r) => r.contact_id))];
   const { rows: contactRows } = await pool.query(
     'SELECT * FROM contacts WHERE id = ANY($1::int[]) AND user_id = $2', [contactIds, userId]
@@ -140,7 +151,7 @@ async function createSendBatch({ message_id, recipients, scheduled_at, userId, i
   return { count: created.length, scheduled: isScheduled, batch_id: batchId, sends: created };
 }
 
-router.post('/', requireFullAccount, async (req, res) => {
+router.post('/', requireFullAccount, requirePerm('can_send'), async (req, res) => {
   const { message_id, recipients, scheduled_at } = req.body;
   if (!message_id || !Array.isArray(recipients) || !recipients.length) {
     return res.status(400).json({ error: 'message_id and a non-empty recipients array are required' });
@@ -157,8 +168,9 @@ router.post('/', requireFullAccount, async (req, res) => {
 router.get('/', async (req, res) => {
   const { contact_id, user_id } = req.query;
   let scope;
-  if (req.isAdmin && user_id === 'all') scope = null;
-  else if (req.isAdmin && user_id) scope = parseInt(user_id, 10);
+  const seeAll = req.isAdmin || req.canViewAllHistory === true;
+  if (seeAll && user_id === 'all') scope = null;
+  else if (seeAll && user_id) scope = parseInt(user_id, 10);
   else scope = req.userId;
   try {
     const baseQuery = `
@@ -205,7 +217,7 @@ router.delete('/:id', async (req, res) => {
 // record of what failed stays intact. Failed rows may point at different
 // messages (group-title clones), so they're grouped by message_id and share
 // one new batch id.
-router.post('/batch/:batchId/retry', async (req, res) => {
+router.post('/batch/:batchId/retry', requirePerm('can_retry_failed'), async (req, res) => {
   const scope = req.isAdmin ? null : req.userId;
   try {
     const { rows: failed } = await pool.query(
@@ -242,7 +254,7 @@ router.post('/batch/:batchId/retry', async (req, res) => {
 });
 
 // Retries one failed delivery in place — no new History row for a single contact.
-router.post('/:id/retry', async (req, res) => {
+router.post('/:id/retry', requirePerm('can_retry_failed'), async (req, res) => {
   const scope = req.isAdmin ? null : req.userId;
   try {
     const { rows } = await pool.query(
