@@ -433,7 +433,12 @@ function exportSingleBroadcast(b) {
   }
 
 
-const viewToggle = (
+const canViewCalledIn = isAdmin || (() => {
+    try { return JSON.parse(localStorage.getItem('wonder_permissions') || '{}').can_view_called_in !== false; }
+    catch { return true; }
+  })();
+
+  const viewToggle = !canViewCalledIn ? null : (
     <div className="chip-select" style={{ marginBottom: 12 }}>
       {[
         { value: 'outgoing', label: 'Outgoing' },
