@@ -180,6 +180,23 @@ function EditUserModal({ user, onClose, onSaved }) {
   const [newPassword, setNewPassword] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [pin, setPin] = useState(user.call_in_pin || '');
+  const [pinShown, setPinShown] = useState(false);
+  const [clearingPin, setClearingPin] = useState(false);
+
+  async function handleClearPin() {
+    if (!window.confirm('Clear this PIN? They will be asked to set a new one next time they call in.')) return;
+    setClearingPin(true);
+    try {
+      await api.users.clearPin(user.id);
+      setPin('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setClearingPin(false);
+    }
+  }
+
   const [perms, setPerms] = useState({
     can_send: user.can_send !== false,
     can_send_mms: user.can_send_mms !== false,
@@ -238,6 +255,24 @@ function EditUserModal({ user, onClose, onSaved }) {
             <PasswordInput minLength={4} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
           </div>
           <div className="field">
+            <label>Call-in PIN</label>
+            {pin ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15 }}>
+                  {pinShown ? pin : '\u2022'.repeat(pin.length)}
+                </span>
+                <button type="button" className="btn secondary" style={{ padding: '4px 10px', fontSize: 12.5 }} onClick={() => setPinShown((s) => !s)}>
+                  {pinShown ? 'Hide' : 'Show'}
+                </button>
+                <button type="button" className="btn secondary" style={{ padding: '4px 10px', fontSize: 12.5, color: 'var(--danger)' }} onClick={handleClearPin} disabled={clearingPin}>
+                  {clearingPin ? 'Clearing...' : 'Clear'}
+                </button>
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: 'var(--ink-faint)', marginTop: 0, marginBottom: 14 }}>
+                Not set yet. They will choose one the first time they call in.
+              </p>
+            )}
             <label>Permissions</label>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 2, border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px' }}>
               {[

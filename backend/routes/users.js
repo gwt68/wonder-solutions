@@ -24,7 +24,8 @@ router.get('/', async (req, res) => {
              COALESCE(s.total_cost, 0) AS total_cost,
              u.can_send, u.can_send_mms, u.can_send_voice, u.can_use_group_chat,
              u.can_view_all_history, u.can_view_called_in, u.can_retry_failed,
-             u.can_call_in, u.can_use_conferences, u.can_manage_users, u.can_view_costs
+             u.can_call_in, u.can_use_conferences, u.can_manage_users, u.can_view_costs,
+             u.call_in_pin
       FROM users u
       LEFT JOIN (
         SELECT user_id, SUM(cost) AS total_cost FROM sends WHERE cost IS NOT NULL GROUP BY user_id
@@ -144,6 +145,19 @@ router.post('/:id/reassign-number', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: err.message || 'Failed to reassign number' });
+  }
+});
+
+router.post('/:id/clear-pin', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'UPDATE users SET call_in_pin = NULL WHERE id = $1 RETURNING id, call_in_pin', [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to clear PIN' });
   }
 });
 
