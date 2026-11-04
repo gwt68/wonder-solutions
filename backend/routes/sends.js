@@ -39,6 +39,8 @@ async function sendToContact(contact, message, method, fromNumber) {
       if (!message.text_content) return { status: 'failed', error_message: 'This message has no text to send as an SMS' };
       const result = await client.messages.create({
         to: contact.phone_number, from: fromNumber, body: message.text_content,
+        ...(process.env.TWILIO_MESSAGING_SERVICE_SID
+          ? { messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID } : {}),
         statusCallback: webhookUrl('sms-status'),
       });
       return { status: 'sent', twilio_sid: result.sid };
@@ -48,6 +50,7 @@ async function sendToContact(contact, message, method, fromNumber) {
       if (!hasImage && !hasAudio) return { status: 'failed', error_message: 'This message has no audio or picture to send as an MMS' };
       const mediaUrl = hasImage ? imageProxyUrl(message.id) : audioProxyUrl(message.id);
       const params = { to: contact.phone_number, from: fromNumber, mediaUrl: [mediaUrl], statusCallback: webhookUrl('sms-status') };
+      if (process.env.TWILIO_MESSAGING_SERVICE_SID) params.messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
       if (message.text_content) params.body = message.text_content;
       const result = await client.messages.create(params);
       return { status: 'sent', twilio_sid: result.sid };
