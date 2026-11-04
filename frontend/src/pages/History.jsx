@@ -748,7 +748,7 @@ const canViewCalledIn = isAdmin || (() => {
                             </div>
                           )}
 
-                          {b.recipients.some((s) => s.status === 'failed') && (
+                          {b.recipients.some((s) => s.status === 'failed' || ['failed','undelivered'].includes(s.delivery_status)) && (
                             <button
                               type="button"
                               className="btn secondary"
@@ -838,7 +838,7 @@ const canViewCalledIn = isAdmin || (() => {
                                               </span>
                                             </td>
                                             <td style={{ textAlign: 'right' }}>
-                                              {s.status === 'failed' && (
+                                              {(s.status === 'failed' || ['failed','undelivered'].includes(s.delivery_status)) && (
                                                 <button className="icon-btn" onClick={() => handleRetryOne(s.id)} aria-label="Retry" title="Retry">
                                                   <i className="ti ti-refresh" />
                                                 </button>

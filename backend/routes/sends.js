@@ -225,7 +225,7 @@ router.post('/batch/:batchId/retry', requirePerm('can_retry_failed'), async (req
   try {
     const { rows: failed } = await pool.query(
       `SELECT contact_id, message_id, method FROM sends
-        WHERE batch_id = $1 AND status = 'failed' AND ($2::int IS NULL OR user_id = $2)`,
+        WHERE batch_id = $1 AND (status = 'failed' OR delivery_status IN ('failed','undelivered')) AND ($2::int IS NULL OR user_id = $2)`,
       [req.params.batchId, scope]
     );
     if (!failed.length) return res.status(400).json({ error: 'Nothing failed in that broadcast' });
