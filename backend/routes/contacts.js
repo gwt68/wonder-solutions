@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
+const { normalizePhone } = require('../lib/phone');
 const { requireAuth } = require('./auth');
 
 router.use(requireAuth);
@@ -34,6 +35,8 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   const { first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes, group_ids } = req.body;
   if (!phone_number) return res.status(400).json({ error: 'phone_number is required' });
+  const cleanPhone = normalizePhone(phone_number);
+  if (!cleanPhone) return res.status(400).json({ error: `"${phone_number}" is not a valid phone number` });
 
   const enabledMethods = Array.isArray(methods) && methods.length ? methods : [preferred_method || 'sms'];
   const defaultMethod = enabledMethods.includes(preferred_method) ? preferred_method : enabledMethods[0];
@@ -43,7 +46,7 @@ router.post('/', async (req, res) => {
       `INSERT INTO contacts (first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes, user_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
       [
-        first_name || null, last_name || null, phone_number, email || null, address || null,
+        first_name || null, last_name || null, cleanPhone, email || null, address || null,
         city || null, state || null, zip || null, country || null,
         defaultMethod, enabledMethods, notes || null, req.userId,
       ]
@@ -74,7 +77,7 @@ router.post('/bulk', async (req, res) => {
   const results = { created: 0, skipped: 0, errors: [] };
 
   for (const c of contacts) {
-    const phone = (c.phone_number || '').toString().trim();
+    const phone = normalizePhone(c.phone_number);
     if (!phone) {
       results.skipped++;
       results.errors.push({ row: c, reason: 'Missing phone number' });
@@ -122,6 +125,11 @@ router.put('/:id', async (req, res) => {
   const { id } = req.params;
   const { first_name, last_name, phone_number, email, address, city, state, zip, country, preferred_method, methods, notes, group_ids } = req.body;
 
+  const cleanPhone = phone_number ? normalizePhone(phone_number) : null;
+  if (phone_number && !cleanPhone) {
+    return res.status(400).json({ error: `"${phone_number}" is not a valid phone number` });
+  }
+
   let defaultMethod = preferred_method;
   let enabledMethods = Array.isArray(methods) && methods.length ? methods : null;
   if (enabledMethods && defaultMethod && !enabledMethods.includes(defaultMethod)) {
@@ -136,7 +144,7 @@ router.put('/:id', async (req, res) => {
          preferred_method = COALESCE($10, preferred_method), methods = COALESCE($11, methods), notes = $12
        WHERE id = $13 AND ($14::int IS NULL OR user_id = $14) RETURNING *`,
       [
-        first_name || null, last_name || null, phone_number, email || null, address || null,
+        first_name || null, last_name || null, cleanPhone, email || null, address || null,
         city || null, state || null, zip || null, country || null,
         defaultMethod, enabledMethods, notes || null, id, scopeParam(req),
       ]
