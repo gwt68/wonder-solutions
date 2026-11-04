@@ -117,6 +117,8 @@ export const api = {
     removeContact: (id, contactId) => request(`/groups/${id}/contacts/${contactId}`, { method: 'DELETE' }),
     updateMember: (id, contactId, data) => request(`/groups/${id}/contacts/${contactId}`, { method: 'PUT', body: JSON.stringify(data) }),
     chatEnabled: () => request('/groups/chat/enabled'),
+    buyNumber: (id, area_code) => request(`/groups/${id}/number`, { method: 'POST', body: JSON.stringify({ area_code }) }),
+    releaseNumber: (id) => request(`/groups/${id}/number`, { method: 'DELETE' }),
     posts: (id) => request(`/groups/${id}/posts`),
     usage: (period) => request(`/groups/chat/usage?period=${period}`),
     invite: (id, contact_ids) => request(`/groups/${id}/invite`, { method: 'POST', body: JSON.stringify({ contact_ids }) }),

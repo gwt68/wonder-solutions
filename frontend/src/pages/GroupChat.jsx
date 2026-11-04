@@ -401,6 +401,37 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
     }
   }
 
+  async function buyNumber() {
+    const area = window.prompt('What area code? (3 digits, e.g. 845)');
+    if (!area) return;
+    if (!/^[0-9]{3}$/.test(area.trim())) { setError('Area code must be 3 digits.'); return; }
+    if (!window.confirm(`Get a dedicated number for ${group.name}? This costs about $1.15 a month from Twilio.`)) return;
+    setBusy('number'); setError(''); setNotice('');
+    try {
+      const r = await api.groups.buyNumber(group.id, area.trim());
+      setNotice(`${group.name} now has its own number: ${r.phone_number}`);
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function releaseNumber() {
+    if (!window.confirm(`Give up ${group.name}'s own number? Members will go back to being asked which group they mean.`)) return;
+    setBusy('number'); setError(''); setNotice('');
+    try {
+      await api.groups.releaseNumber(group.id);
+      setNotice('Number released.');
+      onChanged();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function removeMember(contact) {
     const who = contactDisplayName(contact) || contact.phone_number;
     if (!window.confirm(`Remove ${who} from ${group.name}? They stay in your contacts.`)) return;
@@ -504,6 +535,31 @@ function ChatSettingsModal({ group, onClose, onChanged }) {
         <h2>{group.name}</h2>
         {error && <div className="banner error">{error}</div>}
         {notice && <div className="banner ok">{notice}</div>}
+
+        <div style={{ border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 16 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 2 }}>This group&apos;s number</div>
+          {group.own_number ? (
+            <>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 8 }}>
+                Members text <strong style={{ fontFamily: 'var(--font-mono)' }}>{group.own_number}</strong> and it goes straight here - nobody gets asked which group they mean.
+              </div>
+              <button type="button" className="btn secondary" style={{ padding: '5px 12px', fontSize: 12.5, color: 'var(--danger)' }}
+                onClick={releaseNumber} disabled={busy === 'number'}>
+                {busy === 'number' ? 'Working...' : 'Give up this number'}
+              </button>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-soft)', marginBottom: 8 }}>
+                Shared with your other groups, so anyone in more than one gets asked which group each message is for. Its own number skips that. About $1.15 a month.
+              </div>
+              <button type="button" className="btn secondary" style={{ padding: '5px 12px', fontSize: 12.5 }}
+                onClick={buyNumber} disabled={busy === 'number'}>
+                {busy === 'number' ? 'Getting a number...' : 'Get a number for this group'}
+              </button>
+            </>
+          )}
+        </div>
 
         <div style={{ border: '1px solid var(--line)', borderRadius: 7, padding: '10px 12px', marginBottom: 16 }}>
           <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 2 }}>How messages appear</div>

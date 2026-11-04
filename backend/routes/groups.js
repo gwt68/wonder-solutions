@@ -1,9 +1,87 @@
 const express = require('express');
 const router = express.Router();
+const twilio = require('twilio');
 const pool = require('../db/pool');
 const { requireAuth } = require('./auth');
 
 router.use(requireAuth);
+
+function twilioClient() {
+  return twilio((process.env.TWILIO_ACCOUNT_SID || '').trim(), (process.env.TWILIO_AUTH_TOKEN || '').trim());
+}
+
+// Buy a number that belongs to one group. Texts to it skip the "which group?"
+// prompt and go straight there.
+router.post('/:id/number', async (req, res) => {
+  const { area_code } = req.body;
+  if (!area_code) return res.status(400).json({ error: 'area_code is required' });
+  try {
+    const { rows: g } = await pool.query(
+      'SELECT id, name FROM groups WHERE id = $1 AND user_id = $2', [req.params.id, req.userId]
+    );
+    if (!g.length) return res.status(404).json({ error: 'Group not found' });
+
+    const { rows: existing } = await pool.query(
+      'SELECT phone_number FROM group_numbers WHERE group_id = $1', [req.params.id]
+    );
+    if (existing.length) return res.status(409).json({ error: `This group already has ${existing[0].phone_number}` });
+
+    const client = twilioClient();
+    const available = await client.availablePhoneNumbers('US').local.list({ areaCode: area_code, limit: 1 });
+    if (!available.length) return res.status(400).json({ error: 'No numbers available for that area code' });
+
+    const purchased = await client.incomingPhoneNumbers.create({
+      phoneNumber: available[0].phoneNumber,
+      smsUrl: `${process.env.BASE_URL}/voice/sms-incoming`,
+      voiceUrl: `${process.env.BASE_URL}/voice/incoming`,
+      statusCallback: `${process.env.BASE_URL}/voice/incoming-status`,
+      statusCallbackMethod: 'POST',
+    });
+
+    if (process.env.TWILIO_MESSAGING_SERVICE_SID) {
+      try {
+        await client.messaging.v1
+          .services(process.env.TWILIO_MESSAGING_SERVICE_SID)
+          .phoneNumbers.create({ phoneNumberSid: purchased.sid });
+      } catch (msgErr) {
+        console.error('Could not add group number to Messaging Service:', msgErr.message);
+      }
+    }
+
+    const { rows } = await pool.query(
+      `INSERT INTO group_numbers (group_id, user_id, phone_number, phone_sid)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [req.params.id, req.userId, purchased.phoneNumber, purchased.sid]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Failed to get a number for this group' });
+  }
+});
+
+router.delete('/:id/number', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT phone_sid FROM group_numbers WHERE group_id = $1 AND user_id = $2',
+      [req.params.id, req.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'This group does not have its own number' });
+
+    try {
+      await twilioClient().incomingPhoneNumbers(rows[0].phone_sid).remove();
+    } catch (twErr) {
+      console.error('Could not release number at Twilio:', twErr.message);
+    }
+
+    await pool.query('DELETE FROM group_numbers WHERE group_id = $1 AND user_id = $2',
+      [req.params.id, req.userId]);
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to release the number' });
+  }
+});
 
 function scopeParam(req) {
   return req.userId;
@@ -37,10 +115,12 @@ router.get('/chat/enabled', async (req, res) => {
               (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.can_post))::int AS poster_count,
               (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.join_status = 'joined'))::int AS joined_count,
               (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.join_status = 'pending'))::int AS pending_count,
-              MAX(gpl.created_at) AS last_post_at
+              MAX(gpl.created_at) AS last_post_at,
+              MAX(gn.phone_number) AS own_number
          FROM groups g
          LEFT JOIN contact_groups cg ON cg.group_id = g.id
          LEFT JOIN group_post_log gpl ON gpl.group_id = g.id
+         LEFT JOIN group_numbers gn ON gn.group_id = g.id
         WHERE g.user_id = $1 AND g.member_posting = 'approved'
         GROUP BY g.id
         ORDER BY MAX(gpl.created_at) DESC NULLS LAST, g.name`,
