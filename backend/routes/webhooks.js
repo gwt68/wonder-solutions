@@ -15,12 +15,14 @@ const CALL_TERMINAL_STATUSES = ['completed', 'busy', 'no-answer', 'canceled', 'f
 // Twilio posts here as an SMS/MMS moves through queued -> sent -> delivered/undelivered/failed.
 // Not behind requireAuth — Twilio can't send our login token.
 router.post('/sms-status', async (req, res) => {
-  const { MessageSid, MessageStatus } = req.body;
+  const { MessageSid, MessageStatus, ErrorCode, ErrorMessage } = req.body;
   try {
     if (MessageSid) {
       await pool.query(
-        `UPDATE sends SET delivery_status = $1 WHERE twilio_sid = $2`,
-        [MessageStatus, MessageSid]
+        `UPDATE sends SET delivery_status = $1,
+                error_message = COALESCE($2, error_message)
+          WHERE twilio_sid = $3`,
+        [MessageStatus, ErrorCode ? `${ErrorCode}: ${ErrorMessage || 'see Twilio error code'}` : null, MessageSid]
       );
 
       if (SMS_TERMINAL_STATUSES.includes(MessageStatus)) {
