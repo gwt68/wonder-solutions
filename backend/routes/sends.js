@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const twilio = require('twilio');
 const pool = require('../db/pool');
+const { toGsmSafe } = require('../lib/smstext');
 const { requireAuth, requireFullAccount, requirePerm } = require('./auth');
 
 router.use(requireAuth);
@@ -38,7 +39,7 @@ async function sendToContact(contact, message, method, fromNumber) {
     if (method === 'sms') {
       if (!message.text_content) return { status: 'failed', error_message: 'This message has no text to send as an SMS' };
       const result = await client.messages.create({
-        to: contact.phone_number, from: fromNumber, body: message.text_content,
+        to: contact.phone_number, from: fromNumber, body: toGsmSafe(message.text_content),
         ...(process.env.TWILIO_MESSAGING_SERVICE_SID
           ? { messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID } : {}),
         statusCallback: webhookUrl('sms-status'),
@@ -51,7 +52,7 @@ async function sendToContact(contact, message, method, fromNumber) {
       const mediaUrl = hasImage ? imageProxyUrl(message.id) : audioProxyUrl(message.id);
       const params = { to: contact.phone_number, from: fromNumber, mediaUrl: [mediaUrl], statusCallback: webhookUrl('sms-status') };
       if (process.env.TWILIO_MESSAGING_SERVICE_SID) params.messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID;
-      if (message.text_content) params.body = message.text_content;
+      if (message.text_content) params.body = toGsmSafe(message.text_content);
       const result = await client.messages.create(params);
       return { status: 'sent', twilio_sid: result.sid };
     }
