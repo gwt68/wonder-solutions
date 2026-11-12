@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 import PasswordInput from '../components/PasswordInput.jsx';
 import { t } from '../i18n.js';
@@ -507,35 +507,83 @@ function TimezoneInline() {
   );
 }
 
-// The three conference settings, each as its own row.
+// Everything to do with conference calls, one setting per row.
 function ConferenceRows() {
   const [code, setCode] = useState('');
   const [startMode, setStartMode] = useState('admin');
-  const [record, setRecord] = useState(true);
   const [recordMode, setRecordMode] = useState('always');
+  const [announceNames, setAnnounceNames] = useState(false);
+  const [whitelistGroupId, setWhitelistGroupId] = useState('');
+  const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [editingCode, setEditingCode] = useState(false);
   const [draftCode, setDraftCode] = useState('');
 
+  // hold music
+  const [musicName, setMusicName] = useState(null);
+  const [musicBusy, setMusicBusy] = useState(false);
+  const [musicError, setMusicError] = useState('');
+  const fileRef = useRef(null);
+
   useEffect(() => {
     api.settings.getConference()
-      .then((r) => { setCode(r.code || ''); setStartMode(r.start_mode); setRecord(r.record); setRecordMode(r.record_mode || 'always'); })
+      .then((r) => {
+        setCode(r.code || '');
+        setStartMode(r.start_mode);
+        setRecordMode(r.record_mode || 'always');
+        setAnnounceNames(r.announce_names === true);
+        setWhitelistGroupId(r.whitelist_group_id == null ? '' : String(r.whitelist_group_id));
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+    api.groups.list().then(setGroups).catch(() => {});
+    api.settings.getHoldMusic().then((r) => setMusicName(r.name)).catch(() => {});
   }, []);
 
   async function save(patch) {
     setSaving(true); setError('');
     try {
       const r = await api.settings.setConference(patch);
-      setCode(r.code || ''); setStartMode(r.start_mode); setRecord(r.record); setRecordMode(r.record_mode || 'always');
+      setCode(r.code || '');
+      setStartMode(r.start_mode);
+      setRecordMode(r.record_mode || 'always');
+      setAnnounceNames(r.announce_names === true);
+      setWhitelistGroupId(r.whitelist_group_id == null ? '' : String(r.whitelist_group_id));
       setEditingCode(false);
     } catch (err) {
       setError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleMusicFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setMusicBusy(true); setMusicError('');
+    try {
+      const r = await api.settings.uploadHoldMusic(file);
+      setMusicName(r.name);
+    } catch (err) {
+      setMusicError(err.message);
+    } finally {
+      setMusicBusy(false);
+    }
+  }
+
+  async function removeMusic() {
+    if (!window.confirm('Remove your hold music and go back to the default?')) return;
+    setMusicBusy(true); setMusicError('');
+    try {
+      await api.settings.deleteHoldMusic();
+      setMusicName(null);
+    } catch (err) {
+      setMusicError(err.message);
+    } finally {
+      setMusicBusy(false);
     }
   }
 
@@ -599,6 +647,68 @@ function ConferenceRows() {
             As soon as anyone joins
           </button>
         </div>
+      </Row>
+
+      <Row
+        title="Who can join"
+        description="Limit the call to one group, or leave it open to anyone with the code."
+      >
+        <select
+          value={whitelistGroupId}
+          disabled={saving}
+          onChange={(e) => save({ whitelist_group_id: e.target.value === '' ? null : Number(e.target.value) })}
+          style={{ minWidth: 170 }}
+        >
+          <option value="">Anyone with the code</option>
+          {groups.map((g) => (
+            <option key={g.id} value={g.id}>{g.name}</option>
+          ))}
+        </select>
+      </Row>
+
+      <Row
+        title="Announce who joins"
+        description="Callers say their name on the way in, and it plays to the room."
+      >
+        <div className="chip-select" style={{ marginBottom: 0 }}>
+          <button
+            type="button"
+            className={`chip-toggle ${announceNames ? 'active' : ''}`}
+            onClick={() => save({ announce_names: true })}
+            disabled={saving}
+          >
+            On
+          </button>
+          <button
+            type="button"
+            className={`chip-toggle ${!announceNames ? 'active' : ''}`}
+            onClick={() => save({ announce_names: false })}
+            disabled={saving}
+          >
+            Off
+          </button>
+        </div>
+      </Row>
+
+      <Row
+        title="Hold music"
+        description={musicError || 'Played while callers wait for the conference to open. MP3 or WAV, up to 8 MB.'}
+      >
+        <input ref={fileRef} type="file" accept="audio/mpeg,audio/wav" style={{ display: 'none' }} onChange={handleMusicFile} />
+        {musicName && (
+          <span style={{ fontSize: 12.5, color: 'var(--ink-soft)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {musicName}
+          </span>
+        )}
+        <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 12.5 }}
+          onClick={() => fileRef.current?.click()} disabled={musicBusy}>
+          {musicBusy ? 'Working…' : musicName ? 'Replace' : 'Upload'}
+        </button>
+        {musicName && (
+          <button type="button" className="icon-btn danger" onClick={removeMusic} disabled={musicBusy} aria-label="Remove hold music">
+            <i className="ti ti-trash" />
+          </button>
+        )}
       </Row>
 
       <Row

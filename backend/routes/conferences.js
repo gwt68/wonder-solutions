@@ -16,7 +16,7 @@ function twilioClient() {
 // The conference that is open right now for this account, if any.
 async function activeConference(userId) {
   const { rows } = await pool.query(
-    `SELECT id, twilio_conference_sid FROM conferences
+    `SELECT id, twilio_conference_sid, recording_on, whitelist_group_id FROM conferences
       WHERE user_id = $1 AND status = 'active' AND twilio_conference_sid IS NOT NULL
       ORDER BY id DESC LIMIT 1`,
     [userId]
@@ -47,6 +47,7 @@ router.get('/live', async (req, res) => {
       active: true,
       conference_id: conf.id,
       recording_on: conf.recording_on !== false,
+      whitelist_group_id: conf.whitelist_group_id ?? null,
       participants: list.map((p) => ({
         call_sid: p.callSid,
         muted: p.muted,
@@ -195,6 +196,24 @@ router.get('/:id/recording', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load the recording' });
+  }
+});
+
+// Changes who may join the conference that is running now.
+router.post('/whitelist', async (req, res) => {
+  const { group_id } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id FROM conferences WHERE user_id = $1 AND status <> 'ended' ORDER BY id DESC LIMIT 1`,
+      [req.userId]
+    );
+    if (!rows.length) return res.status(400).json({ error: 'No conference is open' });
+    await pool.query('UPDATE conferences SET whitelist_group_id = $1 WHERE id = $2',
+      [group_id ?? null, rows[0].id]);
+    res.json({ group_id: group_id ?? null });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Could not change who may join' });
   }
 });
 

@@ -368,10 +368,35 @@ router.post('/handle', async (req, res) => {
       );
       if (confRows.length) {
         const conf = await getOrCreateConference(userId);
+
+        // Only let people in if they are in the allowed group, when one is set.
+        if (conf.whitelistGroupId) {
+          const { rows: allowed } = await pool.query(
+            `SELECT 1 FROM contacts c JOIN contact_groups cg ON cg.contact_id = c.id
+              WHERE c.user_id = $1 AND cg.group_id = $2
+                AND right(regexp_replace(c.phone_number, '\\D', '', 'g'), 10)
+                  = right(regexp_replace($3, '\\D', '', 'g'), 10)`,
+            [userId, conf.whitelistGroupId, req.body.From]
+          );
+          if (!allowed.length) {
+            say(twiml, 'This conference is not open to this number. Goodbye.');
+            twiml.hangup();
+            break;
+          }
+        }
+
         await pool.query(
           `UPDATE call_ins SET interrupted_with = 'conference_code', reached = 'conference', conference_id = $2 WHERE call_sid = $1`,
           [callSid, conf.conferenceId]
         );
+
+        if (conf.announceNames) {
+          await updateSession(callSid, 'conference_name_record', { pending_conference_id: conf.conferenceId });
+          say(twiml, 'Say your name after the beep, then press pound.');
+          twiml.record({ action: `${BASE_URL}/voice/handle`, method: 'POST', finishOnKey: '#', maxLength: 6, playBeep: true, trim: 'trim-silence' });
+          break;
+        }
+
         joinConference(twiml, conf.conferenceId, { isHost: false, startMode: conf.startMode, record: conf.record });
         break;
       }
@@ -424,6 +449,23 @@ case 'pin_setup': {
       } else {
         pinEntryPrompt(twiml, true);
       }
+      break;
+    }
+
+    case 'conference_name_record': {
+      const cid = session.data.pending_conference_id;
+      const conf = await getOrCreateConference(userId);
+      if (recordingUrl) {
+        // Play the name into the room, if the conference is already going.
+        pool.query('SELECT twilio_conference_sid FROM conferences WHERE id = $1', [cid])
+          .then(({ rows }) => {
+            if (!rows[0]?.twilio_conference_sid) return;
+            return confTwilioClient().conferences(rows[0].twilio_conference_sid)
+              .update({ announceUrl: recordingUrl, announceMethod: 'GET' });
+          })
+          .catch((e) => console.error('could not announce name:', e.message));
+      }
+      joinConference(twiml, cid, { isHost: false, startMode: conf.startMode, record: conf.record });
       break;
     }
 
@@ -2046,7 +2088,8 @@ function joinConference(twiml, conferenceId, opts = {}) {
       // The host stays in the room when he presses star for the control menu,
       // so the room is closed from the call-status webhook instead.
       endConferenceOnExit: false,
-      waitUrl: 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient',
+      waitUrl: `${BASE_URL}/voice/hold-music/${conferenceId}`,
+      waitMethod: 'GET',
       beep: 'onEnter',
       record: record ? 'record-from-start' : 'do-not-record',
       recordingStatusCallback: `${BASE_URL}/voice/conference-recording`,
@@ -2089,14 +2132,14 @@ async function generateConferenceCode() {
 // permanent code from Settings rather than minting a new one each time.
 async function getOrCreateConference(userId) {
   const { rows: u } = await pool.query(
-    'SELECT conference_code, conference_start_mode, conference_record, conference_record_mode FROM users WHERE id = $1',
+    'SELECT conference_code, conference_start_mode, conference_record, conference_record_mode, conference_announce_names, conference_whitelist_group_id FROM users WHERE id = $1',
     [userId]
   );
   const code = u[0]?.conference_code;
   if (!code) throw new Error('No conference code set for this account');
 
   const { rows: open } = await pool.query(
-    `SELECT id, recording_on FROM conferences WHERE user_id = $1 AND access_code = $2 AND status <> 'ended'
+    `SELECT id, recording_on, whitelist_group_id FROM conferences WHERE user_id = $1 AND access_code = $2 AND status <> 'ended'
       ORDER BY id DESC LIMIT 1`,
     [userId, code]
   );
@@ -2104,8 +2147,8 @@ async function getOrCreateConference(userId) {
   const recordingOn = open[0]?.recording_on;
   if (!conferenceId) {
     const { rows: made } = await pool.query(
-      `INSERT INTO conferences (user_id, access_code, status) VALUES ($1, $2, 'scheduled') RETURNING id`,
-      [userId, code]
+      `INSERT INTO conferences (user_id, access_code, status, whitelist_group_id) VALUES ($1, $2, 'scheduled', $3) RETURNING id`,
+      [userId, code, u[0]?.conference_whitelist_group_id || null]
     );
     conferenceId = made[0].id;
   }
@@ -2115,6 +2158,8 @@ async function getOrCreateConference(userId) {
     startMode: u[0]?.conference_start_mode || 'admin',
     record: recordingOn === null || recordingOn === undefined ? (u[0]?.conference_record_mode || 'always') === 'always' : recordingOn,
     recordMode: u[0]?.conference_record_mode || 'always',
+    announceNames: u[0]?.conference_announce_names === true,
+    whitelistGroupId: open[0]?.whitelist_group_id ?? u[0]?.conference_whitelist_group_id ?? null,
   };
 }
 
@@ -2162,6 +2207,44 @@ async function startConferenceCreateOld(callSid, twiml, userId) {
     `Press 1 to join the conference now, or press 2 to return to the main menu.`,
     { numDigits: 1 });
 }
+
+// ---------- hold music (Twilio fetches these, so no auth) ----------
+
+// What callers hear while they wait for the conference to open.
+router.get('/hold-music/:conferenceId', async (req, res) => {
+  const twiml = new VoiceResponse();
+  try {
+    const { rows } = await pool.query(
+      `SELECT u.id, (u.hold_music_data IS NOT NULL) AS has_music
+         FROM conferences c JOIN users u ON u.id = c.user_id WHERE c.id = $1`,
+      [req.params.conferenceId]
+    );
+    if (rows[0]?.has_music) {
+      twiml.play({ loop: 0 }, `${BASE_URL}/voice/hold-music-file/${rows[0].id}`);
+    } else {
+      twiml.redirect('http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient');
+    }
+  } catch (err) {
+    console.error('hold-music error:', err);
+    twiml.redirect('http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient');
+  }
+  res.type('text/xml').send(twiml.toString());
+});
+
+router.get('/hold-music-file/:userId', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT hold_music_data, hold_music_mime FROM users WHERE id = $1',
+      [req.params.userId]
+    );
+    if (!rows[0]?.hold_music_data) return res.status(404).end();
+    res.set('Content-Type', rows[0].hold_music_mime || 'audio/mpeg');
+    res.send(rows[0].hold_music_data);
+  } catch (err) {
+    console.error('hold-music-file error:', err);
+    res.status(500).end();
+  }
+});
 
 // ---------- host keypad controls (reached by pressing star) ----------
 

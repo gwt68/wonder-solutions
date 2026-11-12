@@ -191,6 +191,7 @@ export const api = {
   conferences: {
     live: () => request('/conferences/live'),
     setRecording: (on) => request('/conferences/recording', { method: 'POST', body: JSON.stringify({ on }) }),
+    setWhitelist: (group_id) => request('/conferences/whitelist', { method: 'POST', body: JSON.stringify({ group_id }) }),
     history: () => request('/conferences/history'),
     deleteRecording: (id) => request(`/conferences/${id}/recording`, { method: 'DELETE' }),
     remove: (id) => request(`/conferences/${id}`, { method: 'DELETE' }),
@@ -238,6 +239,9 @@ export const api = {
     setPortalUsername: (username) => request('/settings/portal-username', { method: 'PUT', body: JSON.stringify({ username }) }),
     setRecoveryKey: (recovery_key) => request('/settings/recovery-key', { method: 'PUT', body: JSON.stringify({ recovery_key }) }),
     getTwilioNumber: () => request('/settings/twilio-number'),
+    getHoldMusic: () => request('/settings/hold-music'),
+    uploadHoldMusic: (file) => { const fd = new FormData(); fd.append('audio', file); return upload('/settings/hold-music', fd); },
+    deleteHoldMusic: () => request('/settings/hold-music', { method: 'DELETE' }),
     getOwnerPhone: () => request('/settings/owner-phone'),
     setOwnerPhone: (phone) => request('/settings/owner-phone', { method: 'PUT', body: JSON.stringify({ phone }) }),
   },

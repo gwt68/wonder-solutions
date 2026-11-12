@@ -2,9 +2,56 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const router = express.Router();
 const pool = require('../db/pool');
+const multer = require('multer');
 const { requireAuth } = require('./auth');
+const holdUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 8 * 1024 * 1024 } });
 
 router.use(requireAuth);
+
+// What hold music is on file, if any.
+router.get('/hold-music', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT hold_music_name, (hold_music_data IS NOT NULL) AS has_music FROM users WHERE id = $1',
+      [req.userId]
+    );
+    res.json({ name: rows[0]?.hold_music_name || null, has_music: rows[0]?.has_music || false });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to read hold music' });
+  }
+});
+
+router.post('/hold-music', holdUpload.single('audio'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No audio file was uploaded' });
+  const ok = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/wave'];
+  if (!ok.includes(req.file.mimetype)) {
+    return res.status(400).json({ error: 'Hold music has to be an MP3 or WAV file' });
+  }
+  try {
+    await pool.query(
+      'UPDATE users SET hold_music_data = $1, hold_music_mime = $2, hold_music_name = $3 WHERE id = $4',
+      [req.file.buffer, req.file.mimetype, req.file.originalname, req.userId]
+    );
+    res.json({ name: req.file.originalname, has_music: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to save the hold music' });
+  }
+});
+
+router.delete('/hold-music', async (req, res) => {
+  try {
+    await pool.query(
+      'UPDATE users SET hold_music_data = NULL, hold_music_mime = NULL, hold_music_name = NULL WHERE id = $1',
+      [req.userId]
+    );
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to remove the hold music' });
+  }
+});
 
 // GET my own call-in PIN
 router.get('/pin', async (req, res) => {
@@ -127,7 +174,7 @@ router.put('/group-prefix-mode', async (req, res) => {
 router.get('/conference', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT conference_code, conference_start_mode, conference_record, conference_record_mode FROM users WHERE id = $1',
+      'SELECT conference_code, conference_start_mode, conference_record, conference_record_mode, conference_announce_names, conference_whitelist_group_id FROM users WHERE id = $1',
       [req.userId]
     );
     res.json({
@@ -135,6 +182,8 @@ router.get('/conference', async (req, res) => {
       start_mode: rows[0]?.conference_start_mode || 'admin',
       record: rows[0]?.conference_record !== false,
       record_mode: rows[0]?.conference_record_mode || 'always',
+      announce_names: rows[0]?.conference_announce_names === true,
+      whitelist_group_id: rows[0]?.conference_whitelist_group_id ?? null,
     });
   } catch (err) {
     console.error(err);
@@ -144,7 +193,7 @@ router.get('/conference', async (req, res) => {
 
 // PUT update my conference settings
 router.put('/conference', async (req, res) => {
-  const { code, start_mode, record, record_mode } = req.body;
+  const { code, start_mode, record, record_mode, announce_names, whitelist_group_id } = req.body;
   if (code !== undefined && !/^[0-9]{4,8}$/.test(String(code))) {
     return res.status(400).json({ error: 'The code must be 4 to 8 digits' });
   }
@@ -166,17 +215,23 @@ router.put('/conference', async (req, res) => {
          conference_code = COALESCE($1, conference_code),
          conference_start_mode = COALESCE($2, conference_start_mode),
          conference_record = COALESCE($3, conference_record),
-         conference_record_mode = COALESCE($5, conference_record_mode)
+         conference_record_mode = COALESCE($5, conference_record_mode),
+         conference_announce_names = COALESCE($6, conference_announce_names),
+         conference_whitelist_group_id = CASE WHEN $7::text = 'keep' THEN conference_whitelist_group_id ELSE $7::int END
        WHERE id = $4
-       RETURNING conference_code, conference_start_mode, conference_record, conference_record_mode`,
+       RETURNING conference_code, conference_start_mode, conference_record, conference_record_mode, conference_announce_names, conference_whitelist_group_id`,
       [code !== undefined ? String(code) : null, start_mode ?? null,
-       typeof record === 'boolean' ? record : null, req.userId, record_mode ?? null]
+       typeof record === 'boolean' ? record : null, req.userId, record_mode ?? null,
+       typeof announce_names === 'boolean' ? announce_names : null,
+       whitelist_group_id === undefined ? 'keep' : (whitelist_group_id === null ? null : String(whitelist_group_id))]
     );
     res.json({
       code: rows[0].conference_code,
       start_mode: rows[0].conference_start_mode,
       record: rows[0].conference_record,
       record_mode: rows[0].conference_record_mode,
+      announce_names: rows[0].conference_announce_names,
+      whitelist_group_id: rows[0].conference_whitelist_group_id,
     });
   } catch (err) {
     console.error(err);
