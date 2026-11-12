@@ -3,6 +3,7 @@ import Dashboard from './pages/Dashboard.jsx';
 import Contacts from './pages/Contacts.jsx';
 import Groups from './pages/Groups.jsx';
 import GroupChat from './pages/GroupChat.jsx';
+import Conference from './pages/Conference.jsx';
 import Messages from './pages/Messages.jsx';
 import Replies from './pages/Replies.jsx';
 import Send from './pages/Send.jsx';
@@ -22,6 +23,7 @@ const PAGES = [
   { key: 'replies', label: 'Conversations' },
   { key: 'send', label: 'Send' },
   { key: 'history', label: 'History' },
+  { key: 'conference', label: 'Conference' },
   { key: 'users', label: 'Users' },
   { key: 'settings', label: 'Settings' },
 ];
@@ -111,6 +113,7 @@ export default function App() {
 
   function navLabel(p) {
     if (p.key === 'groupchat') return 'Group Chat';
+    if (p.key === 'conference') return 'Conference';
     return t(`nav_${p.key === 'replies' ? 'conversations' : p.key}`);
   }
 
@@ -158,6 +161,7 @@ export default function App() {
         {page === 'contacts' && <Contacts />}
         {page === 'groups' && <Groups />}
         {page === 'groupchat' && <GroupChat />}
+        {page === 'conference' && <Conference />}
         {page === 'messages' && <Messages />}
         {page === 'replies' && <Replies onRead={() => setUnreadReplies(0)} openContactId={openConversationContactId} onOpened={() => setOpenConversationContactId(null)} />}
         {page === 'send' && <Send />}
