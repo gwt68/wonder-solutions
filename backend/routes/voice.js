@@ -428,20 +428,11 @@ case 'pin_setup': {
     }
 
     case 'conference_created_join': {
-      if (digits === '1') {
-        await pool.query('UPDATE conferences SET host_call_sid = $1 WHERE id = $2',
-          [callSid, session.data.pending_conference_id]);
-        await pool.query('UPDATE call_ins SET conference_id = $1 WHERE call_sid = $2',
-          [session.data.pending_conference_id, callSid]);
-        joinConference(twiml, session.data.pending_conference_id, {
-          isHost: true,
-          startMode: session.data.pending_conference_start_mode || 'admin',
-          record: session.data.pending_conference_record !== false,
-        });
-      } else {
-        await updateSession(callSid, 'main_menu');
-        mainMenu(twiml);
-      }
+      const record = digits === '1';
+      await startHostLeg(callSid, twiml, {
+        conferenceId: session.data.pending_conference_id,
+        startMode: session.data.pending_conference_start_mode || 'admin',
+      }, record);
       break;
     }
 
@@ -2098,7 +2089,7 @@ async function generateConferenceCode() {
 // permanent code from Settings rather than minting a new one each time.
 async function getOrCreateConference(userId) {
   const { rows: u } = await pool.query(
-    'SELECT conference_code, conference_start_mode, conference_record FROM users WHERE id = $1',
+    'SELECT conference_code, conference_start_mode, conference_record, conference_record_mode FROM users WHERE id = $1',
     [userId]
   );
   const code = u[0]?.conference_code;
@@ -2122,6 +2113,7 @@ async function getOrCreateConference(userId) {
     code,
     startMode: u[0]?.conference_start_mode || 'admin',
     record: u[0]?.conference_record !== false,
+    recordMode: u[0]?.conference_record_mode || 'always',
   };
 }
 
@@ -2132,11 +2124,26 @@ async function startConferenceCreate(callSid, twiml, userId) {
     pending_conference_start_mode: conf.startMode,
     pending_conference_record: conf.record,
   });
-  const spaced = conf.code.split('').join(' ');
-  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
-    `Your conference code is ${spaced}. Callers can dial this number and enter that code. ` +
-    `Press 1 to start the conference now, or press 2 to go back to the main menu.`,
-    { numDigits: 1 });
+  if (conf.recordMode === 'ask') {
+    gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+      'Press 1 to record this conference, or press 2 to start without recording.',
+      { numDigits: 1 });
+    return;
+  }
+  await startHostLeg(callSid, twiml, conf, conf.recordMode === 'always');
+}
+
+// Marks this call as the host leg and puts him into the room.
+async function startHostLeg(callSid, twiml, conf, record) {
+  await pool.query('UPDATE conferences SET host_call_sid = $1, recording_on = $2 WHERE id = $3',
+    [callSid, record, conf.conferenceId]);
+  await pool.query('UPDATE call_ins SET conference_id = $1 WHERE call_sid = $2',
+    [conf.conferenceId, callSid]);
+  joinConference(twiml, conf.conferenceId, {
+    isHost: true,
+    startMode: conf.startMode,
+    record,
+  });
 }
 
 async function startConferenceCreateOld(callSid, twiml, userId) {
