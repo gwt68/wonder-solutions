@@ -127,13 +127,14 @@ router.put('/group-prefix-mode', async (req, res) => {
 router.get('/conference', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT conference_code, conference_start_mode, conference_record FROM users WHERE id = $1',
+      'SELECT conference_code, conference_start_mode, conference_record, conference_record_mode FROM users WHERE id = $1',
       [req.userId]
     );
     res.json({
       code: rows[0]?.conference_code || '',
       start_mode: rows[0]?.conference_start_mode || 'admin',
       record: rows[0]?.conference_record !== false,
+      record_mode: rows[0]?.conference_record_mode || 'always',
     });
   } catch (err) {
     console.error(err);
@@ -143,12 +144,15 @@ router.get('/conference', async (req, res) => {
 
 // PUT update my conference settings
 router.put('/conference', async (req, res) => {
-  const { code, start_mode, record } = req.body;
+  const { code, start_mode, record, record_mode } = req.body;
   if (code !== undefined && !/^[0-9]{4,8}$/.test(String(code))) {
     return res.status(400).json({ error: 'The code must be 4 to 8 digits' });
   }
   if (start_mode !== undefined && !['admin', 'two'].includes(start_mode)) {
     return res.status(400).json({ error: 'start_mode must be admin or two' });
+  }
+  if (record_mode !== undefined && !['always', 'never', 'ask'].includes(record_mode)) {
+    return res.status(400).json({ error: 'record_mode must be always, never or ask' });
   }
   try {
     if (code !== undefined) {
@@ -161,16 +165,18 @@ router.put('/conference', async (req, res) => {
       `UPDATE users SET
          conference_code = COALESCE($1, conference_code),
          conference_start_mode = COALESCE($2, conference_start_mode),
-         conference_record = COALESCE($3, conference_record)
+         conference_record = COALESCE($3, conference_record),
+         conference_record_mode = COALESCE($5, conference_record_mode)
        WHERE id = $4
-       RETURNING conference_code, conference_start_mode, conference_record`,
+       RETURNING conference_code, conference_start_mode, conference_record, conference_record_mode`,
       [code !== undefined ? String(code) : null, start_mode ?? null,
-       typeof record === 'boolean' ? record : null, req.userId]
+       typeof record === 'boolean' ? record : null, req.userId, record_mode ?? null]
     );
     res.json({
       code: rows[0].conference_code,
       start_mode: rows[0].conference_start_mode,
       record: rows[0].conference_record,
+      record_mode: rows[0].conference_record_mode,
     });
   } catch (err) {
     console.error(err);
