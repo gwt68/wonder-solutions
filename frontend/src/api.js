@@ -192,6 +192,13 @@ export const api = {
     live: () => request('/conferences/live'),
     history: () => request('/conferences/history'),
     attendees: (id) => request(`/conferences/${id}/attendees`),
+    recordingUrl: async (id) => {
+      const res = await fetch(`${BASE}/api/conferences/${id}/recording`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) return null;
+      return URL.createObjectURL(await res.blob());
+    },
     downloadRecording: async (id) => {
       const res = await fetch(`${BASE}/api/conferences/${id}/recording?download=1`, {
         headers: { Authorization: `Bearer ${getToken()}` },

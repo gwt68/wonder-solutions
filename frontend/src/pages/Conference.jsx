@@ -148,6 +148,8 @@ function PastConferences() {
       .finally(() => setLoading(false));
   }, []);
 
+  const [audioUrls, setAudioUrls] = useState({});
+
   async function toggle(id) {
     if (openId === id) { setOpenId(null); return; }
     setOpenId(id);
@@ -156,6 +158,12 @@ function PastConferences() {
       setAttendees(await api.conferences.attendees(id));
     } catch (e) {
       setError(e.message);
+    }
+    if (!audioUrls[id]) {
+      try {
+        const url = await api.conferences.recordingUrl(id);
+        if (url) setAudioUrls((m) => ({ ...m, [id]: url }));
+      } catch { /* no recording, or it could not be fetched */ }
     }
   }
 
@@ -209,6 +217,9 @@ function PastConferences() {
               {openId === r.id && (
                 <tr>
                   <td colSpan={6} style={{ background: 'var(--bg)' }}>
+                    {audioUrls[r.id] && (
+                      <audio controls src={audioUrls[r.id]} style={{ width: '100%', marginBottom: 10 }} />
+                    )}
                     {!attendees.length ? (
                       <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>Nobody was recorded on this call.</p>
                     ) : (
