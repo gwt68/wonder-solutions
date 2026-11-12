@@ -105,7 +105,20 @@ router.post('/end', async (req, res) => {
   try {
     const conf = await activeConference(req.userId);
     if (!conf) return res.status(400).json({ error: 'No conference is running' });
-    await twilioClient().conferences(conf.twilio_conference_sid).update({ status: 'completed' });
+    const client = twilioClient();
+    // Twilio can't speak into a room it is closing, so each caller is sent to
+    // a short goodbye of their own first.
+    try {
+      const list = await client.conferences(conf.twilio_conference_sid).participants.list({ limit: 50 });
+      await Promise.all(list.map((p) =>
+        client.calls(p.callSid)
+          .update({ twiml: '<Response><Say>The conference has ended. Goodbye.</Say><Hangup/></Response>' })
+          .catch((e) => console.error('goodbye failed for', p.callSid, e.message))
+      ));
+    } catch (e) {
+      console.error('could not play goodbye:', e.message);
+    }
+    await client.conferences(conf.twilio_conference_sid).update({ status: 'completed' }).catch(() => {});
     await pool.query(`UPDATE conferences SET status = 'ended' WHERE id = $1`, [conf.id]);
     res.json({ ok: true });
   } catch (err) {
