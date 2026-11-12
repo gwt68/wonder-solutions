@@ -2182,41 +2182,67 @@ router.post('/conference-menu', async (req, res) => {
     timeout: 8,
   }));
   gather.say('Conference controls. Press 1 to mute everyone. Press 2 to let everyone speak. '
-    + 'Press 3 to go back to the conference. Press 9 to end the conference for everyone.', SAY_OPTS);
+    + 'Press 3 to mute one person. Press 4 to let one person speak. '
+    + 'Press 5 to go back to the conference. Press 9 to end the conference for everyone.', SAY_OPTS);
   twiml.redirect(`${BASE_URL}/voice/conference-menu?cid=${cid}`);
   res.type('text/xml').send(twiml.toString());
 });
+
+// Mutes or unmutes everyone but the host. Returns how many it changed.
+async function setMuteAll(conf, muted) {
+  if (!conf || !conf.twilio_conference_sid) {
+    console.log('keypad mute: no live conference sid for conference', conf && conf.id);
+    return 0;
+  }
+  const client = confTwilioClient();
+  const list = await client.conferences(conf.twilio_conference_sid).participants.list({ limit: 50 });
+  console.log('keypad mute: conference', conf.twilio_conference_sid, 'has', list.length, 'participants; host is', conf.host_call_sid);
+  let changed = 0;
+  for (const p of list) {
+    if (p.callSid === conf.host_call_sid) continue;
+    try {
+      await client.conferences(conf.twilio_conference_sid).participants(p.callSid).update({ muted });
+      changed += 1;
+    } catch (e) {
+      console.error('keypad mute failed for', p.callSid, e.message);
+    }
+  }
+  console.log('keypad mute: changed', changed, 'to muted =', muted);
+  return changed;
+}
 
 router.post('/conference-menu-handle', async (req, res) => {
   const cid = req.query.cid;
   const digits = req.body.Digits;
   const twiml = livelyVoice(new VoiceResponse());
+  console.log('conference-menu-handle: cid', cid, 'digits', digits);
 
   try {
     const { rows } = await pool.query('SELECT * FROM conferences WHERE id = $1', [cid]);
     const conf = rows[0];
-    const client = confTwilioClient();
 
     if (digits === '1' || digits === '2') {
       const muted = digits === '1';
-      if (conf && conf.twilio_conference_sid) {
-        const list = await client.conferences(conf.twilio_conference_sid).participants.list({ limit: 50 });
-        for (const p of list) {
-          if (p.callSid === conf.host_call_sid) continue;
-          try {
-            await client.conferences(conf.twilio_conference_sid).participants(p.callSid).update({ muted });
-          } catch (e) {
-            console.error('keypad mute failed for', p.callSid, e.message);
-          }
-        }
-      }
-      say(twiml, muted ? 'Everyone is now muted.' : 'Everyone can speak again.');
+      const changed = await setMuteAll(conf, muted);
+      say(twiml, changed === 0
+        ? 'There was nobody to change.'
+        : (muted ? 'Everyone is now muted.' : 'Everyone can speak again.'));
       await rejoinAsHost(twiml, cid);
+    } else if (digits === '3' || digits === '4') {
+      const muted = digits === '3' ? '1' : '0';
+      const gather = livelyVoice(twiml.gather({
+        finishOnKey: '#',
+        action: `${BASE_URL}/voice/conference-menu-one?cid=${cid}&muted=${muted}`,
+        method: 'POST',
+        timeout: 10,
+      }));
+      gather.say(`Enter the last ten digits of their phone number, then press pound.`, SAY_OPTS);
+      twiml.redirect(`${BASE_URL}/voice/conference-menu?cid=${cid}`);
     } else if (digits === '9') {
       say(twiml, 'The conference has ended. Goodbye.');
       if (conf && conf.twilio_conference_sid) {
         try {
-          await client.conferences(conf.twilio_conference_sid).update({ status: 'completed' });
+          await confTwilioClient().conferences(conf.twilio_conference_sid).update({ status: 'completed' });
         } catch (e) {
           console.error('could not end conference:', e.message);
         }
@@ -2235,7 +2261,54 @@ router.post('/conference-menu-handle', async (req, res) => {
   res.type('text/xml').send(twiml.toString());
 });
 
-// ---------- conference webhooks (Twilio -> us) ----------
+router.post('/conference-menu-one', async (req, res) => {
+  const cid = req.query.cid;
+  const muted = req.query.muted === '1';
+  const digits = (req.body.Digits || '').replace(/\D/g, '');
+  const twiml = livelyVoice(new VoiceResponse());
+
+  try {
+    const { rows } = await pool.query('SELECT * FROM conferences WHERE id = $1', [cid]);
+    const conf = rows[0];
+    if (!conf || !conf.twilio_conference_sid || digits.length < 10) {
+      say(twiml, 'I could not find that number on the call.');
+      await rejoinAsHost(twiml, cid);
+      return res.type('text/xml').send(twiml.toString());
+    }
+
+    const last10 = digits.slice(-10);
+    const client = confTwilioClient();
+    const list = await client.conferences(conf.twilio_conference_sid).participants.list({ limit: 50 });
+    const callSids = list.map((p) => p.callSid);
+
+    const { rows: matches } = await pool.query(
+      `SELECT call_sid FROM call_ins
+        WHERE call_sid = ANY($1::text[])
+          AND right(regexp_replace(from_phone_number, '\\D', '', 'g'), 10) = $2`,
+      [callSids.length ? callSids : [''], last10]
+    );
+
+    if (!matches.length) {
+      say(twiml, 'I could not find that number on the call.');
+    } else {
+      for (const m of matches) {
+        try {
+          await client.conferences(conf.twilio_conference_sid).participants(m.call_sid).update({ muted });
+        } catch (e) {
+          console.error('single mute failed:', e.message);
+        }
+      }
+      say(twiml, muted ? 'That caller is muted.' : 'That caller can speak.');
+    }
+    await rejoinAsHost(twiml, cid);
+  } catch (err) {
+    console.error('conference-menu-one error:', err);
+    say(twiml, 'Something went wrong.');
+    try { await rejoinAsHost(twiml, cid); } catch (e) { twiml.hangup(); }
+  }
+
+  res.type('text/xml').send(twiml.toString());
+});// ---------- conference webhooks (Twilio -> us) ----------
 
 router.post('/conference-status', async (req, res) => {
   const { StatusCallbackEvent, ConferenceSid, FriendlyName } = req.body;
