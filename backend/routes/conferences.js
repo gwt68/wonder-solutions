@@ -46,6 +46,7 @@ router.get('/live', async (req, res) => {
     res.json({
       active: true,
       conference_id: conf.id,
+      recording_on: conf.recording_on !== false,
       participants: list.map((p) => ({
         call_sid: p.callSid,
         muted: p.muted,
@@ -194,6 +195,36 @@ router.get('/:id/recording', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to load the recording' });
+  }
+});
+
+// Starts or stops recording while the conference is running.
+router.post('/recording', async (req, res) => {
+  const { on } = req.body;
+  if (typeof on !== 'boolean') return res.status(400).json({ error: 'on must be true or false' });
+  try {
+    const conf = await activeConference(req.userId);
+    if (!conf) return res.status(400).json({ error: 'No conference is running' });
+    const client = twilioClient();
+    try {
+      await client.conferences(conf.twilio_conference_sid)
+        .recordings('Twilio.CURRENT')
+        .update({ status: on ? 'in-progress' : 'paused' });
+    } catch (e) {
+      // Nothing is recording yet, so start one.
+      if (on) {
+        await client.conferences(conf.twilio_conference_sid).recordings.create({
+          recordingStatusCallback: `${process.env.BASE_URL}/voice/conference-recording`,
+        });
+      } else {
+        throw e;
+      }
+    }
+    await pool.query('UPDATE conferences SET recording_on = $1 WHERE id = $2', [on, conf.id]);
+    res.json({ on });
+  } catch (err) {
+    console.error('toggle recording failed:', err);
+    res.status(500).json({ error: err.message || 'Could not change recording' });
   }
 });
 
