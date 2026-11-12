@@ -197,4 +197,58 @@ router.get('/:id/recording', async (req, res) => {
   }
 });
 
+// Pulls the RE... id out of a stored recording URL.
+function recordingSidFrom(url) {
+  const m = /\/Recordings\/(RE[0-9a-f]+)/i.exec(url || '');
+  return m ? m[1] : null;
+}
+
+async function deleteTwilioRecording(url) {
+  const sid = recordingSidFrom(url);
+  if (!sid) return;
+  try {
+    await twilioClient().recordings(sid).remove();
+  } catch (e) {
+    console.error('could not delete recording at Twilio:', e.message);
+  }
+}
+
+// Removes just the recording, keeping who attended.
+router.delete('/:id/recording', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT recording_url FROM conferences WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Conference not found' });
+    await deleteTwilioRecording(rows[0].recording_url);
+    await pool.query('UPDATE conferences SET recording_url = NULL WHERE id = $1', [req.params.id]);
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete the recording' });
+  }
+});
+
+// Removes the whole record, recording and attendance alike.
+router.delete('/:id', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT recording_url, status FROM conferences WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.userId]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Conference not found' });
+    if (rows[0].status === 'active') {
+      return res.status(400).json({ error: 'End the conference before deleting it' });
+    }
+    await deleteTwilioRecording(rows[0].recording_url);
+    await pool.query('UPDATE call_ins SET conference_id = NULL WHERE conference_id = $1', [req.params.id]);
+    await pool.query('DELETE FROM conferences WHERE id = $1', [req.params.id]);
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to delete the conference' });
+  }
+});
+
 module.exports = router;

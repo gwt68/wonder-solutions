@@ -191,6 +191,8 @@ export const api = {
   conferences: {
     live: () => request('/conferences/live'),
     history: () => request('/conferences/history'),
+    deleteRecording: (id) => request(`/conferences/${id}/recording`, { method: 'DELETE' }),
+    remove: (id) => request(`/conferences/${id}`, { method: 'DELETE' }),
     attendees: (id) => request(`/conferences/${id}/attendees`),
     recordingUrl: async (id) => {
       const res = await fetch(`${BASE}/api/conferences/${id}/recording`, {

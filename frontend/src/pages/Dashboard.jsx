@@ -10,6 +10,13 @@ export default function Dashboard({ onNavigate }) {
   const [sends, setSends] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [firstName, setFirstName] = useState('');
+
+  useEffect(() => {
+    api.account.get()
+      .then((a) => setFirstName((a.name || '').trim().split(/\s+/)[0] || ''))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     Promise.all([api.contacts.list(), api.groups.list(), api.messages.list(), api.sends.list()])
@@ -44,7 +51,13 @@ export default function Dashboard({ onNavigate }) {
       <div style={{ flexShrink: 0 }}>
         <div className="page-header" style={{ marginBottom: 20 }}>
           <div>
-            <h1>{t('dashboard_title')}</h1>
+            <h1>
+              {(() => {
+                const h = new Date().getHours();
+                const part = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+                return firstName ? `${part}, ${firstName}` : part;
+              })()}
+            </h1>
             <p>{t('dashboard_subtitle')}</p>
           </div>
         </div>

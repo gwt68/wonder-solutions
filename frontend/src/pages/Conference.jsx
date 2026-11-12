@@ -211,6 +211,24 @@ function PastConferences() {
                       <i className="ti ti-download" />
                     </button>
                   )}
+                  {r.recording_url && (
+                    <button type="button" className="icon-btn" title="Delete just the recording"
+                      onClick={async () => {
+                        if (!window.confirm('Delete the recording? The attendance record stays.')) return;
+                        try { await api.conferences.deleteRecording(r.id); setRows((rs) => rs.map((x) => x.id === r.id ? { ...x, recording_url: null } : x)); }
+                        catch (e) { alert(e.message); }
+                      }}>
+                      <i className="ti ti-microphone-off" />
+                    </button>
+                  )}
+                  <button type="button" className="icon-btn danger" title="Delete this conference"
+                    onClick={async () => {
+                      if (!window.confirm('Delete this conference and its recording? This cannot be undone.')) return;
+                      try { await api.conferences.remove(r.id); setRows((rs) => rs.filter((x) => x.id !== r.id)); }
+                      catch (e) { alert(e.message); }
+                    }}>
+                    <i className="ti ti-trash" />
+                  </button>
                   <i className={`ti ti-chevron-${openId === r.id ? 'up' : 'down'}`} style={{ marginLeft: 8 }} onClick={() => toggle(r.id)} />
                 </td>
               </tr>

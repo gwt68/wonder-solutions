@@ -12,7 +12,7 @@ router.use(requireAuth);
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, username, account_type, twilio_phone_number FROM users WHERE id = $1',
+      'SELECT id, username, name, account_type, twilio_phone_number FROM users WHERE id = $1',
       [req.userId]
     );
     if (!rows.length) return res.status(404).json({ error: 'Account not found' });
