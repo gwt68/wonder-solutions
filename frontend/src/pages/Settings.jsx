@@ -512,6 +512,7 @@ function ConferenceRows() {
   const [code, setCode] = useState('');
   const [startMode, setStartMode] = useState('admin');
   const [record, setRecord] = useState(true);
+  const [recordMode, setRecordMode] = useState('always');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -520,7 +521,7 @@ function ConferenceRows() {
 
   useEffect(() => {
     api.settings.getConference()
-      .then((r) => { setCode(r.code || ''); setStartMode(r.start_mode); setRecord(r.record); })
+      .then((r) => { setCode(r.code || ''); setStartMode(r.start_mode); setRecord(r.record); setRecordMode(r.record_mode || 'always'); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -529,7 +530,7 @@ function ConferenceRows() {
     setSaving(true); setError('');
     try {
       const r = await api.settings.setConference(patch);
-      setCode(r.code || ''); setStartMode(r.start_mode); setRecord(r.record);
+      setCode(r.code || ''); setStartMode(r.start_mode); setRecord(r.record); setRecordMode(r.record_mode || 'always');
       setEditingCode(false);
     } catch (err) {
       setError(err.message);
@@ -605,15 +606,23 @@ function ConferenceRows() {
         description="Recordings show up on the Conference page afterwards."
         last
       >
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={record}
-            disabled={saving}
-            onChange={(e) => save({ record: e.target.checked })}
-          />
-          {record ? 'On' : 'Off'}
-        </label>
+        <div className="chip-select" style={{ marginBottom: 0 }}>
+          {[
+            { value: 'always', label: 'Always' },
+            { value: 'never', label: 'Never' },
+            { value: 'ask', label: 'Ask each time' },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              className={`chip-toggle ${recordMode === opt.value ? 'active' : ''}`}
+              onClick={() => save({ record_mode: opt.value })}
+              disabled={saving}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </Row>
     </>
   );
