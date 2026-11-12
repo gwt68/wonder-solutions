@@ -190,6 +190,7 @@ export const api = {
   },
   conferences: {
     live: () => request('/conferences/live'),
+    setRecording: (on) => request('/conferences/recording', { method: 'POST', body: JSON.stringify({ on }) }),
     history: () => request('/conferences/history'),
     deleteRecording: (id) => request(`/conferences/${id}/recording`, { method: 'DELETE' }),
     remove: (id) => request(`/conferences/${id}`, { method: 'DELETE' }),

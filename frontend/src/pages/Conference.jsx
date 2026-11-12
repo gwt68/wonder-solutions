@@ -67,6 +67,9 @@ export default function Conference() {
         </div>
         {tab === 'live' && state.active && (
           <div style={{ display: 'flex', gap: 8 }}>
+            <button type="button" className="btn secondary" onClick={async () => { setBusy('rec'); try { await api.conferences.setRecording(!state.recording_on); await load(); } catch (e) { setError(e.message); } finally { setBusy(null); } }} disabled={busy === 'rec'}>
+              <i className={state.recording_on ? 'ti ti-player-stop' : 'ti ti-player-record'} /> {state.recording_on ? 'Stop recording' : 'Record'}
+            </button>
             <button type="button" className="btn secondary" onClick={() => muteAll(true)} disabled={busy === 'mute-all'}>
               <i className="ti ti-microphone-off" /> Mute everyone
             </button>
