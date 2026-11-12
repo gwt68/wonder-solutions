@@ -429,6 +429,8 @@ case 'pin_setup': {
 
     case 'conference_created_join': {
       if (digits === '1') {
+        await pool.query('UPDATE conferences SET host_call_sid = $1 WHERE id = $2',
+          [callSid, session.data.pending_conference_id]);
         joinConference(twiml, session.data.pending_conference_id, {
           isHost: true,
           startMode: session.data.pending_conference_start_mode || 'admin',
@@ -2047,8 +2049,10 @@ function joinConference(twiml, conferenceId, opts = {}) {
       // In admin mode only the host opens the room, so everyone else hears
       // hold music until he arrives. In two-person mode anyone opens it.
       startConferenceOnEnter: isHost || startMode === 'two',
-      // The host hanging up ends the call for everybody.
-      endConferenceOnExit: isHost,
+      // The host stays in the room when he presses star for the control menu,
+      // so the room is closed from the call-status webhook instead.
+      endConferenceOnExit: false,
+      hangupOnStar: isHost,
       waitUrl: 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient',
       beep: 'onEnter',
       record: record ? 'record-from-start' : 'do-not-record',
@@ -2058,6 +2062,7 @@ function joinConference(twiml, conferenceId, opts = {}) {
     },
     conferenceRoomName(conferenceId)
   );
+  if (isHost) twiml.redirect(`${BASE_URL}/voice/conference-menu?cid=${conferenceId}`);
 }
 
 function joinConferenceOld(twiml, conferenceId) {
@@ -2147,6 +2152,88 @@ async function startConferenceCreateOld(callSid, twiml, userId) {
     `Press 1 to join the conference now, or press 2 to return to the main menu.`,
     { numDigits: 1 });
 }
+
+// ---------- host keypad controls (reached by pressing star) ----------
+
+function confTwilioClient() {
+  return twilio((process.env.TWILIO_ACCOUNT_SID || '').trim(), (process.env.TWILIO_AUTH_TOKEN || '').trim());
+}
+
+async function rejoinAsHost(twiml, conferenceId) {
+  const { rows } = await pool.query(
+    `SELECT u.conference_start_mode, u.conference_record
+       FROM conferences c JOIN users u ON u.id = c.user_id WHERE c.id = $1`,
+    [conferenceId]
+  );
+  joinConference(twiml, conferenceId, {
+    isHost: true,
+    startMode: rows[0]?.conference_start_mode || 'admin',
+    record: rows[0]?.conference_record !== false,
+  });
+}
+
+router.post('/conference-menu', async (req, res) => {
+  const cid = req.query.cid;
+  const twiml = livelyVoice(new VoiceResponse());
+  const gather = livelyVoice(twiml.gather({
+    numDigits: 1,
+    action: `${BASE_URL}/voice/conference-menu-handle?cid=${cid}`,
+    method: 'POST',
+    timeout: 8,
+  }));
+  gather.say('Conference controls. Press 1 to mute everyone. Press 2 to let everyone speak. '
+    + 'Press 3 to go back to the conference. Press 9 to end the conference for everyone.', SAY_OPTS);
+  twiml.redirect(`${BASE_URL}/voice/conference-menu?cid=${cid}`);
+  res.type('text/xml').send(twiml.toString());
+});
+
+router.post('/conference-menu-handle', async (req, res) => {
+  const cid = req.query.cid;
+  const digits = req.body.Digits;
+  const twiml = livelyVoice(new VoiceResponse());
+
+  try {
+    const { rows } = await pool.query('SELECT * FROM conferences WHERE id = $1', [cid]);
+    const conf = rows[0];
+    const client = confTwilioClient();
+
+    if (digits === '1' || digits === '2') {
+      const muted = digits === '1';
+      if (conf && conf.twilio_conference_sid) {
+        const list = await client.conferences(conf.twilio_conference_sid).participants.list({ limit: 50 });
+        for (const p of list) {
+          if (p.callSid === conf.host_call_sid) continue;
+          try {
+            await client.conferences(conf.twilio_conference_sid).participants(p.callSid).update({ muted });
+          } catch (e) {
+            console.error('keypad mute failed for', p.callSid, e.message);
+          }
+        }
+      }
+      say(twiml, muted ? 'Everyone is now muted.' : 'Everyone can speak again.');
+      await rejoinAsHost(twiml, cid);
+    } else if (digits === '9') {
+      say(twiml, 'The conference has ended. Goodbye.');
+      if (conf && conf.twilio_conference_sid) {
+        try {
+          await client.conferences(conf.twilio_conference_sid).update({ status: 'completed' });
+        } catch (e) {
+          console.error('could not end conference:', e.message);
+        }
+      }
+      await pool.query(`UPDATE conferences SET status = 'ended' WHERE id = $1`, [cid]);
+      twiml.hangup();
+    } else {
+      await rejoinAsHost(twiml, cid);
+    }
+  } catch (err) {
+    console.error('conference-menu-handle error:', err);
+    say(twiml, 'Something went wrong. Taking you back to the conference.');
+    try { await rejoinAsHost(twiml, cid); } catch (e) { twiml.hangup(); }
+  }
+
+  res.type('text/xml').send(twiml.toString());
+});
 
 // ---------- conference webhooks (Twilio -> us) ----------
 
@@ -2733,6 +2820,31 @@ router.post('/sms-incoming', async (req, res) => {
 
 router.post('/incoming-status', async (req, res) => {
   const { CallSid, CallStatus, CallDuration } = req.body;
+
+  // The host's leg leaves the room every time he opens the keypad menu, so
+  // the conference is closed here, when his call actually ends.
+  if (CallStatus === 'completed') {
+    try {
+      const { rows: hosted } = await pool.query(
+        `SELECT id, twilio_conference_sid FROM conferences
+          WHERE host_call_sid = $1 AND status <> 'ended'`,
+        [CallSid]
+      );
+      for (const conf of hosted) {
+        if (conf.twilio_conference_sid) {
+          try {
+            await twilio((process.env.TWILIO_ACCOUNT_SID || '').trim(), (process.env.TWILIO_AUTH_TOKEN || '').trim())
+              .conferences(conf.twilio_conference_sid).update({ status: 'completed' });
+          } catch (e) {
+            console.error('could not close conference on host hangup:', e.message);
+          }
+        }
+        await pool.query(`UPDATE conferences SET status = 'ended' WHERE id = $1`, [conf.id]);
+      }
+    } catch (e) {
+      console.error('host hangup check failed:', e.message);
+    }
+  }
   try {
     let cost = null;
     if (CallStatus === 'completed') {
