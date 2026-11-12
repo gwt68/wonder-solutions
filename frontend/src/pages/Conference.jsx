@@ -192,8 +192,18 @@ function PastConferences() {
                 <td style={{ textAlign: 'right' }}>{r.attendee_count}</td>
                 <td style={{ textAlign: 'right' }}>{fmtDuration(r.total_seconds)}</td>
                 <td><span className="pill">{r.status}</span></td>
-                <td style={{ textAlign: 'right' }}>
-                  <i className={`ti ti-chevron-${openId === r.id ? 'up' : 'down'}`} />
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                  {r.recording_url && (
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="Download the recording"
+                      onClick={() => api.conferences.downloadRecording(r.id).catch((e) => alert(e.message))}
+                    >
+                      <i className="ti ti-download" />
+                    </button>
+                  )}
+                  <i className={`ti ti-chevron-${openId === r.id ? 'up' : 'down'}`} style={{ marginLeft: 8 }} onClick={() => toggle(r.id)} />
                 </td>
               </tr>
               {openId === r.id && (

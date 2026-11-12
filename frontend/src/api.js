@@ -192,6 +192,24 @@ export const api = {
     live: () => request('/conferences/live'),
     history: () => request('/conferences/history'),
     attendees: (id) => request(`/conferences/${id}/attendees`),
+    downloadRecording: async (id) => {
+      const res = await fetch(`${BASE}/api/conferences/${id}/recording?download=1`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Could not download the recording');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `conference-${id}.mp3`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
     muteAll: (muted) => request('/conferences/mute-all', { method: 'POST', body: JSON.stringify({ muted }) }),
     muteOne: (callSid, muted) => request(`/conferences/participants/${callSid}/mute`, { method: 'POST', body: JSON.stringify({ muted }) }),
     end: () => request('/conferences/end', { method: 'POST' }),

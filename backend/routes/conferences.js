@@ -170,4 +170,31 @@ router.get('/:id/attendees', async (req, res) => {
   }
 });
 
+// Streams the recording through us, since Twilio's URL needs credentials.
+router.get('/:id/recording', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT recording_url FROM conferences WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.userId]
+    );
+    const url = rows[0]?.recording_url;
+    if (!url) return res.status(404).json({ error: 'No recording for that conference' });
+
+    const sid = (process.env.TWILIO_ACCOUNT_SID || '').trim();
+    const token = (process.env.TWILIO_AUTH_TOKEN || '').trim();
+    const auth = Buffer.from(`${sid}:${token}`).toString('base64');
+    const twRes = await fetch(url, { headers: { Authorization: `Basic ${auth}` } });
+    if (!twRes.ok) return res.status(502).json({ error: 'Could not fetch the recording from Twilio' });
+
+    res.set('Content-Type', twRes.headers.get('content-type') || 'audio/mpeg');
+    if (req.query.download === '1') {
+      res.set('Content-Disposition', `attachment; filename="conference-${req.params.id}.mp3"`);
+    }
+    res.send(Buffer.from(await twRes.arrayBuffer()));
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load the recording' });
+  }
+});
+
 module.exports = router;
