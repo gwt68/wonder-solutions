@@ -90,9 +90,17 @@ function scopeParam(req) {
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(`
-      SELECT g.*, COUNT(cg.contact_id)::int AS member_count
+      SELECT g.*,
+             COUNT(DISTINCT cg.contact_id)::int AS member_count,
+             (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.can_post))::int AS poster_count,
+             (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.join_status = 'joined'))::int AS joined_count,
+             (COUNT(DISTINCT cg.contact_id) FILTER (WHERE cg.join_status = 'pending'))::int AS pending_count,
+             MAX(gn.phone_number) AS own_number,
+             MAX(gpl.created_at) AS last_post_at
       FROM groups g
       LEFT JOIN contact_groups cg ON cg.group_id = g.id
+      LEFT JOIN group_numbers gn ON gn.group_id = g.id
+      LEFT JOIN group_post_log gpl ON gpl.group_id = g.id
       WHERE ($1::int IS NULL OR g.user_id = $1)
       GROUP BY g.id
       ORDER BY g.created_at DESC
