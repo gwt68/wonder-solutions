@@ -114,4 +114,47 @@ router.post('/end', async (req, res) => {
   }
 });
 
+// Past conferences with who attended and for how long.
+router.get('/history', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT c.id, c.access_code, c.status, c.created_at, c.recording_url,
+              COUNT(ci.id)::int AS attendee_count,
+              COALESCE(SUM(ci.duration_seconds), 0)::int AS total_seconds
+         FROM conferences c
+         LEFT JOIN call_ins ci ON ci.conference_id = c.id
+        WHERE c.user_id = $1
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+        LIMIT 50`,
+      [req.userId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load conference history' });
+  }
+});
+
+router.get('/:id/attendees', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ci.call_sid, ci.from_phone_number, ci.started_at, ci.ended_at,
+              ci.duration_seconds, ci.cost,
+              (ci.call_sid = c.host_call_sid) AS is_host,
+              COALESCE(NULLIF(TRIM(CONCAT_WS(' ', ct.first_name, ct.last_name)), ''), ct.name) AS contact_name
+         FROM call_ins ci
+         JOIN conferences c ON c.id = ci.conference_id
+         LEFT JOIN contacts ct ON ct.id = ci.contact_id
+        WHERE ci.conference_id = $1 AND c.user_id = $2
+        ORDER BY ci.started_at ASC`,
+      [req.params.id, req.userId]
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load attendees' });
+  }
+});
+
 module.exports = router;

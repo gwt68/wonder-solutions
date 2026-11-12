@@ -367,11 +367,11 @@ router.post('/handle', async (req, res) => {
         [digits, userId]
       );
       if (confRows.length) {
-        await pool.query(
-          `UPDATE call_ins SET interrupted_with = 'conference_code', reached = 'conference' WHERE call_sid = $1`,
-          [callSid]
-        );
         const conf = await getOrCreateConference(userId);
+        await pool.query(
+          `UPDATE call_ins SET interrupted_with = 'conference_code', reached = 'conference', conference_id = $2 WHERE call_sid = $1`,
+          [callSid, conf.conferenceId]
+        );
         joinConference(twiml, conf.conferenceId, { isHost: false, startMode: conf.startMode, record: conf.record });
         break;
       }
@@ -431,6 +431,8 @@ case 'pin_setup': {
       if (digits === '1') {
         await pool.query('UPDATE conferences SET host_call_sid = $1 WHERE id = $2',
           [callSid, session.data.pending_conference_id]);
+        await pool.query('UPDATE call_ins SET conference_id = $1 WHERE call_sid = $2',
+          [session.data.pending_conference_id, callSid]);
         joinConference(twiml, session.data.pending_conference_id, {
           isHost: true,
           startMode: session.data.pending_conference_start_mode || 'admin',
@@ -2181,7 +2183,7 @@ router.post('/conference-menu', async (req, res) => {
     method: 'POST',
     timeout: 8,
   }));
-  gather.say('Conference controls. Press 1 to mute everyone. Press 2 to let everyone speak. '
+  gather.say('Press 1 to mute everyone. Press 2 to let everyone speak. '
     + 'Press 3 to mute one person. Press 4 to let one person speak. '
     + 'Press 5 to go back to the conference. Press 9 to end the conference for everyone.', SAY_OPTS);
   twiml.redirect(`${BASE_URL}/voice/conference-menu?cid=${cid}`);
