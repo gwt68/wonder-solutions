@@ -8,6 +8,16 @@ const { requireAuth, requireFullAccount, requirePerm } = require('./auth');
 
 router.use(requireAuth);
 
+const telnyx = require('../lib/telnyx');
+
+/**
+ * Which provider actually sends. Defaults to twilio, so nothing changes
+ * in production until SMS_PROVIDER=telnyx is set in the environment.
+ */
+function provider() {
+  return (process.env.SMS_PROVIDER || 'twilio').trim().toLowerCase();
+}
+
 function twilioClient() {
   const sid = (process.env.TWILIO_ACCOUNT_SID || '').trim();
   const token = (process.env.TWILIO_AUTH_TOKEN || '').trim();
@@ -29,8 +39,68 @@ function webhookUrl(path) {
 }
 
 async function sendToContact(contact, message, method, fromNumber) {
+  if (!fromNumber) {
+    return { status: 'failed', error_message: 'This account has no number configured' };
+  }
+  return provider() === 'telnyx'
+    ? sendViaTelnyx(contact, message, method, fromNumber)
+    : sendViaTwilio(contact, message, method, fromNumber);
+}
+
+async function sendViaTelnyx(contact, message, method, fromNumber) {
+  const hasAudio = !!(message.audio_url || message.has_uploaded_audio);
+  const hasImage = !!message.has_image;
+
+  try {
+    if (method === 'sms') {
+      if (!message.text_content) {
+        return { status: 'failed', error_message: 'This message has no text to send as an SMS' };
+      }
+      const id = await telnyx.sendSms({
+        to: contact.phone_number,
+        from: fromNumber,
+        text: toGsmSafe(message.text_content),
+        statusCallback: webhookUrl('telnyx-status')
+      });
+      return { status: 'sent', twilio_sid: id };
+    }
+
+    if (method === 'voice_note') {
+      if (!hasImage && !hasAudio) {
+        return { status: 'failed', error_message: 'This message has no audio or picture to send as an MMS' };
+      }
+      const id = await telnyx.sendMms({
+        to: contact.phone_number,
+        from: fromNumber,
+        text: message.text_content ? toGsmSafe(message.text_content) : null,
+        mediaUrl: hasImage ? imageProxyUrl(message.id) : audioProxyUrl(message.id),
+        statusCallback: webhookUrl('telnyx-status')
+      });
+      return { status: 'sent', twilio_sid: id };
+    }
+
+    if (method === 'call') {
+      // Telnyx fetches the document rather than taking it inline, so
+      // point it at the route that renders the same TwiML.
+      const base = (process.env.BASE_URL || '').replace(/\/$/, '');
+      const id = await telnyx.startCall({
+        to: contact.phone_number,
+        from: fromNumber,
+        url: `${base}/texml/play/${message.id}`,
+        statusCallback: webhookUrl('telnyx-status')
+      });
+      return { status: 'sent', twilio_sid: id };
+    }
+
+    return { status: 'failed', error_message: `Unknown method: ${method}` };
+  } catch (err) {
+    console.error('sendViaTelnyx error:', err);
+    return { status: 'failed', error_message: err.message || 'Unknown error (no details provided)' };
+  }
+}
+
+async function sendViaTwilio(contact, message, method, fromNumber) {
   const client = twilioClient();
-  if (!fromNumber) return { status: 'failed', error_message: 'This account has no Twilio number configured' };
 
   const hasAudio = !!(message.audio_url || message.has_uploaded_audio);
   const hasImage = !!message.has_image;

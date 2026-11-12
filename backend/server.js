@@ -29,12 +29,12 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/sends', sendsRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/users', usersRoutes);
-app.use('/api/users', usersRoutes);
 app.use('/api/trusted-phones', trustedPhonesRoutes);
 app.use('/api/signup', signupRoutes);
 app.use('/api/account', require('./routes/account'));
 app.use('/webhooks', webhooksRoutes);
 app.use('/api/call-ins', require('./routes/callins'));
+app.use('/texml', require('./routes/texml'));
 
 app.get('/', (req, res) => res.send('Wonder Solutions backend is running.'));
 
