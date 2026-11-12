@@ -34,6 +34,7 @@ app.use('/api/signup', signupRoutes);
 app.use('/api/account', require('./routes/account'));
 app.use('/webhooks', webhooksRoutes);
 app.use('/api/call-ins', require('./routes/callins'));
+app.use('/api/conferences', require('./routes/conferences'));
 app.use('/texml', require('./routes/texml'));
 
 app.get('/', (req, res) => res.send('Wonder Solutions backend is running.'));

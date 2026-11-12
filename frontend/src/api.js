@@ -188,6 +188,12 @@ export const api = {
     update: (id, username, extra = {}) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify({ username, ...extra }) }),
     remove: (id) => request(`/users/${id}`, { method: 'DELETE' }),
   },
+  conferences: {
+    live: () => request('/conferences/live'),
+    muteAll: (muted) => request('/conferences/mute-all', { method: 'POST', body: JSON.stringify({ muted }) }),
+    muteOne: (callSid, muted) => request(`/conferences/participants/${callSid}/mute`, { method: 'POST', body: JSON.stringify({ muted }) }),
+    end: () => request('/conferences/end', { method: 'POST' }),
+  },
   settings: {
     getConference: () => request('/settings/conference'),
     setConference: (data) => request('/settings/conference', { method: 'PUT', body: JSON.stringify(data) }),
