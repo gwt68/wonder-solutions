@@ -192,6 +192,7 @@ async function createSendBatch({ message_id, recipients, scheduled_at, userId, i
   const created = [];
 
   const expanded = [];
+  let skipped = 0;
   for (const recipient of recipients) {
     const contact = contactsById[recipient.contact_id];
     if (!contact) continue;
@@ -200,7 +201,13 @@ async function createSendBatch({ message_id, recipients, scheduled_at, userId, i
       ? recipient.methods : [recipient.method || contact.preferred_method];
     const validMethods = requestedMethods.filter((m) => enabledMethods.includes(m));
     if (!validMethods.length) validMethods.push(contact.preferred_method);
-    for (const method of validMethods) expanded.push({ contact, method });
+    // A number that does not exist is skipped outright; a landline can still
+    // take a phone call, just not a text.
+    const sendable = contact.undeliverable_code === '30006'
+      ? validMethods.filter((m) => m === 'call')
+      : contact.undeliverable_code ? [] : validMethods;
+    if (!sendable.length) { skipped += 1; continue; }
+    for (const method of sendable) expanded.push({ contact, method });
   }
 
   for (const { contact, method } of expanded) {
@@ -222,7 +229,7 @@ async function createSendBatch({ message_id, recipients, scheduled_at, userId, i
     }
   }
 
-  return { count: created.length, scheduled: isScheduled, batch_id: batchId, sends: created };
+  return { count: created.length, skipped, scheduled: isScheduled, batch_id: batchId, sends: created };
 }
 
 router.post('/', requireFullAccount, requirePerm('can_send'), async (req, res) => {

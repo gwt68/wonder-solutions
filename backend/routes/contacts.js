@@ -174,6 +174,22 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// Clears the "can't receive texts" flag, so this contact is included again.
+router.post('/:id/clear-undeliverable', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE contacts SET undeliverable_code = NULL, undeliverable_at = NULL
+        WHERE id = $1 AND ($2::int IS NULL OR user_id = $2) RETURNING id`,
+      [req.params.id, scopeParam(req)]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Contact not found' });
+    res.status(204).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to clear the flag' });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
     await pool.query(

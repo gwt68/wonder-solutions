@@ -452,7 +452,9 @@ export default function Contacts() {
   const sortedContacts = useMemo(() => {
     let filtered = groupFilter === 'all'
       ? contacts
-      : contacts.filter((c) => c.groups.some((g) => String(g.id) === String(groupFilter)));
+      : groupFilter === 'undeliverable'
+        ? contacts.filter((c) => c.undeliverable_code)
+        : contacts.filter((c) => c.groups.some((g) => String(g.id) === String(groupFilter)));
     if (searchQuery.trim()) {
       const q = searchQuery.trim().toLowerCase();
       filtered = filtered.filter((c) => {
@@ -592,6 +594,15 @@ export default function Contacts() {
             >
               {t('contacts_all')}
             </button>
+            {contacts.some((c) => c.undeliverable_code) && (
+              <button
+                type="button"
+                className={`chip-toggle ${groupFilter === 'undeliverable' ? 'active' : ''}`}
+                onClick={() => setGroupFilter('undeliverable')}
+              >
+                Cannot receive texts ({contacts.filter((c) => c.undeliverable_code).length})
+              </button>
+            )}
             {groups.map((g) => (
               <button
                 type="button"
@@ -650,7 +661,24 @@ export default function Contacts() {
                     <div style={{ fontWeight: 500 }}>{firstNameCell(c)}</div>
                   </td>
                   {visibleCols.includes('last_name') && <td style={{ fontWeight: 500 }}>{c.last_name || ''}</td>}
-                  {visibleCols.includes('phone_number') && <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, whiteSpace: 'nowrap' }}>{c.phone_number}</td>}
+                  {visibleCols.includes('phone_number') && (
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, whiteSpace: 'nowrap' }}>
+                      {c.phone_number}
+                      {c.undeliverable_code && (
+                        <span
+                          className="pill"
+                          title={c.undeliverable_code === '30006' ? 'A landline - texts will not arrive. Click to clear.' : 'This number does not exist. Click to clear.'}
+                          style={{ marginLeft: 6, background: 'var(--danger-soft)', color: 'var(--danger)', cursor: 'pointer' }}
+                          onClick={async () => {
+                            if (!window.confirm('Start including this number in sends again?')) return;
+                            try { await api.contacts.clearUndeliverable(c.id); await load(); } catch (e) { setError(e.message); }
+                          }}
+                        >
+                          {c.undeliverable_code === '30006' ? 'No texts' : 'Bad number'}
+                        </span>
+                      )}
+                    </td>
+                  )}
                   {visibleCols.includes('email') && <td style={{ fontSize: 13 }}>{c.email || ''}</td>}
                   {visibleCols.includes('address') && <td style={{ fontSize: 13 }}>{c.address || ''}</td>}
                   {visibleCols.includes('city') && <td style={{ fontSize: 13 }}>{c.city || ''}</td>}

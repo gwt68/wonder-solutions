@@ -25,6 +25,16 @@ router.post('/sms-status', async (req, res) => {
         [MessageStatus, ErrorCode ? `${ErrorCode}: ${ErrorMessage || 'see Twilio error code'}` : null, MessageSid]
       );
 
+      // 30005 is a number that does not exist, 30006 a landline. Neither will
+      // ever work, so the contact is flagged and skipped on future sends.
+      if (ErrorCode === '30005' || ErrorCode === '30006') {
+        await pool.query(
+          `UPDATE contacts SET undeliverable_code = $1, undeliverable_at = NOW()
+             WHERE id = (SELECT contact_id FROM sends WHERE twilio_sid = $2)`,
+          [String(ErrorCode), MessageSid]
+        ).catch((e) => console.error('could not flag contact:', e.message));
+      }
+
       if (SMS_TERMINAL_STATUSES.includes(MessageStatus)) {
         try {
           const msg = await twilioClient().messages(MessageSid).fetch();
