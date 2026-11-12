@@ -1,7 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../api.js';
 
+function fmtDuration(s) {
+  if (s == null) return '—';
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m ? `${m}m ${sec}s` : `${sec}s`;
+}
+
 export default function Conference() {
+  const [tab, setTab] = useState('live');
   const [state, setState] = useState({ active: false, participants: [] });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
@@ -55,9 +63,9 @@ export default function Conference() {
       <div className="page-header">
         <div>
           <h1>Conference</h1>
-          <p>Who is on the call, and who can speak</p>
+          <p>Who is on the call, and who was on past ones</p>
         </div>
-        {state.active && (
+        {tab === 'live' && state.active && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="button" className="btn secondary" onClick={() => muteAll(true)} disabled={busy === 'mute-all'}>
               <i className="ti ti-microphone-off" /> Mute everyone
@@ -72,9 +80,18 @@ export default function Conference() {
         )}
       </div>
 
+      <div className="chip-select" style={{ marginBottom: 14 }}>
+        <button type="button" className={`chip-toggle ${tab === 'live' ? 'active' : ''}`} onClick={() => setTab('live')}>
+          Happening now
+        </button>
+        <button type="button" className={`chip-toggle ${tab === 'past' ? 'active' : ''}`} onClick={() => setTab('past')}>
+          Past calls
+        </button>
+      </div>
+
       {error && <div className="banner error">{error}</div>}
 
-      {!loaded ? null : !state.active ? (
+      {tab === 'past' ? <PastConferences /> : !loaded ? null : !state.active ? (
         <div className="card empty-state">
           <h3>No conference running</h3>
           <p>Call your number, enter your PIN, then press 8 to start one.</p>
@@ -113,6 +130,109 @@ export default function Conference() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function PastConferences() {
+  const [rows, setRows] = useState([]);
+  const [openId, setOpenId] = useState(null);
+  const [attendees, setAttendees] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    api.conferences.history()
+      .then(setRows)
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function toggle(id) {
+    if (openId === id) { setOpenId(null); return; }
+    setOpenId(id);
+    setAttendees([]);
+    try {
+      setAttendees(await api.conferences.attendees(id));
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  if (loading) return null;
+  if (error) return <div className="banner error">{error}</div>;
+  if (!rows.length) {
+    return (
+      <div className="card empty-state">
+        <h3>No conferences yet</h3>
+        <p>Once you run one, who attended and for how long shows up here.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>When</th>
+            <th>Code</th>
+            <th style={{ textAlign: 'right' }}>People</th>
+            <th style={{ textAlign: 'right' }}>Total time</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <React.Fragment key={r.id}>
+              <tr onClick={() => toggle(r.id)} style={{ cursor: 'pointer' }}>
+                <td style={{ whiteSpace: 'nowrap' }}>{new Date(r.created_at).toLocaleString()}</td>
+                <td style={{ fontFamily: 'var(--font-mono)' }}>{r.access_code}</td>
+                <td style={{ textAlign: 'right' }}>{r.attendee_count}</td>
+                <td style={{ textAlign: 'right' }}>{fmtDuration(r.total_seconds)}</td>
+                <td><span className="pill">{r.status}</span></td>
+                <td style={{ textAlign: 'right' }}>
+                  <i className={`ti ti-chevron-${openId === r.id ? 'up' : 'down'}`} />
+                </td>
+              </tr>
+              {openId === r.id && (
+                <tr>
+                  <td colSpan={6} style={{ background: 'var(--bg)' }}>
+                    {!attendees.length ? (
+                      <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>Nobody was recorded on this call.</p>
+                    ) : (
+                      <table className="data-table" style={{ fontSize: 13 }}>
+                        <thead>
+                          <tr>
+                            <th>Caller</th>
+                            <th>Joined</th>
+                            <th>Left</th>
+                            <th style={{ textAlign: 'right' }}>Time on call</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {attendees.map((a) => (
+                            <tr key={a.call_sid}>
+                              <td>
+                                {a.contact_name || a.from_phone_number}
+                                {a.is_host && <span className="pill signal" style={{ marginLeft: 6 }}>Host</span>}
+                              </td>
+                              <td style={{ whiteSpace: 'nowrap' }}>{a.started_at ? new Date(a.started_at).toLocaleTimeString() : '—'}</td>
+                              <td style={{ whiteSpace: 'nowrap' }}>{a.ended_at ? new Date(a.ended_at).toLocaleTimeString() : '—'}</td>
+                              <td style={{ textAlign: 'right' }}>{fmtDuration(a.duration_seconds)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </td>
+                </tr>
+              )}
+            </React.Fragment>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

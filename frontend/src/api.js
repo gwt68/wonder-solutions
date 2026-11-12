@@ -190,6 +190,8 @@ export const api = {
   },
   conferences: {
     live: () => request('/conferences/live'),
+    history: () => request('/conferences/history'),
+    attendees: (id) => request(`/conferences/${id}/attendees`),
     muteAll: (muted) => request('/conferences/mute-all', { method: 'POST', body: JSON.stringify({ muted }) }),
     muteOne: (callSid, muted) => request(`/conferences/participants/${callSid}/mute`, { method: 'POST', body: JSON.stringify({ muted }) }),
     end: () => request('/conferences/end', { method: 'POST' }),
