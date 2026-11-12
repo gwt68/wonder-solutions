@@ -199,6 +199,10 @@ export default function Settings() {
           </SettingCard>
         )}
 
+        <SettingCard icon="ti-users" title="Conference calls" description="Callers dial your number and enter this code to join.">
+          <ConferenceInline />
+        </SettingCard>
+
         <SettingCard icon="ti-clock" title="Your time zone" description="Used for scheduling and for the times shown in History.">
           <TimezoneInline />
         </SettingCard>
@@ -373,6 +377,76 @@ const COMMON_TIMEZONES = [
   { value: 'America/Anchorage', label: 'Alaska' },
   { value: 'Pacific/Honolulu', label: 'Hawaii' },
 ];
+
+function ConferenceInline() {
+  const [code, setCode] = useState('');
+  const [startMode, setStartMode] = useState('admin');
+  const [record, setRecord] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState('');
+
+  useEffect(() => {
+    api.settings.getConference()
+      .then((r) => { setCode(r.code || ''); setStartMode(r.start_mode); setRecord(r.record); })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save(patch) {
+    setSaving(true); setError(''); setSaved('');
+    try {
+      const r = await api.settings.setConference(patch);
+      setCode(r.code || ''); setStartMode(r.start_mode); setRecord(r.record);
+      setSaved('Saved.');
+      setTimeout(() => setSaved(''), 2000);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loading) return null;
+  return (
+    <>
+      {error && <div className="banner error" style={{ marginBottom: 8 }}>{error}</div>}
+      {saved && <div className="banner ok" style={{ marginBottom: 8 }}>{saved}</div>}
+
+      <label style={{ fontSize: 12, color: 'var(--ink-soft)' }}>Access code</label>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
+          style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}
+        />
+        <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 12.5 }}
+          onClick={() => save({ code })} disabled={saving || code.length < 4}>
+          Save
+        </button>
+      </div>
+
+      <label style={{ fontSize: 12, color: 'var(--ink-soft)' }}>When does it start?</label>
+      <div className="chip-select" style={{ marginBottom: 12 }}>
+        <button type="button" className={`chip-toggle ${startMode === 'admin' ? 'active' : ''}`}
+          onClick={() => save({ start_mode: 'admin' })} disabled={saving}>
+          When I start it
+        </button>
+        <button type="button" className={`chip-toggle ${startMode === 'two' ? 'active' : ''}`}
+          onClick={() => save({ start_mode: 'two' })} disabled={saving}>
+          As soon as anyone joins
+        </button>
+      </div>
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+        <input type="checkbox" checked={record} disabled={saving}
+          onChange={(e) => save({ record: e.target.checked })} />
+        Record the conference
+      </label>
+    </>
+  );
+}
 
 function TimezoneInline() {
   const [timezone, setTimezone] = useState('America/New_York');
