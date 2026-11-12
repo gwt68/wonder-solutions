@@ -2096,11 +2096,12 @@ async function getOrCreateConference(userId) {
   if (!code) throw new Error('No conference code set for this account');
 
   const { rows: open } = await pool.query(
-    `SELECT id FROM conferences WHERE user_id = $1 AND access_code = $2 AND status <> 'ended'
+    `SELECT id, recording_on FROM conferences WHERE user_id = $1 AND access_code = $2 AND status <> 'ended'
       ORDER BY id DESC LIMIT 1`,
     [userId, code]
   );
   let conferenceId = open[0]?.id;
+  const recordingOn = open[0]?.recording_on;
   if (!conferenceId) {
     const { rows: made } = await pool.query(
       `INSERT INTO conferences (user_id, access_code, status) VALUES ($1, $2, 'scheduled') RETURNING id`,
@@ -2112,7 +2113,7 @@ async function getOrCreateConference(userId) {
     conferenceId,
     code,
     startMode: u[0]?.conference_start_mode || 'admin',
-    record: u[0]?.conference_record !== false,
+    record: recordingOn === null || recordingOn === undefined ? (u[0]?.conference_record_mode || 'always') === 'always' : recordingOn,
     recordMode: u[0]?.conference_record_mode || 'always',
   };
 }
