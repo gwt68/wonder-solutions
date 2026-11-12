@@ -190,6 +190,7 @@ function silentPinGather(twiml, playUrl) {
     timeout: 30,
   });
   if (playUrl) gather.play(playUrl);
+  else livelyVoice(gather).say('If you have a conference code, enter it now, followed by the pound sign.', SAY_OPTS);
   twiml.redirect(`${BASE_URL}/voice/repeat`);
   return twiml;
 }
@@ -362,7 +363,7 @@ router.post('/handle', async (req, res) => {
       // Admin now requires a trusted caller ID as well as the PIN, so entering
       // a PIN here no longer opens the menu — only conference codes are checked.
       const { rows: confRows } = await pool.query(
-        `SELECT id FROM conferences WHERE access_code = $1 AND status != 'ended' AND user_id = $2`,
+        `SELECT 1 FROM users WHERE conference_code = $1 AND id = $2`,
         [digits, userId]
       );
       if (confRows.length) {
@@ -370,7 +371,8 @@ router.post('/handle', async (req, res) => {
           `UPDATE call_ins SET interrupted_with = 'conference_code', reached = 'conference' WHERE call_sid = $1`,
           [callSid]
         );
-        joinConference(twiml, confRows[0].id);
+        const conf = await getOrCreateConference(userId);
+        joinConference(twiml, conf.conferenceId, { isHost: false, startMode: conf.startMode, record: conf.record });
         break;
       }
       silentPinGather(twiml, null);
@@ -427,7 +429,11 @@ case 'pin_setup': {
 
     case 'conference_created_join': {
       if (digits === '1') {
-        joinConference(twiml, session.data.pending_conference_id);
+        joinConference(twiml, session.data.pending_conference_id, {
+          isHost: true,
+          startMode: session.data.pending_conference_start_mode || 'admin',
+          record: session.data.pending_conference_record !== false,
+        });
       } else {
         await updateSession(callSid, 'main_menu');
         mainMenu(twiml);
@@ -2032,7 +2038,29 @@ function conferenceRoomName(conferenceId) {
   return `wonder-conf-${conferenceId}`;
 }
 
-function joinConference(twiml, conferenceId) {
+function joinConference(twiml, conferenceId, opts = {}) {
+  const { isHost = false, startMode = 'admin', record = true } = opts;
+  say(twiml, 'Joining the conference now.');
+  const dial = twiml.dial();
+  dial.conference(
+    {
+      // In admin mode only the host opens the room, so everyone else hears
+      // hold music until he arrives. In two-person mode anyone opens it.
+      startConferenceOnEnter: isHost || startMode === 'two',
+      // The host hanging up ends the call for everybody.
+      endConferenceOnExit: isHost,
+      waitUrl: 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient',
+      beep: 'onEnter',
+      record: record ? 'record-from-start' : 'do-not-record',
+      recordingStatusCallback: `${BASE_URL}/voice/conference-recording`,
+      statusCallback: `${BASE_URL}/voice/conference-status`,
+      statusCallbackEvent: 'start end join leave',
+    },
+    conferenceRoomName(conferenceId)
+  );
+}
+
+function joinConferenceOld(twiml, conferenceId) {
   say(twiml, 'Joining the conference now.');
   const dial = twiml.dial();
   dial.conference(
@@ -2059,7 +2087,52 @@ async function generateConferenceCode() {
   throw new Error('Could not generate a unique conference code');
 }
 
+// Finds this account's open conference room, or opens one, using the
+// permanent code from Settings rather than minting a new one each time.
+async function getOrCreateConference(userId) {
+  const { rows: u } = await pool.query(
+    'SELECT conference_code, conference_start_mode, conference_record FROM users WHERE id = $1',
+    [userId]
+  );
+  const code = u[0]?.conference_code;
+  if (!code) throw new Error('No conference code set for this account');
+
+  const { rows: open } = await pool.query(
+    `SELECT id FROM conferences WHERE user_id = $1 AND access_code = $2 AND status <> 'ended'
+      ORDER BY id DESC LIMIT 1`,
+    [userId, code]
+  );
+  let conferenceId = open[0]?.id;
+  if (!conferenceId) {
+    const { rows: made } = await pool.query(
+      `INSERT INTO conferences (user_id, access_code, status) VALUES ($1, $2, 'scheduled') RETURNING id`,
+      [userId, code]
+    );
+    conferenceId = made[0].id;
+  }
+  return {
+    conferenceId,
+    code,
+    startMode: u[0]?.conference_start_mode || 'admin',
+    record: u[0]?.conference_record !== false,
+  };
+}
+
 async function startConferenceCreate(callSid, twiml, userId) {
+  const conf = await getOrCreateConference(userId);
+  await updateSession(callSid, 'conference_created_join', {
+    pending_conference_id: conf.conferenceId,
+    pending_conference_start_mode: conf.startMode,
+    pending_conference_record: conf.record,
+  });
+  const spaced = conf.code.split('').join(' ');
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `Your conference code is ${spaced}. Callers can dial this number and enter that code. ` +
+    `Press 1 to start the conference now, or press 2 to go back to the main menu.`,
+    { numDigits: 1 });
+}
+
+async function startConferenceCreateOld(callSid, twiml, userId) {
   const code = await generateConferenceCode();
   const { rows } = await pool.query(
     `INSERT INTO conferences (user_id, access_code, status) VALUES ($1, $2, 'scheduled') RETURNING id`,

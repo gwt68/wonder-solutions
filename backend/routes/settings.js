@@ -123,6 +123,61 @@ router.put('/group-prefix-mode', async (req, res) => {
   }
 });
 
+// GET my conference settings
+router.get('/conference', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT conference_code, conference_start_mode, conference_record FROM users WHERE id = $1',
+      [req.userId]
+    );
+    res.json({
+      code: rows[0]?.conference_code || '',
+      start_mode: rows[0]?.conference_start_mode || 'admin',
+      record: rows[0]?.conference_record !== false,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch conference settings' });
+  }
+});
+
+// PUT update my conference settings
+router.put('/conference', async (req, res) => {
+  const { code, start_mode, record } = req.body;
+  if (code !== undefined && !/^[0-9]{4,8}$/.test(String(code))) {
+    return res.status(400).json({ error: 'The code must be 4 to 8 digits' });
+  }
+  if (start_mode !== undefined && !['admin', 'two'].includes(start_mode)) {
+    return res.status(400).json({ error: 'start_mode must be admin or two' });
+  }
+  try {
+    if (code !== undefined) {
+      const { rows: clash } = await pool.query(
+        'SELECT 1 FROM users WHERE conference_code = $1 AND id <> $2', [String(code), req.userId]
+      );
+      if (clash.length) return res.status(409).json({ error: 'Another account is already using that code' });
+    }
+    const { rows } = await pool.query(
+      `UPDATE users SET
+         conference_code = COALESCE($1, conference_code),
+         conference_start_mode = COALESCE($2, conference_start_mode),
+         conference_record = COALESCE($3, conference_record)
+       WHERE id = $4
+       RETURNING conference_code, conference_start_mode, conference_record`,
+      [code !== undefined ? String(code) : null, start_mode ?? null,
+       typeof record === 'boolean' ? record : null, req.userId]
+    );
+    res.json({
+      code: rows[0].conference_code,
+      start_mode: rows[0].conference_start_mode,
+      record: rows[0].conference_record,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to update conference settings' });
+  }
+});
+
 // GET my timezone preference
 router.get('/timezone', async (req, res) => {
   try {

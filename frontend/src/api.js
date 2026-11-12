@@ -189,6 +189,8 @@ export const api = {
     remove: (id) => request(`/users/${id}`, { method: 'DELETE' }),
   },
   settings: {
+    getConference: () => request('/settings/conference'),
+    setConference: (data) => request('/settings/conference', { method: 'PUT', body: JSON.stringify(data) }),
     getPin: () => request('/settings/pin'),
     setPin: (pin) => request('/settings/pin', { method: 'PUT', body: JSON.stringify({ pin }) }),
     getGroupPrefixMode: () => request('/settings/group-prefix-mode'),

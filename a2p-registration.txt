@@ -1,0 +1,164 @@
+WONDER SOLUTIONS — A2P 10DLC REGISTRATION (copied from approved Twilio campaign)
+Captured 2026-11-10. Reuse this wording when registering with another provider.
+
+================================================================
+IDENTIFIERS (Twilio — for reference only, not reusable elsewhere)
+================================================================
+Brand SID ............ BN2093920d4f95061ceda758d855c2a2bf   (Approved)
+Campaign SID ......... CM162e8fb2dcb939697ce266423803249e
+External Campaign ID . C28X2EE
+Messaging Service .... MGabcff5681e5f67d8e5fa1b5b7e8c73f8
+Brand name ........... Wonder Solutions
+Created .............. 8/4/2026
+
+
+================================================================
+CAMPAIGN DETAILS
+================================================================
+Use case ............. MIXED
+Trust score .......... (not shown)
+T-Mobile daily limit . (not shown)
+
+
+================================================================
+CAMPAIGN DESCRIPTION
+================================================================
+Wonder Solutions, operated by MOISE FUCHS, provides community announcement
+text messaging for Jewish community organizations in Rockland County, New
+York. Subscribers are community members who joined a list at
+https://www.wondersolutionsny.com/signup.html. Wonder Solutions sends them
+event reminders, schedule changes, community news, announcements, and
+notices that a recorded lecture is available to hear by phone. Messages go
+only to people who selected a list and checked a consent box. No marketing,
+promotional, or third-party content is ever sent. Volume is under 500
+messages per week.
+
+
+================================================================
+CONTENT ATTRIBUTES
+================================================================
+Messages contain phone numbers ........................... Yes
+Messages contain embedded links .......................... No
+Messages contain age-gated content ....................... No
+Messages contain direct lending / loan content ........... No
+
+Terms and conditions ... https://www.wondersolutionsny.com/terms.html
+Privacy policy ......... https://www.wondersolutionsny.com/privacy.html
+
+
+================================================================
+SAMPLE MESSAGES
+================================================================
+#1
+Wonder Solutions: Reminder - community meeting tonight at 8:00 PM in the
+main hall. Reply STOP to unsubscribe.
+
+#2
+Wonder Solutions: This week's shiur is now available by phone. Call
+(845) 456-9404 and enter your PIN to listen. Reply STOP to unsubscribe.
+
+#3
+Wonder Solutions: Schedule change - Sunday's program moves to 10:00 AM.
+Reply STOP to unsubscribe.
+
+
+================================================================
+END USER CONSENT (MESSAGE FLOW)
+================================================================
+How do end-users opt in to receive messages?
+---------------------------------------------
+Members opt in only through the web form at
+https://www.wondersolutionsny.com/signup.html. They enter their name and
+mobile number, select which list to join, and check a consent box that is
+unchecked by default. The consent text reads: "I agree to receive recurring
+text messages from Wonder Solutions at the number provided, including event
+reminders, community news, and announcements. Consent is not a condition of
+any purchase. Message frequency varies. Message and data rates may apply.
+Reply STOP to unsubscribe or HELP for help." The form cannot be submitted
+unless the box is checked. Each submission is stored with a timestamp and
+the exact consent wording displayed. Privacy Policy:
+https://www.wondersolutionsny.com/privacy.html Terms:
+https://www.wondersolutionsny.com/terms.html
+
+Opt-in keywords ...... START, YES, UNSTOP
+Opt-out keywords ..... CANCEL, QUIT, STOP, OPTOUT, UNSUBSCRIBE, STOPALL,
+                       REVOKE, END
+Help keywords ........ HELP, INFO
+
+Opt-in message
+---------------
+Wonder Solutions: You are now subscribed to community announcements. Msg
+frequency varies. Msg & data rates may apply. Reply HELP for help, STOP to
+unsubscribe.
+
+Opt-out message
+----------------
+You have successfully been unsubscribed. You will not receive any more
+messages from this number. Reply START to resubscribe.
+
+Help message
+-------------
+Reply STOP to unsubscribe. Msg&Data Rates May Apply.
+
+
+================================================================
+BRAND DETAILS
+================================================================
+Brand name ........... Wonder Solutions
+Brand type ........... Private corporation          <-- see note 6
+Legal business name .. MOISE FUCHS
+Business address ..... 92 Francis Place 201, Spring Valley, New York 10977, US
+Website .............. https://www.wondersolutionsny.com
+Notification email ... info@wondersolutionsny.com
+Identity ............. Verified
+Vetting .............. Low volume standard
+T-Mobile daily limit . 2,000 - 200,000 message segments per day
+External Brand ID .... BICH78Z
+Bundle SID ........... BU9b8ff397d6a81c2e7f668039f397a4a7
+Compliance profile ... BU6933ac0bce844ebe12fae8d111873bb4  (Approved)
+Created .............. Aug 4, 2026
+
+STILL NEEDED (not shown in the console, get from your records):
+EIN ..................
+Business phone .......
+Contact name .........
+Contact phone ........
+
+
+================================================================
+NOTES BEFORE RESUBMITTING ANYWHERE
+================================================================
+1. The HELP message is weak. It has no brand name and no contact route.
+   Carriers increasingly want both. Suggested replacement:
+
+   Wonder Solutions: community announcements. For help email
+   info@wondersolutionsny.com. Msg & data rates may apply. Reply STOP to
+   unsubscribe.
+
+2. The original Twilio campaign was rejected twice:
+   - 30909: opt-in / call-to-action insufficient
+   - 30886: campaign description didn't match brand details
+   Root cause the first time: edits made before submitting silently did not
+   save. ALWAYS reopen the saved record and re-read it before submitting.
+
+3. The description leads with the legal name (MOISE FUCHS) on purpose - the
+   validator flagged a brand-name mismatch when it didn't. Keep that.
+
+4. Consent is web-form-only. The earlier version mentioned a verbal opt-in
+   path and that contributed to rejection. Do not reintroduce it.
+
+5. signup.html, terms.html and privacy.html must all be live and reachable
+   at the time of review. Check them before submitting.
+
+6. BRAND TYPE MATTERS A LOT. This brand is registered as "Private
+   corporation" with a legal name of MOISE FUCHS, and it came back Low
+   Volume Standard with a T-Mobile ceiling of 2,000-200,000 segments/day.
+   If you register at another provider as "Sole Proprietor" instead, the
+   TCR treats it as a different brand class entirely - much lower
+   throughput (often a few hundred segments/day to T-Mobile) and no
+   ability to scale. Use whichever classification is actually correct for
+   your entity, but know that answering differently than you did here will
+   change your limits, not just your paperwork. If sole proprietor is the
+   honest answer, check the throughput ceiling before you commit to the
+   move - at ~28,000 segments/month it may still be fine, but find out
+   first.
