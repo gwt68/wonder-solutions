@@ -2043,7 +2043,8 @@ function conferenceRoomName(conferenceId) {
 function joinConference(twiml, conferenceId, opts = {}) {
   const { isHost = false, startMode = 'admin', record = true } = opts;
   say(twiml, 'Joining the conference now.');
-  const dial = twiml.dial();
+
+  const dial = twiml.dial(isHost ? { hangupOnStar: true } : {});
   dial.conference(
     {
       // In admin mode only the host opens the room, so everyone else hears
@@ -2052,7 +2053,6 @@ function joinConference(twiml, conferenceId, opts = {}) {
       // The host stays in the room when he presses star for the control menu,
       // so the room is closed from the call-status webhook instead.
       endConferenceOnExit: false,
-      hangupOnStar: isHost,
       waitUrl: 'http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient',
       beep: 'onEnter',
       record: record ? 'record-from-start' : 'do-not-record',
