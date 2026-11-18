@@ -68,6 +68,7 @@ router.post('/mute-all', async (req, res) => {
   try {
     const conf = await activeConference(req.userId);
     if (!conf) return res.status(400).json({ error: 'No conference is running' });
+    await pool.query('UPDATE conferences SET mute_all = $1 WHERE id = $2', [muted, conf.id]);
     const client = twilioClient();
     const list = await client.conferences(conf.twilio_conference_sid).participants.list({ limit: 50 });
     let changed = 0;

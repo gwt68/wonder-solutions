@@ -397,7 +397,7 @@ router.post('/handle', async (req, res) => {
           break;
         }
 
-        joinConference(twiml, conf.conferenceId, { isHost: false, startMode: conf.startMode, record: conf.record });
+        joinConference(twiml, conf.conferenceId, { isHost: false, startMode: conf.startMode, record: conf.record, muted: conf.muteAll });
         break;
       }
       silentPinGather(twiml, null);
@@ -465,7 +465,7 @@ case 'pin_setup': {
           })
           .catch((e) => console.error('could not announce name:', e.message));
       }
-      joinConference(twiml, cid, { isHost: false, startMode: conf.startMode, record: conf.record });
+      joinConference(twiml, cid, { isHost: false, startMode: conf.startMode, record: conf.record, muted: conf.muteAll });
       break;
     }
 
@@ -2076,7 +2076,7 @@ function conferenceRoomName(conferenceId) {
 }
 
 function joinConference(twiml, conferenceId, opts = {}) {
-  const { isHost = false, startMode = 'admin', record = true } = opts;
+  const { isHost = false, startMode = 'admin', record = true, muted = false } = opts;
   say(twiml, 'Joining the conference now.');
 
   const dial = twiml.dial(isHost ? { hangupOnStar: true } : {});
@@ -2084,6 +2084,7 @@ function joinConference(twiml, conferenceId, opts = {}) {
     {
       // In admin mode only the host opens the room, so everyone else hears
       // hold music until he arrives. In two-person mode anyone opens it.
+      muted,
       startConferenceOnEnter: isHost || startMode === 'two',
       // The host stays in the room when he presses star for the control menu,
       // so the room is closed from the call-status webhook instead.
@@ -2139,7 +2140,7 @@ async function getOrCreateConference(userId) {
   if (!code) throw new Error('No conference code set for this account');
 
   const { rows: open } = await pool.query(
-    `SELECT id, recording_on, whitelist_group_id FROM conferences WHERE user_id = $1 AND access_code = $2 AND status <> 'ended'
+    `SELECT id, recording_on, whitelist_group_id, mute_all FROM conferences WHERE user_id = $1 AND access_code = $2 AND status <> 'ended'
       ORDER BY id DESC LIMIT 1`,
     [userId, code]
   );
@@ -2160,6 +2161,7 @@ async function getOrCreateConference(userId) {
     recordMode: u[0]?.conference_record_mode || 'always',
     announceNames: u[0]?.conference_announce_names === true,
     whitelistGroupId: open[0]?.whitelist_group_id ?? u[0]?.conference_whitelist_group_id ?? null,
+    muteAll: open[0]?.mute_all === true,
   };
 }
 
@@ -2283,6 +2285,13 @@ router.post('/conference-menu', async (req, res) => {
 
 // Mutes or unmutes everyone but the host. Returns how many it changed.
 async function setMuteAll(conf, muted) {
+  if (conf && conf.id) {
+    try {
+      await pool.query('UPDATE conferences SET mute_all = $1 WHERE id = $2', [muted === true, conf.id]);
+    } catch (e) {
+      console.log('mute_all persist failed:', e.message);
+    }
+  }
   if (!conf || !conf.twilio_conference_sid) {
     console.log('keypad mute: no live conference sid for conference', conf && conf.id);
     return 0;
