@@ -9,6 +9,7 @@ const { requireAuth, requireFullAccount, requirePerm } = require('./auth');
 router.use(requireAuth);
 
 const telnyx = require('../lib/telnyx');
+const { isTelnyxNumber } = require('../lib/provider');
 
 /**
  * Which provider actually sends. Defaults to twilio, so nothing changes
@@ -42,7 +43,8 @@ async function sendToContact(contact, message, method, fromNumber) {
   if (!fromNumber) {
     return { status: 'failed', error_message: 'This account has no number configured' };
   }
-  return provider() === 'telnyx'
+  const viaTelnyx = (process.env.SMS_PROVIDER || '').trim().toLowerCase() === 'telnyx' || await isTelnyxNumber(fromNumber);
+  return viaTelnyx
     ? sendViaTelnyx(contact, message, method, fromNumber)
     : sendViaTwilio(contact, message, method, fromNumber);
 }
@@ -334,7 +336,7 @@ router.post('/batch/:batchId/retry', requirePerm('can_retry_failed'), async (req
   }
 });
 
-// Retries one failed delivery in place — no new History row for a single contact.
+// Retries one failed delivery in place ??? no new History row for a single contact.
 router.post('/:id/retry', requirePerm('can_retry_failed'), async (req, res) => {
   const scope = req.isAdmin ? null : req.userId;
   try {
@@ -426,3 +428,4 @@ async function processDueSends() {
 }
 
 module.exports = { router, processDueSends, createSendBatch };
+
