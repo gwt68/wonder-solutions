@@ -36,6 +36,7 @@ app.use('/webhooks', webhooksRoutes);
 app.use('/api/call-ins', require('./routes/callins'));
 app.use('/api/conferences', require('./routes/conferences'));
 app.use('/texml', require('./routes/texml'));
+app.use('/webhooks', require('./routes/telnyxWebhooks'));
 
 app.get('/', (req, res) => res.send('Wonder Solutions backend is running.'));
 
@@ -45,3 +46,4 @@ app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 // Check every minute for scheduled sends whose time has come
 setInterval(processDueSends, 60 * 1000);
 setInterval(retryMissingCosts, 5 * 60 * 1000); // catch up on prices Twilio hadn't finalized yet
+
