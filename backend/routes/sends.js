@@ -89,7 +89,7 @@ async function sendViaTelnyx(contact, message, method, fromNumber) {
         to: contact.phone_number,
         from: fromNumber,
         url: `${base}/texml/play/${message.id}`,
-        statusCallback: webhookUrl('telnyx-status')
+        statusCallback: webhookUrl('call-status')
       });
       return { status: 'sent', twilio_sid: id };
     }
@@ -428,4 +428,5 @@ async function processDueSends() {
 }
 
 module.exports = { router, processDueSends, createSendBatch };
+
 
