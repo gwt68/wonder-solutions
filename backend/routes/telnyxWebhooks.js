@@ -7,12 +7,18 @@
  *   /webhooks/telnyx-status    delivery receipts -> sends table
  *   /webhooks/telnyx-inbound   inbound SMS -> the existing voice.js
  *                              handler, reshaped to Twilio field names
+ *
+ * Twilio reads a TwiML <Message> in the response body and sends it as
+ * a reply. Telnyx does not - it ignores the body entirely. voice.js
+ * answers every inbound message that way, so this file captures the
+ * XML it produces and sends those replies over the Telnyx API.
  * ================================================================== */
 
 const express = require('express');
 const router = express.Router();
 const pool = require('../db/pool');
 const voiceRouter = require('./voice');
+const telnyx = require('../lib/telnyx');
 
 // Telnyx status -> the vocabulary the rest of the app already uses.
 const STATUS = {
@@ -24,6 +30,11 @@ const STATUS = {
   delivery_unconfirmed: 'sent',
   failed: 'failed'
 };
+
+function webhookUrl(path) {
+  const base = (process.env.BASE_URL || '').replace(/\/$/, '');
+  return `${base}/webhooks/${path}`;
+}
 
 router.post('/telnyx-status', async (req, res) => {
   res.sendStatus(200);
@@ -63,6 +74,30 @@ router.post('/telnyx-status', async (req, res) => {
   }
 });
 
+/** Undo the escaping twiml.message() applied when it built the XML. */
+function xmlDecode(s) {
+  return String(s)
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCharCode(parseInt(h, 16)))
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/** Pull the reply text out of a <Response><Message>..</Message></Response>. */
+function messagesFromTwiml(xml) {
+  const out = [];
+  const re = /<Message\b[^>]*>([\s\S]*?)<\/Message>/gi;
+  let m;
+  while ((m = re.exec(xml)) !== null) {
+    const text = xmlDecode(m[1]).trim();
+    if (text) out.push(text);
+  }
+  return out;
+}
+
 /**
  * Inbound SMS and MMS. Reshapes the payload into the field names
  * voice.js already reads, then hands the request to that router so
@@ -95,6 +130,27 @@ router.post('/telnyx-inbound', (req, res, next) => {
     console.error('telnyx-inbound: missing from/to', JSON.stringify(p).slice(0, 200));
     return res.sendStatus(200);
   }
+
+  // voice.js answers with TwiML. Telnyx throws the body away, so the
+  // reply is intercepted here and sent over the API instead. The XML
+  // still goes back on the wire - Telnyx simply ignores it.
+  const realSend = res.send.bind(res);
+  let handled = false;
+  res.send = function (body) {
+    if (!handled) {
+      handled = true;
+      const replies = messagesFromTwiml(body);
+      for (const text of replies) {
+        telnyx.sendSms({
+          to: shaped.From,
+          from: shaped.To,
+          text,
+          statusCallback: webhookUrl('telnyx-status')
+        }).catch(e => console.error('telnyx-inbound reply failed:', e.message));
+      }
+    }
+    return realSend(body);
+  };
 
   req.body = shaped;
   req.url = '/sms-incoming';
