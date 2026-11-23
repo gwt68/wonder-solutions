@@ -2,6 +2,17 @@
 // one entry per actual "Send" action, with all its recipients nested inside.
 const TERMINAL_DELIVERY = ['delivered', 'undelivered', 'failed', 'completed', 'busy', 'no-answer', 'canceled'];
 
+/* Twilio does not always send a final receipt. An account suspension
+   mid-broadcast leaves rows sitting at "queued" indefinitely, and one
+   missing callback was enough to keep a finished broadcast Active for
+   ever. After a day, treat a send as resolved whatever Twilio says. */
+const STALE_AFTER_MS = 24 * 60 * 60 * 1000;
+
+function isStale(r) {
+  const t = r.sent_at || r.created_at;
+  return t ? Date.now() - new Date(t).getTime() > STALE_AFTER_MS : false;
+}
+
 function computeOverallStatus(b) {
   const total = b.total;
   const scheduledCount = b.counts.scheduled || 0;
@@ -14,7 +25,8 @@ function computeOverallStatus(b) {
     if (r.status === 'scheduled') return false;
     if (r.status === 'canceled') return true;
     if (r.status === 'failed') return true;
-    return r.delivery_status ? TERMINAL_DELIVERY.includes(r.delivery_status) : false;
+    if (TERMINAL_DELIVERY.includes(r.delivery_status)) return true;
+    return isStale(r);
   });
 
   return allResolved ? 'completed' : 'active';

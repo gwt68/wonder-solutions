@@ -10,6 +10,39 @@ function twilioClient() {
 }
 
 const SMS_TERMINAL_STATUSES = ['delivered', 'undelivered', 'failed'];
+
+/**
+ * Twilio's status callback frequently arrives with an ErrorCode and no
+ * ErrorMessage, which used to leave the literal string "see Twilio error
+ * code" in front of the user. These are the codes this account actually
+ * sees; anything else falls back to whatever Twilio sent, then to the
+ * bare code.
+ */
+const TWILIO_ERRORS = {
+  '21610': 'Recipient replied STOP and is unsubscribed',
+  '21612': 'This number cannot be reached from the sending number',
+  '21614': 'Not a valid mobile number',
+  '30001': 'Queue overflow - the message waited too long and was dropped',
+  '30002': 'Account suspended',
+  '30003': 'Handset unreachable - phone off or out of coverage',
+  '30004': 'Message blocked by the carrier',
+  '30005': 'Unknown number - this handset does not exist',
+  '30006': 'Landline or a number that cannot receive texts',
+  '30007': 'Carrier filtered the message as spam',
+  '30008': 'Unknown error at the carrier',
+  '30010': 'Message price exceeded the account maximum',
+  '30022': 'Daily message limit reached for this number',
+  '30032': 'Toll-free number is not verified',
+  '30034': 'Number is not registered for A2P 10DLC'
+};
+
+function errorText(code, message) {
+  if (!code) return null;
+  const known = TWILIO_ERRORS[String(code)];
+  if (known) return `${code}: ${known}`;
+  if (message) return `${code}: ${message}`;
+  return `${code}: delivery failed`;
+}
 const CALL_TERMINAL_STATUSES = ['completed', 'busy', 'no-answer', 'canceled', 'failed'];
 
 // Twilio posts here as an SMS/MMS moves through queued -> sent -> delivered/undelivered/failed.
@@ -22,7 +55,7 @@ router.post('/sms-status', async (req, res) => {
         `UPDATE sends SET delivery_status = $1,
                 error_message = COALESCE($2, error_message)
           WHERE twilio_sid = $3`,
-        [MessageStatus, ErrorCode ? `${ErrorCode}: ${ErrorMessage || 'see Twilio error code'}` : null, MessageSid]
+        [MessageStatus, errorText(ErrorCode, ErrorMessage), MessageSid]
       );
 
       // 30005 is a number that does not exist, 30006 a landline. Neither will
