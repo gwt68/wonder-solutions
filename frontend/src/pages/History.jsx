@@ -144,6 +144,7 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
   const [userFilter, setUserFilter] = useState('me');
   const [users, setUsers] = useState([]);
   const [cancelingBatch, setCancelingBatch] = useState(null);
+  const [editingBatch, setEditingBatch] = useState(null);
   const [visibleCols, setVisibleCols] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
@@ -762,6 +763,23 @@ const canViewCalledIn = isAdmin || (() => {
                             <button
                               type="button"
                               className="btn secondary"
+                              style={{ marginBottom: 12, marginRight: 8, padding: '6px 12px', fontSize: 13 }}
+                              onClick={() => setEditingBatch(b.batchId)}
+                            >
+                              <i className="ti ti-pencil" /> Edit this broadcast
+                            </button>
+                          )}
+                          {editingBatch === b.batchId && (
+                            <EditScheduledModal
+                              batchId={b.batchId}
+                              onClose={() => setEditingBatch(null)}
+                              onSaved={() => { setEditingBatch(null); load(); }}
+                            />
+                          )}
+                          {b.overallStatus === 'scheduled' && (
+                            <button
+                              type="button"
+                              className="btn secondary"
                               style={{ marginBottom: 12, padding: '6px 12px', fontSize: 13, color: 'var(--danger)' }}
                               onClick={() => handleCancelBatch(b.batchId)}
                               disabled={cancelingBatch === b.batchId}
@@ -882,4 +900,181 @@ const canViewCalledIn = isAdmin || (() => {
       </div>
     </div>
   );
+}
+
+// Change the time, the words, or the recipients of a scheduled broadcast.
+function EditScheduledModal({ batchId, onClose, onSaved }) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [editable, setEditable] = useState(true);
+  const [message, setMessage] = useState(null);
+  const [text, setText] = useState('');
+  const [when, setWhen] = useState('');
+  const [recips, setRecips] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [allContacts, setAllContacts] = useState([]);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    api.sends.getBatch(batchId)
+      .then((r) => {
+        setEditable(r.editable !== false);
+        setMessage(r.message);
+        setText(r.message?.text_content || '');
+        setWhen(toLocalInput(r.scheduled_at));
+        setRecips(r.recipients || []);
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
+    api.groups.list().then(setGroups).catch(() => {});
+    api.contacts.list().then(setAllContacts).catch(() => {});
+  }, [batchId]);
+
+  function addContacts(list) {
+    setRecips((prev) => {
+      const have = new Set(prev.map((r) => r.contact_id));
+      const add = (list || [])
+        .filter((c) => !have.has(c.id))
+        .map((c) => ({
+          contact_id: c.id,
+          name: c.name,
+          phone_number: c.phone_number,
+          methods: [c.preferred_method || 'sms'],
+        }));
+      return prev.concat(add);
+    });
+  }
+
+  async function addGroup(groupId) {
+    if (!groupId) return;
+    try {
+      addContacts(await api.groups.contacts(Number(groupId)));
+    } catch (e) {
+      setError(e.message);
+    }
+  }
+
+  const hasMedia = !!(message && (message.has_uploaded_audio || message.has_image || message.audio_url));
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!recips.length) { setError('Pick at least one recipient'); return; }
+    setSaving(true); setError('');
+    try {
+      const payload = {
+        scheduled_at: new Date(when).toISOString(),
+        recipients: recips.map((r) => ({ contact_id: r.contact_id, methods: r.methods })),
+      };
+      if (!hasMedia) payload.text_content = text;
+      await api.sends.updateBatch(batchId, payload);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  }
+
+  const q = search.trim().toLowerCase();
+  const hits = q.length < 2 ? [] : allContacts.filter((c) => (
+    (c.name || '').toLowerCase().includes(q) || (c.phone_number || '').includes(q)
+  )).slice(0, 8);
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 600 }}>
+        <h3 style={{ margin: '0 0 8px' }}>Edit scheduled broadcast</h3>
+        {loading ? <p style={{ fontSize: 13 }}>Loading...</p> : (
+          <form onSubmit={submit}>
+            {error && <p style={{ color: 'var(--danger)', fontSize: 13, margin: '0 0 10px' }}>{error}</p>}
+            {!editable && (
+              <p style={{ color: 'var(--danger)', fontSize: 13, margin: '0 0 10px' }}>
+                Some of this broadcast already went out, so it can no longer be changed.
+              </p>
+            )}
+
+            <div className="field">
+              <label>Send at</label>
+              <input type="datetime-local" value={when} disabled={!editable}
+                onChange={(e) => setWhen(e.target.value)} />
+            </div>
+
+            {hasMedia ? (
+              <div className="field">
+                <label>Message</label>
+                <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 0 }}>
+                  {message.title || 'Recording'} - this one carries a recording or a picture, so the file cannot be swapped here.
+                </p>
+              </div>
+            ) : (
+              <div className="field">
+                <label>Message ({text.length} characters)</label>
+                <textarea rows={4} value={text} disabled={!editable}
+                  onChange={(e) => setText(e.target.value)} />
+              </div>
+            )}
+
+            <div className="field">
+              <label>Recipients ({recips.length})</label>
+              <div style={{ maxHeight: 150, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, padding: 6 }}>
+                {recips.map((r) => (
+                  <div key={r.contact_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 4px', fontSize: 13 }}>
+                    <span style={{ flex: 1 }}>{r.name || r.phone_number}</span>
+                    <span style={{ color: 'var(--ink-soft)', fontSize: 12 }}>{(r.methods || []).join(', ')}</span>
+                    <button type="button" className="icon-btn danger" disabled={!editable}
+                      aria-label="Remove"
+                      onClick={() => setRecips((p) => p.filter((x) => x.contact_id !== r.contact_id))}>
+                      <i className="ti ti-x" />
+                    </button>
+                  </div>
+                ))}
+                {!recips.length && (
+                  <p style={{ fontSize: 13, color: 'var(--ink-soft)', margin: 4 }}>Nobody yet.</p>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Add a whole group</label>
+                <select defaultValue="" disabled={!editable}
+                  onChange={(e) => { addGroup(e.target.value); e.target.value = ''; }}>
+                  <option value="">Pick a group...</option>
+                  {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Add one contact</label>
+                <input value={search} disabled={!editable} placeholder="Name or number"
+                  onChange={(e) => setSearch(e.target.value)} />
+                {hits.map((c) => (
+                  <button key={c.id} type="button" className="btn secondary"
+                    style={{ display: 'block', width: '100%', textAlign: 'left', padding: '4px 8px', fontSize: 12.5, marginTop: 4 }}
+                    onClick={() => { addContacts([c]); setSearch(''); }}>
+                    {c.name || c.phone_number}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>Cancel</button>
+              <button type="submit" className="btn" disabled={saving || !editable || !when}>
+                {saving ? 'Saving...' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Formats an ISO timestamp for a datetime-local input, in the browser's own zone.
+function toLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }

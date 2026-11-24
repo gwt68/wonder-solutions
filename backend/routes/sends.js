@@ -391,6 +391,123 @@ router.put('/batch/:batchId/cancel', async (req, res) => {
   }
 });
 
+// One scheduled broadcast, with everything the edit form needs.
+router.get('/batch/:batchId', async (req, res) => {
+  const scope = req.isAdmin ? null : req.userId;
+  try {
+    const { rows } = await pool.query(
+      `SELECT s.id, s.contact_id, s.method, s.status, s.scheduled_at, s.message_id,
+              s.is_conversation_reply, c.name, c.phone_number
+         FROM sends s JOIN contacts c ON c.id = s.contact_id
+        WHERE s.batch_id = $1 AND ($2::int IS NULL OR s.user_id = $2)`,
+      [req.params.batchId, scope]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'That broadcast was not found' });
+
+    const pending = rows.filter((r) => r.status === 'scheduled');
+    const byContact = {};
+    for (const r of pending) {
+      if (!byContact[r.contact_id]) {
+        byContact[r.contact_id] = {
+          contact_id: r.contact_id, name: r.name, phone_number: r.phone_number, methods: [],
+        };
+      }
+      byContact[r.contact_id].methods.push(r.method);
+    }
+
+    const { rows: msg } = await pool.query(
+      `SELECT id, title, type, text_content, audio_url,
+              (audio_data IS NOT NULL) AS has_uploaded_audio,
+              (image_data IS NOT NULL) AS has_image
+         FROM messages WHERE id = $1`,
+      [rows[0].message_id]
+    );
+
+    res.json({
+      batch_id: req.params.batchId,
+      editable: pending.length > 0 && pending.length === rows.length,
+      scheduled_at: pending[0]?.scheduled_at || null,
+      message: msg[0] || null,
+      recipients: Object.values(byContact),
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Could not load that broadcast' });
+  }
+});
+
+// Change the time, the words, or who gets a scheduled broadcast.
+router.put('/batch/:batchId', async (req, res) => {
+  const scope = req.isAdmin ? null : req.userId;
+  const { scheduled_at, text_content, recipients } = req.body;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, status, message_id, scheduled_at, user_id, is_conversation_reply
+         FROM sends WHERE batch_id = $1 AND ($2::int IS NULL OR user_id = $2)`,
+      [req.params.batchId, scope]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'That broadcast was not found' });
+    if (rows.some((r) => r.status !== 'scheduled')) {
+      return res.status(400).json({ error: 'This broadcast already started going out, so it cannot be changed' });
+    }
+
+    const when = scheduled_at ? new Date(scheduled_at) : new Date(rows[0].scheduled_at);
+    if (isNaN(when.getTime())) return res.status(400).json({ error: 'That date does not look right' });
+    if (when.getTime() <= Date.now() + 30000) {
+      return res.status(400).json({ error: 'Pick a time at least a minute from now' });
+    }
+
+    const ownerId = rows[0].user_id;
+    let messageId = rows[0].message_id;
+
+    // Changing the words: if anything outside this broadcast points at the same
+    // message, copy it first so past broadcasts keep what they actually said.
+    if (typeof text_content === 'string') {
+      const { rows: other } = await pool.query(
+        'SELECT 1 FROM sends WHERE message_id = $1 AND batch_id <> $2 LIMIT 1',
+        [messageId, req.params.batchId]
+      );
+      if (other.length) {
+        const { rows: clone } = await pool.query(
+          `INSERT INTO messages (title, type, text_content, audio_data, audio_mime_type,
+             image_data, image_mime_type, audio_url, user_id, is_variant)
+           SELECT title, type, $2, audio_data, audio_mime_type,
+                  image_data, image_mime_type, audio_url, user_id, TRUE
+             FROM messages WHERE id = $1 RETURNING id`,
+          [messageId, text_content]
+        );
+        messageId = clone[0].id;
+      } else {
+        await pool.query('UPDATE messages SET text_content = $2 WHERE id = $1', [messageId, text_content]);
+      }
+    }
+
+    // Changing who gets it: tear the scheduled rows down and rebuild them under
+    // the same batch id, so method checks and dead numbers get applied again.
+    if (Array.isArray(recipients) && recipients.length) {
+      await pool.query(`DELETE FROM sends WHERE batch_id = $1 AND status = 'scheduled'`, [req.params.batchId]);
+      const out = await createSendBatch({
+        message_id: messageId,
+        recipients,
+        scheduled_at: when.toISOString(),
+        userId: ownerId,
+        isConversationReply: rows[0].is_conversation_reply === true,
+        batch_id: req.params.batchId,
+      });
+      return res.json({ updated: out.count, skipped: out.skipped, batch_id: req.params.batchId });
+    }
+
+    const { rowCount } = await pool.query(
+      `UPDATE sends SET scheduled_at = $2, message_id = $3 WHERE batch_id = $1 AND status = 'scheduled'`,
+      [req.params.batchId, when.toISOString(), messageId]
+    );
+    res.json({ updated: rowCount, batch_id: req.params.batchId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message || 'Could not save the changes' });
+  }
+});
+
 async function processDueSends() {
   try {
     const { rows: due } = await pool.query(

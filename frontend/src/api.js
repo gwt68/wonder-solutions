@@ -178,6 +178,8 @@ export const api = {
     listForContact: (contactId) => request(`/sends?contact_id=${contactId}`),
     remove: (id) => request(`/sends/${id}`, { method: 'DELETE' }),
     cancelBatch: (batchId) => request(`/sends/batch/${batchId}/cancel`, { method: 'PUT' }),
+    getBatch: (batchId) => request('/sends/batch/' + batchId),
+    updateBatch: (batchId, data) => request('/sends/batch/' + batchId, { method: 'PUT', body: JSON.stringify(data) }),
     retryBatch: (batchId) => request(`/sends/batch/${batchId}/retry`, { method: 'POST' }),
     retryOne: (id) => request(`/sends/${id}/retry`, { method: 'POST' }),
   },
