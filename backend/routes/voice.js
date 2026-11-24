@@ -854,9 +854,10 @@ case 'history_menu': {
           say(twiml, `Nice. Saved as message ${spokenDigits(rows[0].id)}.`);
           broadcastTargetPrompt(twiml);
         } else {
-          await updateSession(callSid, 'main_menu', { last_message_id: rows[0].id });
-          say(twiml, 'Saved.');
-          mainMenu(twiml);
+
+          await updateSession(callSid, 'record_saved', { last_message_id: rows[0].id, saved_message_id: rows[0].id });
+          say(twiml, `Saved as message ${spokenDigits(rows[0].id)}.`);
+          recordSavedPrompt(twiml, rows[0].id);
         }
       } else if (digits === '2') {
         twiml.play(session.data.pending_recording_url);
@@ -873,6 +874,29 @@ case 'history_menu': {
       }
       break;
     }
+
+    case 'record_saved': {
+      const savedId = session.data.saved_message_id;
+      if (!savedId) { await updateSession(callSid, 'main_menu'); mainMenu(twiml); break; }
+      if (digits === '1') {
+        await updateSession(callSid, 'broadcast_target_select', {
+          broadcast_message_id: savedId,
+          broadcast_message_title: `Message ${savedId}`,
+        });
+        broadcastTargetPrompt(twiml);
+      } else if (digits === '2') {
+        twiml.play(`${BASE_URL}/api/messages/${savedId}/audio/preview`);
+        recordSavedPrompt(twiml, savedId);
+      } else if (digits === '3') {
+        await updateSession(callSid, 'main_menu');
+        mainMenu(twiml);
+      } else {
+        recordSavedPrompt(twiml, savedId, true);
+      }
+      break;
+    }
+
+
 
     case 'review_list': {
       const ids = session.data.message_ids || [];
@@ -1446,6 +1470,15 @@ function recordPrompt(twiml) {
   twiml.say('Record your message after the beep. Press pound when finished.', SAY_OPTS);
   twiml.record({ action: `${BASE_URL}/voice/handle`, method: 'POST', finishOnKey: '#', maxLength: 120, playBeep: true });
 }
+
+// After a recording is saved: its number, and what to do with it next.
+function recordSavedPrompt(twiml, messageId, retry = false) {
+  const lead = retry ? 'Sorry, I did not get that. ' : '';
+  gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+    `${lead}This is message ${spokenDigits(messageId)}. To send it out now, press 1. To hear the first few seconds, press 2. To go back to the main menu, press 3.`,
+    { numDigits: 1 });
+}
+
 
 function recordReviewPrompt(twiml, retry = false) {
   const prefix = retry ? "Sorry, I didn't get that. " : '';

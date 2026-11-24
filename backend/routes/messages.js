@@ -293,6 +293,42 @@ router.get('/:id/audio', async (req, res) => {
   }
 });
 
+// The first few seconds only, so a caller can tell recordings apart without
+// sitting through the whole thing. Twilio records 8 kHz mono MP3 at roughly
+// 4 KB a second, so cutting by byte count lands close enough to five seconds.
+const PREVIEW_BYTES = 5 * 4000;
+
+router.get('/:id/audio/preview', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT audio_data, audio_mime_type, audio_url FROM messages WHERE id = $1', [req.params.id]
+    );
+    if (!rows.length) return res.status(404).end();
+    const msg = rows[0];
+    if (msg.audio_data) {
+      res.set('Content-Type', msg.audio_mime_type || 'audio/mpeg');
+      return res.send(msg.audio_data.subarray(0, PREVIEW_BYTES));
+    }
+    if (msg.audio_url) {
+      const sid = (process.env.TWILIO_ACCOUNT_SID || '').trim();
+      const token = (process.env.TWILIO_AUTH_TOKEN || '').trim();
+      if (!sid || !token) return res.status(500).json({ error: 'Server is missing Twilio credentials' });
+      const auth = Buffer.from(`${sid}:${token}`).toString('base64');
+      const twilioRes = await fetch(msg.audio_url, {
+        headers: { Authorization: `Basic ${auth}`, Range: `bytes=0-${PREVIEW_BYTES - 1}` },
+      });
+      if (!twilioRes.ok && twilioRes.status !== 206) return res.status(502).end();
+      res.set('Content-Type', twilioRes.headers.get('content-type') || 'audio/mpeg');
+      const buffer = Buffer.from(await twilioRes.arrayBuffer());
+      return res.send(buffer.subarray(0, PREVIEW_BYTES));
+    }
+    res.status(404).end();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to load the preview' });
+  }
+});
+
 router.get('/:id/image', async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT image_data, image_mime_type FROM messages WHERE id = $1', [req.params.id]);
