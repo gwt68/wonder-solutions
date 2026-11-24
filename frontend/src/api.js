@@ -189,6 +189,12 @@ export const api = {
     update: (id, username, extra = {}) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify({ username, ...extra }) }),
     remove: (id) => request(`/users/${id}`, { method: 'DELETE' }),
   },
+  conferenceCodes: {
+    list: () => request('/conference-codes'),
+    create: (data) => request('/conference-codes', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id, data) => request('/conference-codes/' + id, { method: 'PUT', body: JSON.stringify(data) }),
+    remove: (id) => request('/conference-codes/' + id, { method: 'DELETE' }),
+  },
   conferences: {
     live: () => request('/conferences/live'),
     setRecording: (on) => request('/conferences/recording', { method: 'POST', body: JSON.stringify({ on }) }),

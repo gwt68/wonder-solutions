@@ -35,6 +35,7 @@ app.use('/api/account', require('./routes/account'));
 app.use('/webhooks', webhooksRoutes);
 app.use('/api/call-ins', require('./routes/callins'));
 app.use('/api/conferences', require('./routes/conferences'));
+app.use('/api/conference-codes', require('./routes/conferenceCodes'));
 app.use('/texml', require('./routes/texml'));
 app.use('/webhooks', require('./routes/telnyxWebhooks'));
 

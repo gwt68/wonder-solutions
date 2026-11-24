@@ -507,19 +507,13 @@ function TimezoneInline() {
   );
 }
 
-// Everything to do with conference calls, one setting per row.
+// Account-wide conference settings. Per-conference settings live in the editor.
 function ConferenceRows() {
-  const [code, setCode] = useState('');
-  const [startMode, setStartMode] = useState('admin');
-  const [recordMode, setRecordMode] = useState('always');
-  const [announceNames, setAnnounceNames] = useState(false);
-  const [whitelistGroupId, setWhitelistGroupId] = useState('');
+  const [codes, setCodes] = useState([]);
   const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [editingCode, setEditingCode] = useState(false);
-  const [draftCode, setDraftCode] = useState('');
+  const [editing, setEditing] = useState(null);
 
   // hold music
   const [musicName, setMusicName] = useState(null);
@@ -527,37 +521,18 @@ function ConferenceRows() {
   const [musicError, setMusicError] = useState('');
   const fileRef = useRef(null);
 
-  useEffect(() => {
-    api.settings.getConference()
-      .then((r) => {
-        setCode(r.code || '');
-        setStartMode(r.start_mode);
-        setRecordMode(r.record_mode || 'always');
-        setAnnounceNames(r.announce_names === true);
-        setWhitelistGroupId(r.whitelist_group_id == null ? '' : String(r.whitelist_group_id));
-      })
+  function loadCodes() {
+    return api.conferenceCodes.list()
+      .then((r) => setCodes(r || []))
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadCodes();
     api.groups.list().then(setGroups).catch(() => {});
     api.settings.getHoldMusic().then((r) => setMusicName(r.name)).catch(() => {});
   }, []);
-
-  async function save(patch) {
-    setSaving(true); setError('');
-    try {
-      const r = await api.settings.setConference(patch);
-      setCode(r.code || '');
-      setStartMode(r.start_mode);
-      setRecordMode(r.record_mode || 'always');
-      setAnnounceNames(r.announce_names === true);
-      setWhitelistGroupId(r.whitelist_group_id == null ? '' : String(r.whitelist_group_id));
-      setEditingCode(false);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  }
 
   async function handleMusicFile(e) {
     const file = e.target.files?.[0];
@@ -592,107 +567,57 @@ function ConferenceRows() {
   return (
     <>
       <Row
-        title="Access code"
-        description="Callers dial your number and enter this to join."
-        below={editingCode && (
-          <form onSubmit={(e) => { e.preventDefault(); save({ code: draftCode }); }}>
+        title="Conferences"
+        description="Each code is its own conference, with its own settings and mute list."
+        below={(
+          <div style={{ display: 'grid', gap: 8 }}>
             <Note kind="error">{error}</Note>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-              <div className="field" style={{ marginBottom: 0, maxWidth: 180 }}>
-                <label>New code (4 to 8 digits)</label>
-                <input
-                  autoFocus
-                  value={draftCode}
-                  onChange={(e) => setDraftCode(e.target.value.replace(/\D/g, '').slice(0, 8))}
-                  style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}
-                />
+            {codes.map((c) => (
+              <div
+                key={c.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+                  padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8,
+                }}
+              >
+                <span style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', fontWeight: 600 }}>
+                  {c.code}
+                </span>
+                <span style={{ fontSize: 13 }}>{c.name || 'Untitled'}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--ink-soft)' }}>
+                  {c.start_mode === 'two' ? 'Opens when anyone joins' : 'Opens when you start it'}
+                  {c.default_muted ? ' - everyone muted' : ''}
+                </span>
+                <button
+                  type="button"
+                  className="btn secondary"
+                  style={{ padding: '5px 10px', fontSize: 12.5 }}
+                  onClick={() => setEditing(c)}
+                >
+                  Edit
+                </button>
               </div>
-              <button type="submit" className="btn" disabled={saving || draftCode.length < 4}>
-                {saving ? t('btn_saving') : 'Save'}
+            ))}
+            <div>
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ padding: '6px 12px', fontSize: 12.5 }}
+                onClick={() => setEditing('new')}
+              >
+                Add a conference
               </button>
             </div>
-          </form>
+          </div>
         )}
       >
-        <CurrentValue>{code || 'Not set'}</CurrentValue>
-        <button
-          type="button"
-          className="btn secondary"
-          style={{ padding: '6px 12px', fontSize: 12.5 }}
-          onClick={() => { setDraftCode(code); setEditingCode((v) => !v); }}
-        >
-          {editingCode ? 'Cancel' : 'Change'}
-        </button>
-      </Row>
-
-      <Row
-        title="When it starts"
-        description="Callers hear hold music until the conference opens."
-      >
-        <div className="chip-select" style={{ marginBottom: 0 }}>
-          <button
-            type="button"
-            className={`chip-toggle ${startMode === 'admin' ? 'active' : ''}`}
-            onClick={() => save({ start_mode: 'admin' })}
-            disabled={saving}
-          >
-            When I start it
-          </button>
-          <button
-            type="button"
-            className={`chip-toggle ${startMode === 'two' ? 'active' : ''}`}
-            onClick={() => save({ start_mode: 'two' })}
-            disabled={saving}
-          >
-            As soon as anyone joins
-          </button>
-        </div>
-      </Row>
-
-      <Row
-        title="Who can join"
-        description="Limit the call to one group, or leave it open to anyone with the code."
-      >
-        <select
-          value={whitelistGroupId}
-          disabled={saving}
-          onChange={(e) => save({ whitelist_group_id: e.target.value === '' ? null : Number(e.target.value) })}
-          style={{ minWidth: 170 }}
-        >
-          <option value="">Anyone with the code</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>{g.name}</option>
-          ))}
-        </select>
-      </Row>
-
-      <Row
-        title="Announce who joins"
-        description="Callers say their name on the way in, and it plays to the room."
-      >
-        <div className="chip-select" style={{ marginBottom: 0 }}>
-          <button
-            type="button"
-            className={`chip-toggle ${announceNames ? 'active' : ''}`}
-            onClick={() => save({ announce_names: true })}
-            disabled={saving}
-          >
-            On
-          </button>
-          <button
-            type="button"
-            className={`chip-toggle ${!announceNames ? 'active' : ''}`}
-            onClick={() => save({ announce_names: false })}
-            disabled={saving}
-          >
-            Off
-          </button>
-        </div>
+        <CurrentValue>{codes.length === 1 ? '1 code' : codes.length + ' codes'}</CurrentValue>
       </Row>
 
       <Row
         title="Hold music"
         description={musicError || 'Played while callers wait for the conference to open. MP3 or WAV, up to 8 MB.'}
+        last
       >
         <input ref={fileRef} type="file" accept="audio/mpeg,audio/wav" style={{ display: 'none' }} onChange={handleMusicFile} />
         {musicName && (
@@ -702,7 +627,7 @@ function ConferenceRows() {
         )}
         <button type="button" className="btn secondary" style={{ padding: '6px 12px', fontSize: 12.5 }}
           onClick={() => fileRef.current?.click()} disabled={musicBusy}>
-          {musicBusy ? 'Working…' : musicName ? 'Replace' : 'Upload'}
+          {musicBusy ? 'Working...' : musicName ? 'Replace' : 'Upload'}
         </button>
         {musicName && (
           <button type="button" className="icon-btn danger" onClick={removeMusic} disabled={musicBusy} aria-label="Remove hold music">
@@ -711,29 +636,194 @@ function ConferenceRows() {
         )}
       </Row>
 
-      <Row
-        title="Record conferences"
-        description="Recordings show up on the Conference page afterwards."
-        last
-      >
-        <div className="chip-select" style={{ marginBottom: 0 }}>
-          {[
-            { value: 'always', label: 'Always' },
-            { value: 'never', label: 'Never' },
-            { value: 'ask', label: 'Ask each time' },
-          ].map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              className={`chip-toggle ${recordMode === opt.value ? 'active' : ''}`}
-              onClick={() => save({ record_mode: opt.value })}
-              disabled={saving}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      </Row>
+      {editing && (
+        <ConferenceCodeEditor
+          row={editing === 'new' ? null : editing}
+          groups={groups}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); loadCodes(); }}
+        />
+      )}
     </>
+  );
+}
+
+// Add or change one conference: its code, how it opens, and who arrives muted.
+function ConferenceCodeEditor({ row, groups, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    code: row?.code || '',
+    name: row?.name || '',
+    start_mode: row?.start_mode || 'admin',
+    record_mode: row?.record_mode || 'always',
+    announce_names: row?.announce_names === true,
+    whitelist_group_id: row?.whitelist_group_id == null ? '' : String(row.whitelist_group_id),
+    default_muted: row?.default_muted === true,
+    unmuted_group_id: row?.unmuted_group_id == null ? '' : String(row.unmuted_group_id),
+    unmuted_numbers: row?.unmuted_numbers || '',
+    muted_group_id: row?.muted_group_id == null ? '' : String(row.muted_group_id),
+    muted_numbers: row?.muted_numbers || '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  async function submit(e) {
+    e.preventDefault();
+    setSaving(true); setError('');
+    try {
+      if (row) await api.conferenceCodes.update(row.id, form);
+      else await api.conferenceCodes.create(form);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm('Delete this conference and its code?')) return;
+    setSaving(true); setError('');
+    try {
+      await api.conferenceCodes.remove(row.id);
+      onSaved();
+    } catch (err) {
+      setError(err.message);
+      setSaving(false);
+    }
+  }
+
+  const groupPick = (field, blank) => (
+    <select value={form[field]} onChange={(e) => set(field, e.target.value)} style={{ width: '100%' }}>
+      <option value="">{blank}</option>
+      {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+    </select>
+  );
+
+  const chips = (field, opts) => (
+    <div className="chip-select" style={{ marginBottom: 0 }}>
+      {opts.map((o) => (
+        <button
+          key={String(o.value)}
+          type="button"
+          className={`chip-toggle ${form[field] === o.value ? 'active' : ''}`}
+          onClick={() => set(field, o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <form onSubmit={submit}>
+          <h3 style={{ margin: '0 0 6px' }}>{row ? 'Edit conference' : 'New conference'}</h3>
+          <Note kind="error">{error}</Note>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <div className="field" style={{ maxWidth: 150 }}>
+              <label>Code (4 to 8 digits)</label>
+              <input
+                autoFocus
+                value={form.code}
+                onChange={(e) => set('code', e.target.value.replace(/\D/g, '').slice(0, 8))}
+                style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}
+              />
+            </div>
+            <div className="field" style={{ flex: 1 }}>
+              <label>Name (just for you)</label>
+              <input value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Board meeting" />
+            </div>
+          </div>
+
+          <div className="field">
+            <label>When it opens</label>
+            {chips('start_mode', [
+              { value: 'admin', label: 'When I start it' },
+              { value: 'two', label: 'As soon as anyone joins' },
+            ])}
+          </div>
+
+          <div className="field">
+            <label>Who can call in</label>
+            {groupPick('whitelist_group_id', 'Anyone with the code')}
+          </div>
+
+          <div className="field">
+            <label>Announce who joins</label>
+            {chips('announce_names', [
+              { value: true, label: 'On' },
+              { value: false, label: 'Off' },
+            ])}
+          </div>
+
+          <div className="field">
+            <label>Recording</label>
+            {chips('record_mode', [
+              { value: 'always', label: 'Always' },
+              { value: 'never', label: 'Never' },
+              { value: 'ask', label: 'Ask each time' },
+            ])}
+          </div>
+
+          <hr style={{ border: 0, borderTop: '1px solid var(--line)', margin: '16px 0 12px' }} />
+
+          <div className="field">
+            <label>Everyone arrives</label>
+            {chips('default_muted', [
+              { value: false, label: 'Unmuted' },
+              { value: true, label: 'Muted' },
+            ])}
+            <p style={{ fontSize: 12, color: 'var(--ink-soft)', margin: '6px 0 0' }}>
+              The two lists below override this for the numbers you name.
+            </p>
+          </div>
+
+          <div className="field">
+            <label>Always unmuted (speakers)</label>
+            {groupPick('unmuted_group_id', 'No group')}
+            <textarea
+              rows={2}
+              value={form.unmuted_numbers}
+              onChange={(e) => set('unmuted_numbers', e.target.value)}
+              placeholder="Extra numbers, one per line"
+              style={{ marginTop: 6 }}
+            />
+          </div>
+
+          <div className="field">
+            <label>Always muted (listeners)</label>
+            {groupPick('muted_group_id', 'No group')}
+            <textarea
+              rows={2}
+              value={form.muted_numbers}
+              onChange={(e) => set('muted_numbers', e.target.value)}
+              placeholder="Extra numbers, one per line"
+              style={{ marginTop: 6 }}
+            />
+          </div>
+
+          <div className="modal-actions" style={{ justifyContent: 'space-between' }}>
+            <div>
+              {row && (
+                <button type="button" className="btn danger" onClick={remove} disabled={saving}>
+                  Delete
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button type="button" className="btn secondary" onClick={onClose} disabled={saving}>
+                Cancel
+              </button>
+              <button type="submit" className="btn" disabled={saving || form.code.length < 4}>
+                {saving ? t('btn_saving') : 'Save'}
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
