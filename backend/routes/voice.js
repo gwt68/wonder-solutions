@@ -362,12 +362,9 @@ router.post('/handle', async (req, res) => {
       }
       // Admin now requires a trusted caller ID as well as the PIN, so entering
       // a PIN here no longer opens the menu — only conference codes are checked.
-      const { rows: confRows } = await pool.query(
-        `SELECT 1 FROM users WHERE conference_code = $1 AND id = $2`,
-        [digits, userId]
-      );
-      if (confRows.length) {
-        const conf = await getOrCreateConference(userId);
+      const codeRow = await findConferenceCode(userId, digits);
+      if (codeRow) {
+        const conf = await getOrCreateConference(userId, codeRow);
 
         // Only let people in if they are in the allowed group, when one is set.
         if (conf.whitelistGroupId) {
@@ -397,7 +394,8 @@ router.post('/handle', async (req, res) => {
           break;
         }
 
-        joinConference(twiml, conf.conferenceId, { isHost: false, startMode: conf.startMode, record: conf.record, muted: conf.muteAll });
+        const muted = await shouldArriveMuted(userId, conf, req.body.From);
+        joinConference(twiml, conf.conferenceId, { isHost: false, startMode: conf.startMode, record: conf.record, muted });
         break;
       }
       silentPinGather(twiml, null);
@@ -452,9 +450,20 @@ case 'pin_setup': {
       break;
     }
 
+    case 'conference_host_pick': {
+      const picked = await findConferenceCode(userId, digits);
+      if (!picked) {
+        gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+          'That code was not found. Enter the conference code, then press pound.', {});
+        break;
+      }
+      await hostStartForCode(callSid, twiml, userId, picked);
+      break;
+    }
+
     case 'conference_name_record': {
       const cid = session.data.pending_conference_id;
-      const conf = await getOrCreateConference(userId);
+      const conf = await getConferenceById(cid);
       if (recordingUrl) {
         // Play the name into the room, if the conference is already going.
         pool.query('SELECT twilio_conference_sid FROM conferences WHERE id = $1', [cid])
@@ -465,7 +474,8 @@ case 'pin_setup': {
           })
           .catch((e) => console.error('could not announce name:', e.message));
       }
-      joinConference(twiml, cid, { isHost: false, startMode: conf.startMode, record: conf.record, muted: conf.muteAll });
+      const muted = await shouldArriveMuted(userId, conf, req.body.From);
+      joinConference(twiml, cid, { isHost: false, startMode: conf?.startMode || 'admin', record: conf?.record !== false, muted });
       break;
     }
 
@@ -2129,44 +2139,113 @@ async function generateConferenceCode() {
   throw new Error('Could not generate a unique conference code');
 }
 
-// Finds this account's open conference room, or opens one, using the
-// permanent code from Settings rather than minting a new one each time.
-async function getOrCreateConference(userId) {
-  const { rows: u } = await pool.query(
-    'SELECT conference_code, conference_start_mode, conference_record, conference_record_mode, conference_announce_names, conference_whitelist_group_id FROM users WHERE id = $1',
-    [userId]
+// Looks up one of this account's conference codes by the digits dialed.
+async function findConferenceCode(userId, code) {
+  const { rows } = await pool.query(
+    'SELECT * FROM conference_codes WHERE user_id = $1 AND code = $2',
+    [userId, String(code || '').trim()]
   );
-  const code = u[0]?.conference_code;
-  if (!code) throw new Error('No conference code set for this account');
+  return rows[0] || null;
+}
 
-  const { rows: open } = await pool.query(
-    `SELECT id, recording_on, whitelist_group_id, mute_all FROM conferences WHERE user_id = $1 AND access_code = $2 AND status <> 'ended'
-      ORDER BY id DESC LIMIT 1`,
-    [userId, code]
-  );
-  let conferenceId = open[0]?.id;
-  const recordingOn = open[0]?.recording_on;
-  if (!conferenceId) {
-    const { rows: made } = await pool.query(
-      `INSERT INTO conferences (user_id, access_code, status, whitelist_group_id) VALUES ($1, $2, 'scheduled', $3) RETURNING id`,
-      [userId, code, u[0]?.conference_whitelist_group_id || null]
-    );
-    conferenceId = made[0].id;
-  }
+// Puts a code row plus its live room into the shape the call flow expects.
+function shapeConference(codeRow, conferenceId, openRow, recordingOn) {
+  const mode = codeRow.record_mode || 'always';
   return {
     conferenceId,
-    code,
-    startMode: u[0]?.conference_start_mode || 'admin',
-    record: recordingOn === null || recordingOn === undefined ? (u[0]?.conference_record_mode || 'always') === 'always' : recordingOn,
-    recordMode: u[0]?.conference_record_mode || 'always',
-    announceNames: u[0]?.conference_announce_names === true,
-    whitelistGroupId: open[0]?.whitelist_group_id ?? u[0]?.conference_whitelist_group_id ?? null,
-    muteAll: open[0]?.mute_all === true,
+    codeId: codeRow.id,
+    code: codeRow.code,
+    name: codeRow.name || '',
+    startMode: codeRow.start_mode || 'admin',
+    record: recordingOn === null || recordingOn === undefined ? mode === 'always' : recordingOn,
+    recordMode: mode,
+    announceNames: codeRow.announce_names === true,
+    whitelistGroupId: openRow?.whitelist_group_id ?? codeRow.whitelist_group_id ?? null,
+    muteAll: openRow?.mute_all === true,
+    defaultMuted: codeRow.default_muted === true,
+    unmutedGroupId: codeRow.unmuted_group_id || null,
+    unmutedNumbers: codeRow.unmuted_numbers || '',
+    mutedGroupId: codeRow.muted_group_id || null,
+    mutedNumbers: codeRow.muted_numbers || '',
   };
 }
 
+// Finds the open room for one code, or opens one. Each code is its own room.
+async function getOrCreateConference(userId, codeRow) {
+  if (!codeRow) throw new Error('No conference code given');
+  const { rows: open } = await pool.query(
+    `SELECT id, recording_on, whitelist_group_id, mute_all FROM conferences
+      WHERE user_id = $1 AND code_id = $2 AND status <> 'ended' ORDER BY id DESC LIMIT 1`,
+    [userId, codeRow.id]
+  );
+  let conferenceId = open[0]?.id;
+  if (!conferenceId) {
+    const { rows: made } = await pool.query(
+      `INSERT INTO conferences (user_id, access_code, code_id, status, whitelist_group_id)
+         VALUES ($1, $2, $3, 'scheduled', $4) RETURNING id`,
+      [userId, codeRow.code, codeRow.id, codeRow.whitelist_group_id || null]
+    );
+    conferenceId = made[0].id;
+  }
+  return shapeConference(codeRow, conferenceId, open[0], open[0]?.recording_on);
+}
+
+// Re-reads a room and its code settings from the room id.
+async function getConferenceById(conferenceId) {
+  const { rows } = await pool.query(
+    `SELECT cc.*, c.recording_on AS live_recording_on, c.whitelist_group_id AS live_whitelist_group_id,
+            c.mute_all AS live_mute_all
+       FROM conferences c JOIN conference_codes cc ON cc.id = c.code_id WHERE c.id = $1`,
+    [conferenceId]
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  return shapeConference(r, conferenceId,
+    { whitelist_group_id: r.live_whitelist_group_id, mute_all: r.live_mute_all }, r.live_recording_on);
+}
+
+// Decides whether this caller arrives muted, from the code's preset lists.
+async function shouldArriveMuted(userId, conf, fromNumber) {
+  if (!conf) return false;
+  if (conf.muteAll) return true;
+  const last10 = (s) => String(s || '').replace(/\D/g, '').slice(-10);
+  const mine = last10(fromNumber);
+  if (!mine) return conf.defaultMuted;
+  const listed = (text) => String(text || '').split(/[^0-9+]+/).map(last10).filter(Boolean);
+  if (listed(conf.unmutedNumbers).includes(mine)) return false;
+  if (listed(conf.mutedNumbers).includes(mine)) return true;
+  for (const [groupId, muted] of [[conf.unmutedGroupId, false], [conf.mutedGroupId, true]]) {
+    if (!groupId) continue;
+    const { rows } = await pool.query(
+      `SELECT 1 FROM contacts c JOIN contact_groups cg ON cg.contact_id = c.id
+        WHERE c.user_id = $1 AND cg.group_id = $2
+          AND right(regexp_replace(c.phone_number, '\\D', '', 'g'), 10) = $3 LIMIT 1`,
+      [userId, groupId, mine]
+    );
+    if (rows.length) return muted;
+  }
+  return conf.defaultMuted;
+}
+
+// The host dialing in: straight into his only conference, or asks which one.
 async function startConferenceCreate(callSid, twiml, userId) {
-  const conf = await getOrCreateConference(userId);
+  const { rows } = await pool.query('SELECT * FROM conference_codes WHERE user_id = $1 ORDER BY id', [userId]);
+  if (!rows.length) {
+    say(twiml, 'No conference code is set up on this account. Goodbye.');
+    twiml.hangup();
+    return;
+  }
+  if (rows.length > 1) {
+    await updateSession(callSid, 'conference_host_pick');
+    gatherDigits(twiml, `${BASE_URL}/voice/handle`,
+      'Enter the code of the conference you want to start, then press pound.', {});
+    return;
+  }
+  await hostStartForCode(callSid, twiml, userId, rows[0]);
+}
+
+async function hostStartForCode(callSid, twiml, userId, codeRow) {
+  const conf = await getOrCreateConference(userId, codeRow);
   await updateSession(callSid, 'conference_created_join', {
     pending_conference_id: conf.conferenceId,
     pending_conference_start_mode: conf.startMode,
