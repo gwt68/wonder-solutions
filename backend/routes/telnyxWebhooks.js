@@ -64,6 +64,20 @@ router.post('/telnyx-status', async (req, res) => {
       );
     }
 
+    // Telnyx speaks its own error codes; store the Twilio ones the rest of
+    // the app already understands, so the skip rules and the Contacts pills
+    // keep working unchanged. 40001 is a landline or non-routable number,
+    // 40012 one the carrier rejected outright. Neither will ever take a text.
+    const DEAD_CODES = { '40001': '30006', '40012': '30005' };
+    const rawCode = Array.isArray(p.errors) && p.errors.length ? String(p.errors[0].code) : null;
+    const deadCode = rawCode ? DEAD_CODES[rawCode] : null;
+    if (deadCode) {
+      await pool.query(
+        'UPDATE contacts SET undeliverable_code = $1, undeliverable_at = NOW() WHERE id = (SELECT contact_id FROM sends WHERE twilio_sid = $2)',
+        [deadCode, id]
+      ).catch((e) => console.error('could not flag contact:', e.message));
+    }
+
     // Unlike Twilio, Telnyx gives the price on the webhook itself, so
     // there is nothing to go back and fetch later.
     if (p.cost && p.cost.amount != null) {
