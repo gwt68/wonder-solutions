@@ -2333,9 +2333,14 @@ router.get('/hold-music/:conferenceId', async (req, res) => {
          FROM conferences c JOIN users u ON u.id = c.user_id WHERE c.id = $1`,
       [req.params.conferenceId]
     );
+    // Twilio fetches this document again every time it finishes, so one pass
+    // of the music puts the reassurance on a loop with no timer of its own.
+    say(twiml, 'Please hold. The conference has not started yet.');
     if (rows[0]?.has_music) {
-      twiml.play({ loop: 0 }, `${BASE_URL}/voice/hold-music-file/${rows[0].id}`);
+      twiml.play(`${BASE_URL}/voice/hold-music-file/${rows[0].id}`);
     } else {
+      // The default hold music loops on its own, so the line above is heard
+      // once on the way in rather than between passes.
       twiml.redirect('http://twimlets.com/holdmusic?Bucket=com.twilio.music.ambient');
     }
   } catch (err) {
