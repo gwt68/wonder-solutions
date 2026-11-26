@@ -122,6 +122,15 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
   const DELIVERY_LABELS = getDeliveryLabels();
   const ANSWERED_BY_LABELS = getAnsweredByLabels();
   const METHOD_LABELS = getMethodLabels();
+
+  // voice_note is the MMS method for both audio and photos, so a photo
+  // broadcast should not be labelled "Voice note".
+  const methodLabel = (method, hasImage) => (
+    method === 'voice_note' && hasImage ? t('type_image') : (METHOD_LABELS[method] || method || '')
+  );
+  const methodIcon = (method, hasImage) => (
+    method === 'voice_note' && hasImage ? 'ti-photo' : (METHOD_ICONS[method] || 'ti-send')
+  );
   const ALL_COLUMNS = getAllColumns().filter((c) => !c.adminOnly || canViewCosts);
   const DEFAULT_VISIBLE = ALL_COLUMNS.filter((c) => c.default).map((c) => c.key);
 
@@ -305,7 +314,7 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
         return d ? d.toLocaleString() : '';
       }
       case 'message': return b.messageTitle || t('label_untitled_message');
-      case 'type': return b.singleMethod ? (METHOD_LABELS[b.singleMethod] || b.singleMethod) : t('history_mixed_methods');
+      case 'type': return b.singleMethod ? (methodLabel(b.singleMethod, b.messageHasImage)) : t('history_mixed_methods');
       case 'recipients': return b.total;
       case 'sent': return b.counts.sent;
       case 'failed': return b.counts.failed;
@@ -337,7 +346,7 @@ function exportSingleBroadcast(b) {
         Message: b.messageTitle || t('label_untitled_message'),
         Contact: r.contact_name || '',
         Phone: r.phone_number,
-        Type: METHOD_LABELS[r.effective_method] || r.effective_method || '',
+        Type: methodLabel(r.effective_method, b.messageHasImage),
         Status: r.status || '',
         Delivery: r.delivery_status ? (DELIVERY_LABELS[r.delivery_status] || r.delivery_status) : '',
         Duration: formatDuration(r.call_duration) || '',
@@ -374,7 +383,7 @@ function exportSingleBroadcast(b) {
           Message: b.messageTitle || t('label_untitled_message'),
           Contact: r.contact_name || '',
           Phone: r.phone_number,
-          Type: METHOD_LABELS[r.effective_method] || r.effective_method || '',
+          Type: methodLabel(r.effective_method, b.messageHasImage),
           Status: r.status || '',
           Delivery: r.delivery_status ? (DELIVERY_LABELS[r.delivery_status] || r.delivery_status) : '',
           Duration: formatDuration(r.call_duration) || '',
@@ -688,13 +697,13 @@ const canViewCalledIn = isAdmin || (() => {
                 )}
                         {shownCols.includes('message') && (
                           <td style={{ fontWeight: 500 }}>
-                            <i className={`ti ${METHOD_ICONS[b.singleMethod] || 'ti-send'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
+                            <i className={`ti ${methodIcon(b.singleMethod, b.messageHasImage)}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
                             {b.messageTitle || t('label_untitled_message')}
                           </td>
                         )}
                         {shownCols.includes('type') && (
                           <td style={{ fontSize: 13, color: 'var(--ink-soft)', whiteSpace: 'nowrap' }}>
-                            {b.singleMethod ? (METHOD_LABELS[b.singleMethod] || b.singleMethod) : t('history_mixed_methods')}
+                            {b.singleMethod ? (methodLabel(b.singleMethod, b.messageHasImage)) : t('history_mixed_methods')}
                           </td>
                         )}
                         {shownCols.includes('recipients') && <td style={{ textAlign: 'right', fontSize: 13 }}>{b.total}</td>}
@@ -832,7 +841,7 @@ const canViewCalledIn = isAdmin || (() => {
                                                 style={s.reply_text ? { cursor: 'pointer', fontWeight: 500 } : { fontWeight: 500 }}
                                                 onClick={() => s.reply_text && setExpandedReplyId(isReplyOpen ? null : s.id)}
                                               >
-                                                <i className={`ti ${METHOD_ICONS[s.effective_method] || 'ti-send'}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
+                                                <i className={`ti ${methodIcon(s.effective_method, b.messageHasImage)}`} style={{ marginRight: 6, color: 'var(--ink-faint)' }} />
                                                 {s.contact_name || s.phone_number}
                                               </span>
                                               {s.reply_text && <span className="pill signal" style={{ marginLeft: 8 }}>{t('history_replied_pill')}</span>}
@@ -841,7 +850,7 @@ const canViewCalledIn = isAdmin || (() => {
                                               )}
                                             </td>
                                             <td style={{ fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }}>{s.phone_number}</td>
-                                            <td style={{ whiteSpace: 'nowrap' }}>{METHOD_LABELS[s.effective_method] || s.effective_method}</td>
+                                            <td style={{ whiteSpace: 'nowrap' }}>{methodLabel(s.effective_method, b.messageHasImage)}</td>
                                             <td style={{ whiteSpace: 'nowrap' }}>{s.delivery_status ? (DELIVERY_LABELS[s.delivery_status] || s.delivery_status) : ''}</td>
                                             <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{duration || ''}</td>
                                             <td style={{ whiteSpace: 'nowrap' }}>{s.answered_by ? (ANSWERED_BY_LABELS[s.answered_by] || s.answered_by) : ''}</td>

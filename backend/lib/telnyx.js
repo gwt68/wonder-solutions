@@ -90,8 +90,7 @@ async function startCall({ to, from, url, statusCallback }) {
       StatusCallbackMethod: 'POST',
       StatusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed']
     } : {}),
-    MachineDetection: 'Enable',
-    MachineDetectionTimeout: 4
+    MachineDetection: 'Enable'
   });
 
   return data.call_sid || data.id;
