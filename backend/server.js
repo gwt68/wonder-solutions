@@ -47,4 +47,5 @@ app.listen(PORT, () => console.log(`Server listening on port ${PORT}`));
 // Check every minute for scheduled sends whose time has come
 setInterval(processDueSends, 60 * 1000);
 setInterval(retryMissingCosts, 5 * 60 * 1000); // catch up on prices Twilio hadn't finalized yet
+setInterval(require('./routes/voice').dropStaleHolds, 60 * 1000); // hang up callers left on conference hold
 

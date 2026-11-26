@@ -383,7 +383,7 @@ router.post('/handle', async (req, res) => {
         }
 
         await pool.query(
-          `UPDATE call_ins SET interrupted_with = 'conference_code', reached = 'conference', conference_id = $2 WHERE call_sid = $1`,
+          `UPDATE call_ins SET interrupted_with = 'conference_code', reached = 'conference', conference_id = $2, hold_started_at = NOW() WHERE call_sid = $1`,
           [callSid, conf.conferenceId]
         );
 
@@ -3194,4 +3194,39 @@ async function backfillCallInPrices() {
 setInterval(backfillCallInPrices, 15 * 60 * 1000);
 setTimeout(backfillCallInPrices, 60 * 1000);
 
+
+// Callers waiting on hold for a conference that never started are hung up
+// after this long, so a forgotten phone doesn't stay connected all night.
+const HOLD_LIMIT_MINUTES = 5;
+
+async function dropStaleHolds() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ci.id, ci.call_sid
+         FROM call_ins ci JOIN conferences c ON c.id = ci.conference_id
+        WHERE ci.hold_started_at IS NOT NULL
+          AND ci.hold_started_at < NOW() - make_interval(mins => $1)
+          AND c.status NOT IN ('active', 'ended')`,
+      [HOLD_LIMIT_MINUTES]
+    );
+    if (!rows.length) return;
+    const client = confTwilioClient();
+    for (const row of rows) {
+      try {
+        await client.calls(row.call_sid).update({
+          twiml: '<Response><Say>The conference has not started yet. Please call back later. Goodbye.</Say><Hangup/></Response>',
+        });
+        console.log('hold timeout: hung up', row.call_sid);
+      } catch (e) {
+        // The caller may have hung up already, which Twilio reports as a 404.
+        if (e.status !== 404) console.error('hold timeout failed for', row.call_sid, e.message);
+      }
+      await pool.query('UPDATE call_ins SET hold_started_at = NULL WHERE id = $1', [row.id]);
+    }
+  } catch (err) {
+    console.error('dropStaleHolds error:', err);
+  }
+}
+
+router.dropStaleHolds = dropStaleHolds;
 module.exports = router;
