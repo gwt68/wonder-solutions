@@ -88,7 +88,7 @@ async function startCall({ to, from, url, statusCallback }) {
     ...(statusCallback ? {
       StatusCallback: statusCallback,
       StatusCallbackMethod: 'POST',
-      StatusCallbackEvent: ['initiated', 'ringing', 'answered', 'completed']
+      StatusCallbackEvent: 'initiated ringing answered completed'
     } : {}),
     MachineDetection: 'Enable'
   });
