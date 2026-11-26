@@ -25,6 +25,7 @@ function computeOverallStatus(b) {
     if (r.status === 'scheduled') return false;
     if (r.status === 'canceled') return true;
     if (r.status === 'failed') return true;
+    if (TERMINAL_DELIVERY.includes(r.status)) return true;
     if (TERMINAL_DELIVERY.includes(r.delivery_status)) return true;
     return isStale(r);
   });
@@ -68,6 +69,9 @@ export function groupSendsIntoBroadcasts(sends) {
       return acc;
     }, {});
     b.total = b.recipients.length;
+    // A carrier can accept a message and then fail to deliver it, so a failure
+    // is either a rejected send or a bad delivery receipt.
+    b.failedCount = b.recipients.filter((r) => r.status === 'failed' || ['failed', 'undelivered'].includes(r.delivery_status)).length;
     b.sortTime = b.scheduledAt || b.latestSentAt || b.createdAt;
     b.totalCost = b.recipients.reduce((sum, r) => sum + (r.cost ? parseFloat(r.cost) : 0), 0);
     b.costUnit = b.recipients.find((r) => r.cost_unit)?.cost_unit || 'USD';

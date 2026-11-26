@@ -55,9 +55,12 @@ router.post('/telnyx-status', async (req, res) => {
       : null;
 
     if (status) {
+      // Telnyx reports the carrier outcome directly. Keep the same shape as
+      // Twilio: status is the submission, delivery_status is the outcome.
+      const sendStatus = status === 'failed' ? 'failed' : 'sent';
       await pool.query(
-        'UPDATE sends SET status = $1, error_message = COALESCE($2, error_message) WHERE twilio_sid = $3',
-        [status, err, id]
+        'UPDATE sends SET delivery_status = $1, status = $2, error_message = COALESCE($3, error_message) WHERE twilio_sid = $4',
+        [status, sendStatus, err, id]
       );
     }
 

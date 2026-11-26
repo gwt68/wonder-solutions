@@ -32,7 +32,7 @@ export default function Dashboard({ onNavigate }) {
   const today = new Date().toDateString();
   const broadcastsSentToday = broadcasts.filter((b) => b.latestSentAt && new Date(b.latestSentAt).toDateString() === today).length;
   const upcomingBroadcasts = broadcasts.filter((b) => b.scheduledAt && (b.counts.scheduled || 0) > 0);
-  const recentBroadcasts = broadcasts.filter((b) => !(b.counts.scheduled > 0 && !b.counts.sent && !b.counts.failed));
+  const recentBroadcasts = broadcasts.filter((b) => !(b.counts.scheduled > 0 && !b.counts.sent && !b.failedCount));
 
   const messageCount = messages.length;
 
@@ -109,11 +109,11 @@ export default function Dashboard({ onNavigate }) {
                     <span className="row-title">{b.messageTitle || t('label_untitled')} → {tRecipients(b.total)}</span>
                     <span className="row-sub">
                       {b.latestSentAt && new Date(b.latestSentAt).toLocaleString()}
-                      {b.counts.failed > 0 && ` · ${b.counts.failed} ${t('label_failed')}`}
+                      {b.failedCount > 0 && ` · ${b.failedCount} ${t('label_failed')}`}
                     </span>
                   </div>
-                  <span className="pill" style={b.counts.failed > 0 && !b.counts.sent ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
-                    {b.counts.sent > 0 ? `${b.counts.sent} ${t('label_sent')}` : `${b.counts.failed} ${t('label_failed')}`}
+                  <span className="pill" style={b.failedCount > 0 && !b.counts.sent ? { background: 'var(--danger-soft)', color: 'var(--danger)' } : undefined}>
+                    {b.counts.sent > 0 ? b.counts.sent + ' ' + t('label_sent') : b.failedCount > 0 ? b.failedCount + ' ' + t('label_failed') : tRecipients(b.total)}
                   </span>
                 </div>
               ))}

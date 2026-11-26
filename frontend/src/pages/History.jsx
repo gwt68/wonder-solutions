@@ -281,7 +281,7 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
           break;
         case 'recipients': av = a.total; bv = b.total; break;
         case 'sent': av = a.counts.sent; bv = b.counts.sent; break;
-        case 'failed': av = a.counts.failed; bv = b.counts.failed; break;
+        case 'failed': av = a.failedCount; bv = b.failedCount; break;
         case 'scheduled': av = a.counts.scheduled; bv = b.counts.scheduled; break;
         case 'replies': av = replyCount(a); bv = replyCount(b); break;
         case 'cost': av = costSummary(a).total; bv = costSummary(b).total; break;
@@ -317,7 +317,7 @@ export default function History({ onNavigateToConversation, isAdmin = false }) {
       case 'type': return b.singleMethod ? (methodLabel(b.singleMethod, b.messageHasImage)) : t('history_mixed_methods');
       case 'recipients': return b.total;
       case 'sent': return b.counts.sent;
-      case 'failed': return b.counts.failed;
+      case 'failed': return b.failedCount;
       case 'scheduled': return b.counts.scheduled;
       case 'replies': return replyCount(b);
       case 'cost': return cs.total ? Number(cs.total.toFixed(4)) : 0;
@@ -709,8 +709,8 @@ const canViewCalledIn = isAdmin || (() => {
                         {shownCols.includes('recipients') && <td style={{ textAlign: 'right', fontSize: 13 }}>{b.total}</td>}
                         {shownCols.includes('sent') && <td style={{ textAlign: 'right', fontSize: 13 }}>{b.counts.sent || ''}</td>}
                         {shownCols.includes('failed') && (
-                          <td style={{ textAlign: 'right', fontSize: 13, color: b.counts.failed ? 'var(--danger)' : undefined }}>
-                            {b.counts.failed || ''}
+                          <td style={{ textAlign: 'right', fontSize: 13, color: b.failedCount ? 'var(--danger)' : undefined }}>
+                            {b.failedCount || ''}
                           </td>
                         )}
                         {shownCols.includes('scheduled') && <td style={{ textAlign: 'right', fontSize: 13 }}>{b.counts.scheduled || ''}</td>}
