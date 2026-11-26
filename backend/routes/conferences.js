@@ -240,11 +240,11 @@ router.get('/:id/recording', async (req, res) => {
 
 // Changes who may join the conference that is running now.
 router.post('/whitelist', async (req, res) => {
-  const { group_id } = req.body;
+  const { group_id, conference_id } = req.body;
   try {
     const { rows } = await pool.query(
-      `SELECT id FROM conferences WHERE user_id = $1 AND status <> 'ended' ORDER BY id DESC LIMIT 1`,
-      [req.userId]
+      `SELECT id FROM conferences WHERE user_id = $1 AND ($2::int IS NULL OR id = $2) AND status <> 'ended' ORDER BY id DESC LIMIT 1`,
+      [req.userId, conference_id ?? null]
     );
     if (!rows.length) return res.status(400).json({ error: 'No conference is open' });
     await pool.query('UPDATE conferences SET whitelist_group_id = $1 WHERE id = $2',

@@ -199,8 +199,8 @@ export const api = {
   },
   conferences: {
     live: () => request('/conferences/live'),
-    setRecording: (on) => request('/conferences/recording', { method: 'POST', body: JSON.stringify({ on }) }),
-    setWhitelist: (group_id) => request('/conferences/whitelist', { method: 'POST', body: JSON.stringify({ group_id }) }),
+    setRecording: (on, conference_id) => request('/conferences/recording', { method: 'POST', body: JSON.stringify({ on, conference_id }) }),
+    setWhitelist: (group_id, conference_id) => request('/conferences/whitelist', { method: 'POST', body: JSON.stringify({ group_id, conference_id }) }),
     history: () => request('/conferences/history'),
     deleteRecording: (id) => request(`/conferences/${id}/recording`, { method: 'DELETE' }),
     remove: (id) => request(`/conferences/${id}`, { method: 'DELETE' }),
@@ -230,9 +230,9 @@ export const api = {
       a.remove();
       URL.revokeObjectURL(url);
     },
-    muteAll: (muted) => request('/conferences/mute-all', { method: 'POST', body: JSON.stringify({ muted }) }),
-    muteOne: (callSid, muted) => request(`/conferences/participants/${callSid}/mute`, { method: 'POST', body: JSON.stringify({ muted }) }),
-    end: () => request('/conferences/end', { method: 'POST' }),
+    muteAll: (muted, conference_id) => request('/conferences/mute-all', { method: 'POST', body: JSON.stringify({ muted, conference_id }) }),
+    muteOne: (callSid, muted, conference_id) => request(`/conferences/participants/${callSid}/mute`, { method: 'POST', body: JSON.stringify({ muted, conference_id }) }),
+    end: (conference_id) => request('/conferences/end', { method: 'POST', body: JSON.stringify({ conference_id }) }),
   },
   settings: {
     getConference: () => request('/settings/conference'),

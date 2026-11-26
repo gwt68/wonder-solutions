@@ -11,7 +11,7 @@ function fmtDuration(s) {
 
 export default function Conference() {
   const [tab, setTab] = useState('live');
-  const [state, setState] = useState({ active: false, participants: [] });
+  const [rooms, setRooms] = useState([]);
   const [groups, setGroups] = useState([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
@@ -21,7 +21,7 @@ export default function Conference() {
   async function load() {
     try {
       const r = await api.conferences.live();
-      setState(r);
+      setRooms(r.conferences || []);
       setError('');
     } catch (err) {
       setError(err.message);
@@ -44,12 +44,12 @@ export default function Conference() {
     finally { setBusy(null); }
   }
 
-  async function endCall() {
-    if (!window.confirm('Hang up on everyone and end the conference?')) return;
-    run('end', () => api.conferences.end());
+  async function endCall(id) {
+    if (!window.confirm('Hang up on everyone and end this conference?')) return;
+    run('end-' + id, () => api.conferences.end(id));
   }
 
-  const others = state.participants.filter((p) => !p.is_host);
+  const small = { padding: '5px 12px', fontSize: 12.5 };
 
   return (
     <div>
@@ -58,33 +58,11 @@ export default function Conference() {
           <h1>Conference</h1>
           <p>Who is on the call, and who was on past ones</p>
         </div>
-        {tab === 'live' && state.active && (
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              className="btn secondary"
-              onClick={() => run('rec', () => api.conferences.setRecording(!state.recording_on))}
-              disabled={busy === 'rec'}
-            >
-              <i className={state.recording_on ? 'ti ti-player-stop' : 'ti ti-player-record'} />
-              {' '}{state.recording_on ? 'Stop recording' : 'Record'}
-            </button>
-            <button type="button" className="btn secondary" onClick={() => run('mute-all', () => api.conferences.muteAll(true))} disabled={busy === 'mute-all'}>
-              <i className="ti ti-microphone-off" /> Mute everyone
-            </button>
-            <button type="button" className="btn secondary" onClick={() => run('unmute-all', () => api.conferences.muteAll(false))} disabled={busy === 'unmute-all'}>
-              <i className="ti ti-microphone" /> Unmute everyone
-            </button>
-            <button type="button" className="btn" style={{ background: 'var(--danger)' }} onClick={endCall} disabled={busy === 'end'}>
-              <i className="ti ti-phone-off" /> End call
-            </button>
-          </div>
-        )}
       </div>
 
       <div className="chip-select" style={{ marginBottom: 14 }}>
         <button type="button" className={`chip-toggle ${tab === 'live' ? 'active' : ''}`} onClick={() => setTab('live')}>
-          Happening now
+          Happening now{rooms.length > 1 ? ` (${rooms.length})` : ''}
         </button>
         <button type="button" className={`chip-toggle ${tab === 'past' ? 'active' : ''}`} onClick={() => setTab('past')}>
           Past calls
@@ -93,61 +71,90 @@ export default function Conference() {
 
       {error && <div className="banner error">{error}</div>}
 
-      {tab === 'past' ? <PastConferences /> : !loaded ? null : !state.active ? (
+      {tab === 'past' ? <PastConferences /> : !loaded ? null : !rooms.length ? (
         <div className="card empty-state">
           <h3>No conference running</h3>
           <p>Call your number, enter your PIN, then press 8 to start one.</p>
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, maxWidth: 620 }}>
-          <div style={{
-            padding: '12px 16px', borderBottom: '1px solid var(--line)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-          }}>
-            <span style={{ fontSize: 13, color: 'var(--ink-soft)' }}>
-              {state.participants.length} on the call
-              {others.length > 0 && ` · ${others.filter((p) => p.muted).length} muted`}
-              {state.recording_on && ' · recording'}
-            </span>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink-soft)' }}>
-              Who can join
-              <select
-                value={state.whitelist_group_id == null ? '' : String(state.whitelist_group_id)}
-                disabled={busy === 'wl'}
-                onChange={(e) => run('wl', () => api.conferences.setWhitelist(e.target.value === '' ? null : Number(e.target.value)))}
-              >
-                <option value="">Anyone with the code</option>
-                {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
-              </select>
-            </label>
-          </div>
+        <div style={{ display: 'grid', gap: 16 }}>
+          {rooms.map((room) => {
+            const id = room.conference_id;
+            const others = room.participants.filter((p) => !p.is_host);
+            return (
+              <div key={id} className="card" style={{ padding: 0, maxWidth: 620 }}>
+                <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <span style={{ fontFamily: 'var(--font-mono)', letterSpacing: '0.08em', fontWeight: 600 }}>{room.code}</span>
+                    {room.name && <span style={{ fontSize: 14 }}>{room.name}</span>}
+                    <span style={{ fontSize: 13, color: 'var(--ink-soft)', marginLeft: 'auto' }}>
+                      {room.participants.length} on the call
+                      {others.length > 0 && ` - ${others.filter((p) => p.muted).length} muted`}
+                      {room.recording_on && ' - recording'}
+                    </span>
+                  </div>
 
-          {state.participants.map((p) => (
-            <div key={p.call_sid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ fontWeight: 500, fontSize: 14 }}>
-                  {p.name || p.phone_number || 'Unknown caller'}
-                  {p.is_host && <span className="pill signal" style={{ marginLeft: 8 }}>Host</span>}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <button type="button" className="btn secondary" style={small}
+                      onClick={() => run('rec-' + id, () => api.conferences.setRecording(!room.recording_on, id))}
+                      disabled={busy === 'rec-' + id}>
+                      <i className={room.recording_on ? 'ti ti-player-stop' : 'ti ti-player-record'} />
+                      {' '}{room.recording_on ? 'Stop recording' : 'Record'}
+                    </button>
+                    <button type="button" className="btn secondary" style={small}
+                      onClick={() => run('mute-' + id, () => api.conferences.muteAll(true, id))}
+                      disabled={busy === 'mute-' + id}>
+                      <i className="ti ti-microphone-off" /> Mute everyone
+                    </button>
+                    <button type="button" className="btn secondary" style={small}
+                      onClick={() => run('unmute-' + id, () => api.conferences.muteAll(false, id))}
+                      disabled={busy === 'unmute-' + id}>
+                      <i className="ti ti-microphone" /> Unmute everyone
+                    </button>
+                    <button type="button" className="btn" style={{ ...small, background: 'var(--danger)' }}
+                      onClick={() => endCall(id)} disabled={busy === 'end-' + id}>
+                      <i className="ti ti-phone-off" /> End call
+                    </button>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5, color: 'var(--ink-soft)', marginLeft: 'auto' }}>
+                      Who can join
+                      <select
+                        value={room.whitelist_group_id == null ? '' : String(room.whitelist_group_id)}
+                        disabled={busy === 'wl-' + id}
+                        onChange={(e) => run('wl-' + id, () => api.conferences.setWhitelist(e.target.value === '' ? null : Number(e.target.value), id))}
+                      >
+                        <option value="">Anyone with the code</option>
+                        {groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+                      </select>
+                    </label>
+                  </div>
                 </div>
-                {p.name && p.phone_number && (
-                  <div style={{ fontSize: 12, color: 'var(--ink-soft)', fontFamily: 'var(--font-mono)' }}>{p.phone_number}</div>
-                )}
+
+                {room.participants.map((p) => (
+                  <div key={p.call_sid} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '12px 16px', borderBottom: '1px solid var(--line)' }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 500, fontSize: 14 }}>
+                        {p.name || p.phone_number || 'Unknown caller'}
+                        {p.is_host && <span className="pill signal" style={{ marginLeft: 8 }}>Host</span>}
+                      </div>
+                      {p.name && p.phone_number && (
+                        <div style={{ fontSize: 12, color: 'var(--ink-soft)', fontFamily: 'var(--font-mono)' }}>{p.phone_number}</div>
+                      )}
+                    </div>
+                    {p.is_host ? (
+                      <span style={{ fontSize: 12.5, color: 'var(--ink-faint)' }}>You</span>
+                    ) : (
+                      <button type="button" className="btn secondary"
+                        style={{ ...small, whiteSpace: 'nowrap' }}
+                        onClick={() => run(p.call_sid, () => api.conferences.muteOne(p.call_sid, !p.muted, id))}
+                        disabled={busy === p.call_sid}>
+                        {p.muted ? 'Unmute' : 'Mute'}
+                      </button>
+                    )}
+                  </div>
+                ))}
               </div>
-              {p.is_host ? (
-                <span style={{ fontSize: 12.5, color: 'var(--ink-faint)' }}>You</span>
-              ) : (
-                <button
-                  type="button"
-                  className="btn secondary"
-                  style={{ padding: '5px 12px', fontSize: 12.5, whiteSpace: 'nowrap' }}
-                  onClick={() => run(p.call_sid, () => api.conferences.muteOne(p.call_sid, !p.muted))}
-                  disabled={busy === p.call_sid}
-                >
-                  {p.muted ? 'Unmute' : 'Mute'}
-                </button>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>
