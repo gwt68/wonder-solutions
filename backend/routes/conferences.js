@@ -14,59 +14,97 @@ function twilioClient() {
 }
 
 // The conference that is open right now for this account, if any.
-async function activeConference(userId) {
+// Every conference open right now for this account. Each code is its own
+// room, so more than one can be running at the same time.
+async function activeConferences(userId) {
   const { rows } = await pool.query(
-    `SELECT id, twilio_conference_sid, recording_on, whitelist_group_id FROM conferences
-      WHERE user_id = $1 AND status = 'active' AND twilio_conference_sid IS NOT NULL
-      ORDER BY id DESC LIMIT 1`,
+    `SELECT c.id, c.twilio_conference_sid, c.recording_on, c.whitelist_group_id,
+            c.access_code, cc.name AS code_name
+       FROM conferences c
+       LEFT JOIN conference_codes cc ON cc.id = c.code_id
+      WHERE c.user_id = $1 AND c.status = 'active' AND c.twilio_conference_sid IS NOT NULL
+      ORDER BY c.id DESC`,
     [userId]
   );
-  return rows[0] || null;
+  return rows;
 }
 
+// The room an action applies to: the one named by conference_id, or the only
+// one running. With several open and none named, the caller must say which.
+async function targetConference(req) {
+  const wanted = req.body?.conference_id ?? req.query?.conference_id ?? null;
+  const open = await activeConferences(req.userId);
+  const fail = (msg, status) => {
+    const e = new Error(msg);
+    e.status = status;
+    return e;
+  };
+  if (!open.length) throw fail('No conference is running', 400);
+  if (wanted != null && wanted !== '') {
+    const match = open.find((c) => String(c.id) === String(wanted));
+    if (!match) throw fail('That conference is not running', 400);
+    return match;
+  }
+  if (open.length > 1) throw fail('More than one conference is running, so say which one', 409);
+  return open[0];
+}
 // Who is on the call, named where the number matches a contact.
+// Who is on each conference that is running, named where the number matches a contact.
 router.get('/live', async (req, res) => {
   try {
-    const conf = await activeConference(req.userId);
-    if (!conf) return res.json({ active: false, participants: [] });
+    const open = await activeConferences(req.userId);
+    if (!open.length) return res.json({ active: false, conferences: [], participants: [] });
 
-    const list = await twilioClient().conferences(conf.twilio_conference_sid).participants.list({ limit: 50 });
-    const callSids = list.map((p) => p.callSid);
+    const client = twilioClient();
+    const rooms = [];
+    for (const conf of open) {
+      let list = [];
+      try {
+        list = await client.conferences(conf.twilio_conference_sid).participants.list({ limit: 50 });
+      } catch (e) {
+        console.error('could not read participants for', conf.twilio_conference_sid, e.message);
+      }
+      const callSids = list.map((p) => p.callSid);
 
-    const { rows: named } = await pool.query(
-      `SELECT ci.call_sid, ci.from_phone_number,
-              COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name) AS contact_name
-         FROM call_ins ci
-         LEFT JOIN contacts c ON c.id = ci.contact_id
-        WHERE ci.call_sid = ANY($1::text[])`,
-      [callSids.length ? callSids : ['']]
-    );
-    const byCallSid = Object.fromEntries(named.map((r) => [r.call_sid, r]));
+      const { rows: named } = await pool.query(
+        `SELECT ci.call_sid, ci.from_phone_number,
+                COALESCE(NULLIF(TRIM(CONCAT_WS(' ', c.first_name, c.last_name)), ''), c.name) AS contact_name
+           FROM call_ins ci
+           LEFT JOIN contacts c ON c.id = ci.contact_id
+          WHERE ci.call_sid = ANY($1::text[])`,
+        [callSids.length ? callSids : ['']]
+      );
+      const byCallSid = Object.fromEntries(named.map((r) => [r.call_sid, r]));
 
-    res.json({
-      active: true,
-      conference_id: conf.id,
-      recording_on: conf.recording_on !== false,
-      whitelist_group_id: conf.whitelist_group_id ?? null,
-      participants: list.map((p) => ({
-        call_sid: p.callSid,
-        muted: p.muted,
-        is_host: p.endConferenceOnExit,
-        phone_number: byCallSid[p.callSid]?.from_phone_number || null,
-        name: byCallSid[p.callSid]?.contact_name || null,
-      })),
-    });
+      rooms.push({
+        conference_id: conf.id,
+        code: conf.access_code,
+        name: conf.code_name || '',
+        recording_on: conf.recording_on !== false,
+        whitelist_group_id: conf.whitelist_group_id ?? null,
+        participants: list.map((p) => ({
+          call_sid: p.callSid,
+          muted: p.muted,
+          is_host: p.endConferenceOnExit,
+          phone_number: byCallSid[p.callSid]?.from_phone_number || null,
+          name: byCallSid[p.callSid]?.contact_name || null,
+        })),
+      });
+    }
+
+    // The first room is repeated at the top level so the single-room page
+    // keeps working until it is updated.
+    res.json({ active: true, conferences: rooms, ...rooms[0] });
   } catch (err) {
     console.error('conference live error:', err);
-    res.status(500).json({ error: err.message || 'Could not read the conference' });
+    res.status(err.status || 500).json({ error: err.message || 'Could not read the conference' });
   }
 });
-
 // Mute or unmute everyone except the host.
 router.post('/mute-all', async (req, res) => {
   const muted = req.body.muted !== false;
   try {
-    const conf = await activeConference(req.userId);
+    const conf = await targetConference(req);
     if (!conf) return res.status(400).json({ error: 'No conference is running' });
     await pool.query('UPDATE conferences SET mute_all = $1 WHERE id = $2', [muted, conf.id]);
     const client = twilioClient();
@@ -84,7 +122,7 @@ router.post('/mute-all', async (req, res) => {
     res.json({ changed, muted });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message || 'Could not change the conference' });
+    res.status(err.status || 500).json({ error: err.message || 'Could not change the conference' });
   }
 });
 
@@ -92,21 +130,21 @@ router.post('/participants/:callSid/mute', async (req, res) => {
   const { muted } = req.body;
   if (typeof muted !== 'boolean') return res.status(400).json({ error: 'muted must be true or false' });
   try {
-    const conf = await activeConference(req.userId);
+    const conf = await targetConference(req);
     if (!conf) return res.status(400).json({ error: 'No conference is running' });
     await twilioClient().conferences(conf.twilio_conference_sid)
       .participants(req.params.callSid).update({ muted });
     res.json({ ok: true, muted });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message || 'Could not change that caller' });
+    res.status(err.status || 500).json({ error: err.message || 'Could not change that caller' });
   }
 });
 
 // Hang up on everyone at once.
 router.post('/end', async (req, res) => {
   try {
-    const conf = await activeConference(req.userId);
+    const conf = await targetConference(req);
     if (!conf) return res.status(400).json({ error: 'No conference is running' });
     const client = twilioClient();
     // Twilio can't speak into a room it is closing, so each caller is sent to
@@ -126,7 +164,7 @@ router.post('/end', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: err.message || 'Could not end the conference' });
+    res.status(err.status || 500).json({ error: err.message || 'Could not end the conference' });
   }
 });
 
@@ -223,7 +261,7 @@ router.post('/recording', async (req, res) => {
   const { on } = req.body;
   if (typeof on !== 'boolean') return res.status(400).json({ error: 'on must be true or false' });
   try {
-    const conf = await activeConference(req.userId);
+    const conf = await targetConference(req);
     if (!conf) return res.status(400).json({ error: 'No conference is running' });
     const client = twilioClient();
     try {
@@ -244,7 +282,7 @@ router.post('/recording', async (req, res) => {
     res.json({ on });
   } catch (err) {
     console.error('toggle recording failed:', err);
-    res.status(500).json({ error: err.message || 'Could not change recording' });
+    res.status(err.status || 500).json({ error: err.message || 'Could not change recording' });
   }
 });
 
